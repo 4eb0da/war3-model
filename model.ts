@@ -26,6 +26,7 @@ export interface AnimKeyframe {
 export interface AnimVector {
     LineType: LineType;
     Keys: {[key: number]: AnimKeyframe};
+    GlobalSeqId?: number;
 }
 
 export interface Layer {
@@ -88,6 +89,9 @@ export interface Node {
     BillboardedLockX?: boolean;
     Billboarded?: boolean;
     CameraAnchored?: boolean;
+    DontInheritTranslation?: boolean;
+    DontInheritRotation?: boolean;
+    DontInheritScaling?: boolean;
 }
 
 export interface Bone extends Node {
@@ -119,6 +123,46 @@ export interface CollisionShape extends Node {
     BoundsRadius?: number;
 }
 
+export interface ParticleEmitter2 extends Node {
+    SortPrimsFarZ?: boolean;
+    Unshaded?: boolean;
+    LineEmitter?: boolean;
+    Unfogged?: boolean;
+    ModelSpace?: boolean;
+    XYQuad?: boolean;
+    Speed?: AnimVector|number;
+    Variation?: AnimVector|number;
+    Latitude?: AnimVector|number;
+    Gravity?: AnimVector|number;
+    Visibility?: AnimVector|number;
+    Squirt?: boolean;
+    LifeSpan?: number;
+    EmissionRate?: AnimVector|number;
+    Width?: AnimVector|number;
+    Length?: AnimVector|number;
+    FilterMode?: FilterMode;
+    Rows?: number;
+    Columns?: number;
+    Head?: boolean;
+    Tail?: boolean;
+    TailLength?: number;
+    Time?: number;
+    SegmentColor?: number[][];
+    Alpha?: number[];
+    ParticleScaling?: number[];
+    LifeSpanUVAnim?: number[];
+    DecayUVAnim?: number[];
+    TailUVAnim?: number[];
+    TailDecayUVAnim?: number[];
+    TextureID?: number;
+    ReplaceableId?: number;
+    PriorityPlane?: number;
+}
+
+export interface GlobalSequences {
+    Durations: NumberArray;
+}
+
 export interface Model {
     Version: number;
     Info: any;
@@ -134,4 +178,6 @@ export interface Model {
     PivotPoints: NumberArray[];
     EventObjects: EventObject[];
     CollisionShapes: CollisionShape[];
+    GlobalSequences?: GlobalSequences;
+    ParticleEmitters2?: ParticleEmitter2[];
 }

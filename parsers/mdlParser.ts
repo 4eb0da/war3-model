@@ -1,6 +1,6 @@
 import {
     Model, NumberArray, Layer, GeosetAnim, AnimVector, LineType, AnimKeyframe, Node,
-    CollisionShape
+    CollisionShape, ParticleEmitter2
 } from '../model';
 
 class State {
@@ -34,11 +34,17 @@ function parseSpace (state: State): void {
     }
 }
 
-const keywordCharRE = /[a-z]/i;
+const keywordFirstCharRE = /[a-z]/i;
+const keywordOtherCharRE = /[a-z0-9]/i;
 function parseKeyword (state: State): string {
-    let keyword = '';
+    if (!keywordFirstCharRE.test(state.char())) {
+        return null;
+    }
 
-    while (keywordCharRE.test(state.char())) {
+    let keyword = state.char();
+    ++state.pos;
+
+    while (keywordOtherCharRE.test(state.char())) {
         keyword += state.str[state.pos++];
     }
 
@@ -135,8 +141,10 @@ function parseObject (state: State): [string|number|null, any] {
             obj[keyword] = parseNumber(state);
         }
         parseSpace(state);
-        ++state.pos; // ,
-        parseSpace(state);
+
+        if (state.char() === ',') {
+            parseSymbol(state, ',');
+        }
     }
 
     parseSymbol(state, '}');
@@ -254,11 +262,19 @@ function parseAnimVector (state: State): AnimVector {
     parseSymbol(state, ',');
 
     while (state.char() !== '}') {
-        let keyframe = parseNumber(state);
-        parseSpace(state);
-        parseSymbol(state, ':');
+        let keyword = parseKeyword(state);
 
-        animVector.Keys[keyframe] = parseAnimKeyframe(state, animVector.LineType);
+        if (keyword === 'GlobalSeqId') {
+            animVector[keyword] = parseNumber(state);
+            parseSpace(state);
+            parseSymbol(state, ',');
+        } else {
+            let keyframe = parseNumber(state);
+            parseSpace(state);
+            parseSymbol(state, ':');
+
+            animVector.Keys[keyframe] = parseAnimKeyframe(state, animVector.LineType);
+        }
     }
 
     parseSymbol(state, '}');
@@ -273,12 +289,14 @@ function parseLayer (state: State): Layer {
 
     while (state.char() !== '}') {
         let keyword = parseKeyword(state);
+        let isStatic = false;
 
         if (keyword === 'static') {
+            isStatic = true;
             keyword = parseKeyword(state);
         }
 
-        if (keyword === 'Alpha') {
+        if (keyword === 'Alpha' && !isStatic) {
             res.Alpha = parseAnimVector(state);
         } else if (keyword === 'Unshaded' || keyword === 'SphereEnvMap' || keyword === 'TwoSided' ||
             keyword === 'Unfogged' || keyword === 'NoDepthTest') {
@@ -451,6 +469,7 @@ function parseGeoset (state: State, model: Model): void {
             res.Anims.push(obj);
         } else if (keyword === 'Unselectable') {
             res.Unselectable = true;
+            parseSymbol(state, ',');
         }
     }
 
@@ -492,7 +511,7 @@ function parseNode (state: State, type: string, model: Model): Node {
     const name = parseString(state);
     parseSpace(state);
 
-    let node = {
+    let node: Node = {
         Type: type,
         Name: name,
         ObjectId: null,
@@ -509,6 +528,20 @@ function parseNode (state: State, type: string, model: Model): Node {
         } else if (keyword === 'BillboardedLockZ' || keyword === 'BillboardedLockY' || keyword === 'BillboardedLockX' ||
             keyword === 'Billboarded' || keyword === 'CameraAnchored') {
             node[keyword] = true;
+        } else if (keyword === 'DontInherit') {
+            parseSymbol(state, '{');
+
+            let val = parseKeyword(state);
+
+            if (val === 'Translation') {
+                node.DontInheritTranslation = true;
+            } else if (val === 'Rotation') {
+                node.DontInheritRotation = true;
+            } else if (val === 'Scaling') {
+                node.DontInheritScaling = true;
+            }
+
+            parseSymbol(state, '}');
         } else {
             let val = parseKeyword(state) || parseNumber(state);
             parseSpace(state);
@@ -663,6 +696,130 @@ function parseCollisionShape (state: State, model: Model) {
     model.Nodes.push(res);
 }
 
+function parseGlobalSequences (state: State, model: Model) {
+    let res = {
+        Durations: []
+    };
+
+    let count = parseNumber(state);
+    parseSpace(state);
+
+    parseSymbol(state, '{');
+
+    for (let i = 0; i < count; ++i) {
+        const keyword = parseKeyword(state);
+
+        if (keyword === 'Duration') {
+            res.Durations.push(parseNumber(state));
+        }
+        if (state.char() === ',') {
+            parseSymbol(state, ',');
+        }
+    }
+
+    parseSymbol(state, '}');
+
+    model.GlobalSequences = res;
+}
+
+function parseUnknownBlock (state: State) {
+    let opened;
+    while (state.char() !== undefined && state.char() !== '{') {
+        ++state.pos;
+    }
+    opened = 1;
+    ++state.pos;
+
+    while (state.char() !== undefined && opened > 0) {
+        if (state.char() === '{') {
+            ++opened;
+        } else if (state.char() === '}') {
+            --opened;
+        }
+        ++state.pos;
+    }
+    parseSpace(state);
+}
+
+function parseParticleEmitter2 (state: State, model: Model) {
+    let name = parseString(state);
+    parseSpace(state);
+
+    let res: ParticleEmitter2 = {
+        Type: 'ParticleEmitter2',
+        Name: name,
+        ObjectId: null,
+        PivotPoint: null
+    };
+
+    parseSymbol(state, '{');
+
+    while (state.char() !== '}') {
+        let keyword = parseKeyword(state);
+        let isStatic = false;
+
+        if (keyword === 'static') {
+            isStatic = true;
+            keyword = parseKeyword(state);
+        }
+
+        if (!isStatic && (keyword === 'Speed' || keyword === 'Variation' || keyword === 'Latitude' ||
+            keyword === 'Gravity' || keyword === 'Visibility' || keyword === 'EmissionRate' || keyword === 'Width' ||
+            keyword === 'Length' || keyword === 'Translation' || keyword === 'Rotation' || keyword === 'Scaling')) {
+            res[keyword] = parseAnimVector(state);
+        } else if (keyword === 'SortPrimsFarZ' || keyword === 'Unshaded' || keyword === 'LineEmitter' ||
+            keyword === 'Unfogged' || keyword === 'ModelSpace' || keyword === 'XYQuad' || keyword === 'Squirt' ||
+            keyword === 'Head' || keyword === 'Tail') {
+            res[keyword] = true;
+        } else if (keyword === 'SegmentColor') {
+            let colors = [];
+
+            parseSymbol(state, '{');
+            while (state.char() !== '}') {
+                parseKeyword(state); // Color
+                colors.push(parseArray(state));
+                if (state.char() === ',') {
+                    parseSymbol(state, ',');
+                }
+            }
+            parseSymbol(state, '}');
+
+            res.SegmentColor = colors;
+        } else if (keyword === 'Alpha' || keyword === 'ParticleScaling' || keyword === 'LifeSpanUVAnim' ||
+                keyword === 'DecayUVAnim' || keyword === 'TailUVAnim' || keyword === 'TailDecayUVAnim') {
+            res[keyword] = parseArray(state);
+        } else if (keyword === 'Transparent') {
+            res.FilterMode = 'Transparent';
+        } else if (keyword === 'Blend') {
+            res.FilterMode = 'Blend';
+        } else if (keyword === 'Additive') {
+            res.FilterMode = 'Additive';
+        } else if (keyword === 'AddAlpha') {
+            res.FilterMode = 'AddAlpha';
+        } else if (keyword === 'AddAlpha') {
+            res.FilterMode = 'AddAlpha';
+        } else if (keyword === 'Modulate') {
+            res.FilterMode = 'Modulate';
+        } else if (keyword === 'Modulate2x') {
+            res.FilterMode = 'Modulate2x';
+        } else {
+            let val = parseNumber(state);
+            parseSpace(state);
+
+            res[keyword] = val;
+        }
+
+        if (state.char() === ',') {
+            parseSymbol(state, ',');
+        }
+    }
+
+    parseSymbol(state, '}');
+
+    model.ParticleEmitters2.push(res);
+    model.Nodes.push(res);
+}
+
 const parsers = {
     Version: parseVersion,
     Model: parseModel,
@@ -677,6 +834,8 @@ const parsers = {
     PivotPoints: parsePivotPoints,
     EventObject: parseEventObject,
     CollisionShape: parseCollisionShape,
+    GlobalSequences: parseGlobalSequences,
+    ParticleEmitter2: parseParticleEmitter2,
 };
 
 export function parse (str: string): Model {
@@ -695,6 +854,7 @@ export function parse (str: string): Model {
         PivotPoints: [],
         EventObjects: [],
         CollisionShapes: [],
+        ParticleEmitters2: [],
         // default
         Version: 800
     };
@@ -703,8 +863,12 @@ export function parse (str: string): Model {
         parseComment(state);
         const keyword = parseKeyword(state);
 
-        if (keyword && keyword in parsers) {
-            parsers[keyword](state, model);
+        if (keyword) {
+            if (keyword in parsers) {
+                parsers[keyword](state, model);
+            } else {
+                parseUnknownBlock(state);
+            }
         } else {
             break;
         }
