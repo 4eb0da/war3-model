@@ -341,8 +341,7 @@ function parseMaterials (state: State, model: Model): void {
             if (keyword === 'Layer') {
                 obj.layers.push(parseLayer(state));
             } else if (keyword === 'PriorityPlane') {
-                let val = parseNumber(state);
-                obj[keyword] = val;
+                obj[keyword] = parseNumber(state);
             } else {
                 obj[keyword] = true;
             }
@@ -764,9 +763,7 @@ function parseParticleEmitter2 (state: State, model: Model) {
         } else if (keyword === 'Modulate2x') {
             res.FilterMode = 'Modulate2x';
         } else {
-            let val = parseNumber(state);
-
-            res[keyword] = val;
+            res[keyword] = parseNumber(state);
         }
 
         parseSymbol(state, ',');
