@@ -1,4 +1,4 @@
-import {parse} from './parsers/mdlParser';
+import {parse} from './parsers/mdl';
 
 function parseModel (responseText: string) {
     const model = parse(responseText);
