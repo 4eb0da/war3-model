@@ -11,7 +11,7 @@ export interface Texture {
     ReplaceableId?: number;
 }
 
-export type NumberArray = number[]|Int16Array|Float32Array;
+export type NumberArray = number[]|Uint16Array|Float32Array;
 
 export type FilterMode = 'None'|'Transparent'|'Blend'|'Additive'|'AddAlpha'|'Modulate'|'Modulate2x';
 
@@ -58,8 +58,8 @@ export interface Geoset {
     Vertices: Float32Array;
     Normals: Float32Array;
     TVertices: Float32Array;
-    VertexGroup: Int16Array;
-    Faces: Int16Array;
+    VertexGroup: Uint16Array;
+    Faces: Uint16Array;
     Groups: number[][];
     TotalGroupsCount: number;
     MinimumExtent: number[];

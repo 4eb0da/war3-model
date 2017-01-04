@@ -90,7 +90,7 @@ function parseString (state: State): string {
 }
 
 const numberFirstCharRE = /[-0-9]/;
-const numberOtherCharRE = /[.0-9e]/i;
+const numberOtherCharRE = /[-.0-9e]/i;
 function parseNumber (state: State): number|null {
     if (numberFirstCharRE.test(state.char())) {
         const start = state.pos;
@@ -390,7 +390,7 @@ function parseGeoset (state: State, model: Model): void {
                     break;
                 case 'VertexGroup':
                     countPerObj = 1;
-                    constructor = Int16Array;
+                    constructor = Uint16Array;
                     break;
             }
 
@@ -406,14 +406,14 @@ function parseGeoset (state: State, model: Model): void {
 
             strictParseSymbol(state, '}');
         } else if (keyword === 'VertexGroup') {
-            res[keyword] = new Int16Array(res.Vertices.length / 3);
+            res[keyword] = new Uint16Array(res.Vertices.length / 3);
 
             parseArray(state, res[keyword], 0);
         } else if (keyword === 'Faces') {
             parseNumber(state); // group count, always 1?
             let indexCount = parseNumber(state);
 
-            res.Faces = new Int16Array(indexCount);
+            res.Faces = new Uint16Array(indexCount);
 
             strictParseSymbol(state, '{');
             parseKeyword(state); // Triangles

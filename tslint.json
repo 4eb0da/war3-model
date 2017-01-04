@@ -9,6 +9,7 @@
         "object-literal-sort-keys": false,
         "switch-default": false,
         "ordered-imports": false,
-        "prefer-for-of": false
+        "prefer-for-of": false,
+        "no-bitwise": false
     }
 }
