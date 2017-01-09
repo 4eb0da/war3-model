@@ -18,14 +18,15 @@ export type FilterMode = 'None'|'Transparent'|'Blend'|'Additive'|'AddAlpha'|'Mod
 export type LineType = 'DontInterp'|'Linear'|'Bezier'|'Hermite';
 
 export interface AnimKeyframe {
-    Vector: NumberArray;
-    InTan?: NumberArray;
-    OutTan?: NumberArray;
+    Frame: number;
+    Vector: number[];
+    InTan?: number[];
+    OutTan?: number[];
 }
 
 export interface AnimVector {
     LineType: LineType;
-    Keys: {[key: number]: AnimKeyframe};
+    Keys: AnimKeyframe[];
     GlobalSeqId?: number;
 }
 

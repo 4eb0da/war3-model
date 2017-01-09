@@ -10,6 +10,7 @@
         "switch-default": false,
         "ordered-imports": false,
         "prefer-for-of": false,
-        "no-bitwise": false
+        "no-bitwise": false,
+        "arrow-parens": false
     }
 }

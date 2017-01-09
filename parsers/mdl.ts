@@ -111,7 +111,7 @@ function parseNumber (state: State): number|null {
     return null;
 }
 
-function parseArray (state: State, arr?: NumberArray, pos?: number): NumberArray|null {
+function parseArray (state: State, arr?: number[], pos?: number): number[]|null {
     if (state.char() !== '{') {
         return null;
     }
@@ -218,8 +218,9 @@ function parseTextures (state: State, model: Model): void {
     model.Textures = res;
 }
 
-function parseAnimKeyframe (state: State, lineType: LineType): AnimKeyframe {
+function parseAnimKeyframe (state: State, frame: number, lineType: LineType): AnimKeyframe {
     let res: AnimKeyframe = {
+        Frame: frame,
         Vector: null
     };
 
@@ -242,7 +243,7 @@ function parseAnimKeyframe (state: State, lineType: LineType): AnimKeyframe {
 function parseAnimVector (state: State): AnimVector {
     let animVector: AnimVector = {
         LineType: 'Linear',
-        Keys: {}
+        Keys: []
     };
 
     parseNumber(state); // count, not used
@@ -270,10 +271,10 @@ function parseAnimVector (state: State): AnimVector {
             animVector[keyword] = parseNumber(state);
             strictParseSymbol(state, ',');
         } else {
-            let keyframe = parseNumber(state);
+            let frame = parseNumber(state);
             strictParseSymbol(state, ':');
 
-            animVector.Keys[keyframe] = parseAnimKeyframe(state, animVector.LineType);
+            animVector.Keys.push(parseAnimKeyframe(state, frame, animVector.LineType));
         }
     }
 
