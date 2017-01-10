@@ -24,7 +24,7 @@ let rootNode: any = {
 };
 
 let nodes: any = {};
-let matricesSource: any = {};
+let geosetAlpha: any = {};
 let animation = 'Walk Defend';
 let frame;
 let animationInfo: Sequence;
@@ -87,10 +87,6 @@ function processModel () {
             nodes[node.Parent].childs.push(nodes[node.ObjectId]);
         }
     }
-
-    for (let i = 0; i < model.Geosets.length; ++i) {
-        matricesSource[i] = model.Geosets[i].Groups;
-    }
 }
 
 let start;
@@ -108,6 +104,10 @@ function updateModel () {
     }
 
     updateNode(rootNode, frame);
+
+    for (let i = 0; i < model.Geosets.length; ++i) {
+        geosetAlpha[i] = findAlpha(i, frame, animationInfo.Interval);
+    }
 }
 
 function findKeyframes (animVector: AnimVector, frame: number, interval: number[]) {
@@ -139,11 +139,10 @@ function findKeyframes (animVector: AnimVector, frame: number, interval: number[
         }
     }
 
-    if (first === array.length || first === 0) {
+    if (first === 0) {
         return null;
     }
-
-    if (array[first].Frame > interval[1]) {
+    if (first === array.length || array[first].Frame > interval[1]) {
         return {
             left: array[first - 1],
             right: array[first - 1]
@@ -157,6 +156,30 @@ function findKeyframes (animVector: AnimVector, frame: number, interval: number[
         left: array[first - 1],
         right: array[first]
     };
+}
+
+function interpNum (animVector: AnimVector, frame: number, interval: number[]): number|null {
+    let res = findKeyframes(animVector, frame, interval);
+    if (!res) {
+        return null;
+    }
+    let {left, right} = res;
+    if (left.Frame === right.Frame) {
+        return left.Vector[0];
+    }
+
+    let t = (frame - left.Frame) / (right.Frame - left.Frame);
+
+    if (animVector.LineType === 'DontInterp') {
+        return right.Vector[0];
+    // } else if (animVector.LineType === 'Bezier') {
+    //     return vec3.bezier(out, left.Vector, left.OutTan, right.InTan, right.Vector, t);
+    // } else if (animVector.LineType === 'Hermite') {
+    //     return vec3.hermite(out, left.Vector, left.OutTan, right.InTan, right.Vector, t);
+    } else {
+        // Linear
+        return left.Vector[0] * (1 - t) + right.Vector[0] * t;
+    }
 }
 
 function interpVec3 (out: vec3, animVector: AnimVector, frame: number, interval: number[]) {
@@ -236,6 +259,25 @@ function updateNode (node, frame) {
     for (let child of node.childs) {
         updateNode(child, frame);
     }
+}
+
+function findAlpha (geosetId: number, frame: number, interval: number[]): number {
+    let geosetAnim = model.GeosetAnims[geosetId];
+
+    if (!geosetAnim || geosetAnim.Alpha === undefined) {
+        return 1;
+    }
+
+    if (typeof geosetAnim.Alpha === 'number') {
+        return geosetAnim.Alpha;
+    }
+
+    let interpRes = interpNum(geosetAnim.Alpha, frame, interval);
+
+    if (interpRes === null) {
+        return 1;
+    }
+    return interpRes;
 }
 
 let anisotropicExt;
@@ -393,7 +435,11 @@ function drawScene () {
         }
     }
 
-    for (let i = 0; i < model.Geosets.length - 1; ++i) {
+    for (let i = 0; i < model.Geosets.length; ++i) {
+        if (geosetAlpha[i] <= 0) {
+            continue;
+        }
+
         gl.bindBuffer(gl.ARRAY_BUFFER, modelVertexBuffer[i]);
         gl.vertexAttribPointer(shaderProgramLocations.vertexPositionAttribute, 3, gl.FLOAT, false, 0, 0);
 
