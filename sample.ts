@@ -110,7 +110,7 @@ function updateModel () {
     }
 }
 
-function findKeyframes (animVector: AnimVector, frame: number, interval: number[]) {
+function findKeyframes (animVector: AnimVector, frame: number, interval: Uint32Array) {
     if (!animVector) {
         return null;
     }
@@ -158,7 +158,7 @@ function findKeyframes (animVector: AnimVector, frame: number, interval: number[
     };
 }
 
-function interpNum (animVector: AnimVector, frame: number, interval: number[]): number|null {
+function interpNum (animVector: AnimVector, frame: number, interval: Uint32Array): number|null {
     let res = findKeyframes(animVector, frame, interval);
     if (!res) {
         return null;
@@ -182,47 +182,47 @@ function interpNum (animVector: AnimVector, frame: number, interval: number[]): 
     }
 }
 
-function interpVec3 (out: vec3, animVector: AnimVector, frame: number, interval: number[]) {
+function interpVec3 (out: vec3, animVector: AnimVector, frame: number, interval: Uint32Array): vec3 {
     let res = findKeyframes(animVector, frame, interval);
     if (!res) {
         return null;
     }
     let {left, right} = res;
     if (left.Frame === right.Frame) {
-        return left.Vector;
+        return <vec3> left.Vector;
     }
 
     let t = (frame - left.Frame) / (right.Frame - left.Frame);
 
     if (animVector.LineType === 'DontInterp') {
-        return right.Vector;
+        return <vec3> right.Vector;
     } else if (animVector.LineType === 'Bezier') {
-        return vec3.bezier(out, left.Vector, left.OutTan, right.InTan, right.Vector, t);
+        return vec3.bezier(out, <vec3> left.Vector, <vec3> left.OutTan, <vec3> right.InTan, <vec3> right.Vector, t);
     } else if (animVector.LineType === 'Hermite') {
-        return vec3.hermite(out, left.Vector, left.OutTan, right.InTan, right.Vector, t);
+        return vec3.hermite(out, <vec3> left.Vector, <vec3> left.OutTan, <vec3> right.InTan, <vec3> right.Vector, t);
     } else {
-        return vec3.lerp(out, left.Vector, right.Vector, t);
+        return vec3.lerp(out, <vec3> left.Vector, <vec3> right.Vector, t);
     }
 }
 
-function interpQuat (out: quat, animVector: AnimVector, frame: number, interval: number[]) {
+function interpQuat (out: quat, animVector: AnimVector, frame: number, interval: Uint32Array): quat {
     let res = findKeyframes(animVector, frame, interval);
     if (!res) {
         return null;
     }
     let {left, right} = res;
     if (left.Frame === right.Frame) {
-        return left.Vector;
+        return <quat> left.Vector;
     }
 
     let t = (frame - left.Frame) / (right.Frame - left.Frame);
 
     if (animVector.LineType === 'DontInterp') {
-        return right.Vector;
+        return <quat> right.Vector;
     } else if (animVector.LineType === 'Bezier' || animVector.LineType === 'Hermite') {
-        return quat.sqlerp(out, left.Vector, left.OutTan, right.InTan, right.Vector, t);
+        return quat.sqlerp(out, <quat> left.Vector, <quat> left.OutTan, <quat> right.InTan, <quat> right.Vector, t);
     } else {
-        return quat.slerp(out, left.Vector, right.Vector, t);
+        return quat.slerp(out, <quat> left.Vector, <quat> right.Vector, t);
     }
 }
 
@@ -261,7 +261,7 @@ function updateNode (node, frame) {
     }
 }
 
-function findAlpha (geosetId: number, frame: number, interval: number[]): number {
+function findAlpha (geosetId: number, frame: number, interval: Uint32Array): number {
     let geosetAnim = model.GeosetAnims[geosetId];
 
     if (!geosetAnim || geosetAnim.Alpha === undefined) {

@@ -1,8 +1,8 @@
 export interface Sequence {
-    Interval: number[];
+    Interval: Uint32Array;
     NonLooping: boolean;
-    MinimumExtent: number[];
-    MaximumExtent: number[];
+    MinimumExtent: Float32Array;
+    MaximumExtent: Float32Array;
     BoundsRadius: number;
 }
 
@@ -11,17 +11,15 @@ export interface Texture {
     ReplaceableId?: number;
 }
 
-export type NumberArray = number[]|Uint16Array|Float32Array;
-
 export type FilterMode = 'None'|'Transparent'|'Blend'|'Additive'|'AddAlpha'|'Modulate'|'Modulate2x';
 
 export type LineType = 'DontInterp'|'Linear'|'Bezier'|'Hermite';
 
 export interface AnimKeyframe {
     Frame: number;
-    Vector: number[];
-    InTan?: number[];
-    OutTan?: number[];
+    Vector: Float32Array;
+    InTan?: Float32Array;
+    OutTan?: Float32Array;
 }
 
 export interface AnimVector {
@@ -50,8 +48,8 @@ export interface Material {
 }
 
 export interface GeosetAnimInfo {
-    MinimumExtent: number[];
-    MaximumExtent: number[];
+    MinimumExtent: Float32Array;
+    MaximumExtent: Float32Array;
     BoundsRadius: number;
 }
 
@@ -63,8 +61,8 @@ export interface Geoset {
     Faces: Uint16Array;
     Groups: number[][];
     TotalGroupsCount: number;
-    MinimumExtent: number[];
-    MaximumExtent: number[];
+    MinimumExtent: Float32Array;
+    MaximumExtent: Float32Array;
     BoundsRadius: number;
     Anims: GeosetAnimInfo[];
     MaterialID: number;
@@ -83,7 +81,7 @@ export interface Node {
     Name: string;
     ObjectId: number;
     Parent?: number;
-    PivotPoint: NumberArray;
+    PivotPoint: Float32Array;
 
     BillboardedLockZ?: boolean;
     BillboardedLockY?: boolean;
@@ -115,12 +113,12 @@ export interface Attachment extends Node {
 }
 
 export interface EventObject extends Node {
-    EventTrack: NumberArray;
+    EventTrack: Uint32Array;
 }
 
 export interface CollisionShape extends Node {
     Shape: 'Box' | 'Sphere';
-    Vertices: NumberArray[];
+    Vertices: Float32Array;
     BoundsRadius?: number;
 }
 
@@ -161,7 +159,7 @@ export interface ParticleEmitter2 extends Node {
 }
 
 export interface GlobalSequences {
-    Durations: NumberArray;
+    Duration: number;
 }
 
 export interface Model {
@@ -176,7 +174,7 @@ export interface Model {
     Helpers: {[key: string]: Helper};
     Attachments: {[key: string]: Attachment};
     Nodes: Node[];
-    PivotPoints: NumberArray[];
+    PivotPoints: Float32Array[];
     EventObjects: EventObject[];
     CollisionShapes: CollisionShape[];
     GlobalSequences?: GlobalSequences;
