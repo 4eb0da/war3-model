@@ -90,7 +90,7 @@ function parseString (state: State): string {
 }
 
 const numberFirstCharRE = /[-0-9]/;
-const numberOtherCharRE = /[-.0-9e]/i;
+const numberOtherCharRE = /[-+.0-9e]/i;
 function parseNumber (state: State): number|null {
     if (numberFirstCharRE.test(state.char())) {
         const start = state.pos;
@@ -331,7 +331,7 @@ function parseLayer (state: State): Layer {
         if (keyword === 'Alpha' && !isStatic) {
             res.Alpha = parseAnimVector(state, 1);
         } else if (keyword === 'Unshaded' || keyword === 'SphereEnvMap' || keyword === 'TwoSided' ||
-            keyword === 'Unfogged' || keyword === 'NoDepthTest') {
+            keyword === 'Unfogged' || keyword === 'NoDepthTest' || keyword === 'NoDepthSet') {
             res[keyword] = true;
         } else {
             let val: string|number = parseNumber(state);
@@ -360,7 +360,7 @@ function parseMaterials (state: State, model: Model): void {
 
     while (state.char() !== '}') {
         let obj = {
-            layers: []
+            Layers: []
         };
 
         parseKeyword(state); // Material
@@ -371,7 +371,7 @@ function parseMaterials (state: State, model: Model): void {
             const keyword = parseKeyword(state);
 
             if (keyword === 'Layer') {
-                obj.layers.push(parseLayer(state));
+                obj.Layers.push(parseLayer(state));
             } else if (keyword === 'PriorityPlane') {
                 obj[keyword] = parseNumber(state);
             } else {
@@ -864,7 +864,7 @@ export function parse (str: string): Model {
     };
 
     while (state.pos < state.str.length) {
-        parseComment(state);
+        while (parseComment(state));
         const keyword = parseKeyword(state);
 
         if (keyword) {

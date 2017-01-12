@@ -35,6 +35,7 @@ export interface Layer {
     TwoSided?: boolean;
     Unfogged?: boolean;
     NoDepthTest?: boolean;
+    NoDepthSet?: boolean;
     TextureID?: number;
     Alpha?: AnimVector|number;
 }

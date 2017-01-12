@@ -28,6 +28,7 @@ let geosetAlpha: any = {};
 let animation = 'Walk Defend';
 let frame;
 let animationInfo: Sequence;
+let teamColor = vec3.fromValues(1, 0, 0);
 
 function mat4fromRotationOrigin (out: mat4, rotation: quat, origin: vec3): mat4 {
     let x = rotation[0], y = rotation[1], z = rotation[2], w = rotation[3],
@@ -239,7 +240,9 @@ function updateNode (node, frame) {
     let rotationRes = interpQuat(rotation, node.node.Rotation, frame, animationInfo.Interval);
     let scalingRes = interpVec3(scaling, node.node.Scaling, frame, animationInfo.Interval);
 
-    if (translationRes && !rotationRes && !scalingRes) {
+    if (!translationRes && !rotationRes && !scalingRes) {
+        mat4.identity(node.matrix);
+    } else if (translationRes && !rotationRes && !scalingRes) {
         mat4.fromTranslation(node.matrix, translationRes);
     } else if (!translationRes && rotationRes && !scalingRes) {
         mat4fromRotationOrigin(node.matrix, rotationRes, node.node.PivotPoint);
@@ -296,6 +299,7 @@ function initGL () {
 
         gl.clearColor(0.0, 0.0, 0.0, 1.0);
         gl.enable(gl.DEPTH_TEST);
+        gl.depthFunc(gl.LEQUAL);
 
         initShaders();
         initBuffers();
@@ -367,6 +371,7 @@ function initShaders () {
     shaderProgramLocations.pMatrixUniform = gl.getUniformLocation(shaderProgram, 'uPMatrix');
     shaderProgramLocations.mvMatrixUniform = gl.getUniformLocation(shaderProgram, 'uMVMatrix');
     shaderProgramLocations.samplerUniform = gl.getUniformLocation(shaderProgram, 'uSampler');
+    shaderProgramLocations.replaceableColorUniform = gl.getUniformLocation(shaderProgram, 'uReplaceableColor');
 
     shaderProgramLocations.nodesMatricesAttributes = [];
     for (let i = 0; i < 128; ++i) {
@@ -420,9 +425,6 @@ function drawScene () {
     mat4.rotateX(mvMatrix, mvMatrix, -Math.PI / 3);
     mat4.rotateZ(mvMatrix, mvMatrix, 0);
 
-    gl.activeTexture(gl.TEXTURE0);
-    gl.bindTexture(gl.TEXTURE_2D, modelTexture);
-    gl.uniform1i(shaderProgramLocations.samplerUniform, 0);
     gl.uniformMatrix4fv(shaderProgramLocations.pMatrixUniform, false, pMatrix);
     gl.uniformMatrix4fv(shaderProgramLocations.mvMatrixUniform, false, mvMatrix);
 
@@ -436,21 +438,87 @@ function drawScene () {
     }
 
     for (let i = 0; i < model.Geosets.length; ++i) {
-        if (geosetAlpha[i] <= 0) {
+        if (geosetAlpha[i] < 1e-6) {
             continue;
         }
 
-        gl.bindBuffer(gl.ARRAY_BUFFER, modelVertexBuffer[i]);
-        gl.vertexAttribPointer(shaderProgramLocations.vertexPositionAttribute, 3, gl.FLOAT, false, 0, 0);
+        let material = model.Materials[model.Geosets[i].MaterialID];
 
-        gl.bindBuffer(gl.ARRAY_BUFFER, modelTexCoordBuffer[i]);
-        gl.vertexAttribPointer(shaderProgramLocations.textureCoordAttribute, 2, gl.FLOAT, false, 0, 0);
+        for (let j = 0; j < material.Layers.length; ++j) {
+            let layer = material.Layers[j];
+            let texture = model.Textures[layer.TextureID];
 
-        gl.bindBuffer(gl.ARRAY_BUFFER, modelGroupBuffer[i]);
-        gl.vertexAttribPointer(shaderProgramLocations.groupAttribute, 4, gl.UNSIGNED_SHORT, false, 0, 0);
+            if (layer.TwoSided) {
+                gl.disable(gl.CULL_FACE);
+            } else {
+                gl.enable(gl.CULL_FACE);
+            }
 
-        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, modelIndexBuffer[i]);
-        gl.drawElements(gl.TRIANGLES, model.Geosets[i].Faces.length, gl.UNSIGNED_SHORT, 0);
+            if (layer.FilterMode === 'None') {
+                gl.disable(gl.BLEND);
+                gl.enable(gl.DEPTH_TEST);
+                // gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+                gl.depthMask(true);
+            } else if (layer.FilterMode === 'Transparent') {
+                gl.enable(gl.BLEND);
+                gl.enable(gl.DEPTH_TEST);
+                gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+                gl.depthMask(true);
+            } else if (layer.FilterMode === 'Blend') {
+                gl.enable(gl.BLEND);
+                gl.enable(gl.DEPTH_TEST);
+                gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+                gl.depthMask(false);
+            } else if (layer.FilterMode === 'Additive') {
+                gl.enable(gl.BLEND);
+                gl.enable(gl.DEPTH_TEST);
+                gl.blendFunc(gl.SRC_COLOR, gl.ONE);
+                gl.depthMask(false);
+            } else if (layer.FilterMode === 'AddAlpha') {
+                gl.enable(gl.BLEND);
+                gl.enable(gl.DEPTH_TEST);
+                gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+                gl.depthMask(false);
+            } else if (layer.FilterMode === 'Modulate') {
+                gl.enable(gl.BLEND);
+                gl.enable(gl.DEPTH_TEST);
+                gl.blendFunc(gl.ZERO, gl.SRC_COLOR);
+                gl.depthMask(false);
+            } else if (layer.FilterMode === 'Modulate2x') {
+                gl.enable(gl.BLEND);
+                gl.enable(gl.DEPTH_TEST);
+                gl.blendFunc(gl.DST_COLOR, gl.SRC_COLOR);
+                gl.depthMask(false);
+            }
+
+            if (texture.Image) {
+                gl.activeTexture(gl.TEXTURE0);
+                gl.bindTexture(gl.TEXTURE_2D, modelTexture);
+                gl.uniform1i(shaderProgramLocations.samplerUniform, 0);
+                gl.uniform3fv(shaderProgramLocations.replaceableColorUniform, [-1, -1, -1]);
+            } else if (texture.ReplaceableId === 1) {
+                gl.uniform3fv(shaderProgramLocations.replaceableColorUniform, teamColor);
+            }
+
+            if (layer.NoDepthTest) {
+                gl.disable(gl.DEPTH_TEST);
+            }
+            if (layer.NoDepthSet) {
+                gl.depthMask(false);
+            }
+
+            gl.bindBuffer(gl.ARRAY_BUFFER, modelVertexBuffer[i]);
+            gl.vertexAttribPointer(shaderProgramLocations.vertexPositionAttribute, 3, gl.FLOAT, false, 0, 0);
+
+            gl.bindBuffer(gl.ARRAY_BUFFER, modelTexCoordBuffer[i]);
+            gl.vertexAttribPointer(shaderProgramLocations.textureCoordAttribute, 2, gl.FLOAT, false, 0, 0);
+
+            gl.bindBuffer(gl.ARRAY_BUFFER, modelGroupBuffer[i]);
+            gl.vertexAttribPointer(shaderProgramLocations.groupAttribute, 4, gl.UNSIGNED_SHORT, false, 0, 0);
+
+            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, modelIndexBuffer[i]);
+            gl.drawElements(gl.TRIANGLES, model.Geosets[i].Faces.length, gl.UNSIGNED_SHORT, 0);
+        }
     }
 }
 

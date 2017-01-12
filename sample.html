@@ -12,7 +12,6 @@
     attribute vec3 aVertexPosition;
     attribute vec2 aTextureCoord;
     attribute vec4 aGroup;
-    //attribute float aMatrixCount;
 
     uniform mat4 uMVMatrix;
     uniform mat4 uPMatrix;
@@ -52,9 +51,14 @@
     varying vec2 vTextureCoord;
 
     uniform sampler2D uSampler;
+    uniform vec3 uReplaceableColor;
 
     void main(void) {
-        gl_FragColor = texture2D(uSampler, vec2(vTextureCoord.s, vTextureCoord.t));
+        if (uReplaceableColor.x < 0.) {
+            gl_FragColor = texture2D(uSampler, vec2(vTextureCoord.s, vTextureCoord.t));
+        } else {
+            gl_FragColor = vec4(uReplaceableColor, 1.0);
+        }
     }
 </script>
 
