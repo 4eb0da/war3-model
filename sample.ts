@@ -1,6 +1,6 @@
 import {parse} from './parsers/mdl';
 import {vec3, mat4, quat} from 'gl-matrix';
-import {Model, Sequence, AnimVector} from './model';
+import {Model, Sequence, AnimVector, Layer} from './model';
 
 let model: Model;
 let canvas: HTMLCanvasElement;
@@ -13,8 +13,10 @@ let modelIndexBuffer: WebGLBuffer[] = [];
 let modelGroupBuffer: WebGLBuffer[] = [];
 let pMatrix = mat4.create();
 let mvMatrix = mat4.create();
-let modelTexture: WebGLTexture;
-let modelTextureImage: HTMLImageElement;
+let loadedTextures = 0;
+let totalTextures = 0;
+let modelTextures: {[key: string]: WebGLTexture} = {};
+let modelTextureImages: {[key: string]: HTMLImageElement} = {};
 let rootNode: any = {
     node: {
         PivotPoint: [0, 0, 0],
@@ -172,7 +174,7 @@ function interpNum (animVector: AnimVector, frame: number, interval: Uint32Array
     let t = (frame - left.Frame) / (right.Frame - left.Frame);
 
     if (animVector.LineType === 'DontInterp') {
-        return right.Vector[0];
+        return right.Vector[1];
     // } else if (animVector.LineType === 'Bezier') {
     //     return vec3.bezier(out, left.Vector, left.OutTan, right.InTan, right.Vector, t);
     // } else if (animVector.LineType === 'Hermite') {
@@ -196,7 +198,7 @@ function interpVec3 (out: vec3, animVector: AnimVector, frame: number, interval:
     let t = (frame - left.Frame) / (right.Frame - left.Frame);
 
     if (animVector.LineType === 'DontInterp') {
-        return <vec3> right.Vector;
+        return <vec3> left.Vector;
     } else if (animVector.LineType === 'Bezier') {
         return vec3.bezier(out, <vec3> left.Vector, <vec3> left.OutTan, <vec3> right.InTan, <vec3> right.Vector, t);
     } else if (animVector.LineType === 'Hermite') {
@@ -219,7 +221,7 @@ function interpQuat (out: quat, animVector: AnimVector, frame: number, interval:
     let t = (frame - left.Frame) / (right.Frame - left.Frame);
 
     if (animVector.LineType === 'DontInterp') {
-        return <quat> right.Vector;
+        return <quat> left.Vector;
     } else if (animVector.LineType === 'Bezier' || animVector.LineType === 'Hermite') {
         return quat.sqlerp(out, <quat> left.Vector, <quat> left.OutTan, <quat> right.InTan, <quat> right.Vector, t);
     } else {
@@ -281,6 +283,76 @@ function findAlpha (geosetId: number, frame: number, interval: Uint32Array): num
         return 1;
     }
     return interpRes;
+}
+
+function initLayer (layer: Layer) {
+    let texture = model.Textures[layer.TextureID];
+
+    if (layer.TwoSided) {
+        gl.disable(gl.CULL_FACE);
+    } else {
+        gl.enable(gl.CULL_FACE);
+    }
+
+    if (layer.FilterMode === 'Transparent') {
+        gl.uniform1f(shaderProgramLocations.discardAlphaLevelUniform, 0.75);
+    } else {
+        gl.uniform1f(shaderProgramLocations.discardAlphaLevelUniform, 0.);
+    }
+
+    if (layer.FilterMode === 'None') {
+        gl.disable(gl.BLEND);
+        gl.enable(gl.DEPTH_TEST);
+        // gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+        gl.depthMask(true);
+    } else if (layer.FilterMode === 'Transparent') {
+        gl.enable(gl.BLEND);
+        gl.enable(gl.DEPTH_TEST);
+        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+        gl.depthMask(true);
+    } else if (layer.FilterMode === 'Blend') {
+        gl.enable(gl.BLEND);
+        gl.enable(gl.DEPTH_TEST);
+        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+        gl.depthMask(false);
+    } else if (layer.FilterMode === 'Additive') {
+        gl.enable(gl.BLEND);
+        gl.enable(gl.DEPTH_TEST);
+        gl.blendFunc(gl.SRC_COLOR, gl.ONE);
+        gl.depthMask(false);
+    } else if (layer.FilterMode === 'AddAlpha') {
+        gl.enable(gl.BLEND);
+        gl.enable(gl.DEPTH_TEST);
+        gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+        gl.depthMask(false);
+    } else if (layer.FilterMode === 'Modulate') {
+        gl.enable(gl.BLEND);
+        gl.enable(gl.DEPTH_TEST);
+        gl.blendFunc(gl.ZERO, gl.SRC_COLOR);
+        gl.depthMask(false);
+    } else if (layer.FilterMode === 'Modulate2x') {
+        gl.enable(gl.BLEND);
+        gl.enable(gl.DEPTH_TEST);
+        gl.blendFunc(gl.DST_COLOR, gl.SRC_COLOR);
+        gl.depthMask(false);
+    }
+
+    if (texture.Image) {
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, modelTextures[texture.Image]);
+        gl.uniform1i(shaderProgramLocations.samplerUniform, 0);
+        gl.uniform1f(shaderProgramLocations.replaceableTypeUniform, 0);
+    } else if (texture.ReplaceableId === 1 || texture.ReplaceableId === 2) {
+        gl.uniform3fv(shaderProgramLocations.replaceableColorUniform, teamColor);
+        gl.uniform1f(shaderProgramLocations.replaceableTypeUniform, texture.ReplaceableId);
+    }
+
+    if (layer.NoDepthTest) {
+        gl.disable(gl.DEPTH_TEST);
+    }
+    if (layer.NoDepthSet) {
+        gl.depthMask(false);
+    }
 }
 
 let anisotropicExt;
@@ -372,6 +444,8 @@ function initShaders () {
     shaderProgramLocations.mvMatrixUniform = gl.getUniformLocation(shaderProgram, 'uMVMatrix');
     shaderProgramLocations.samplerUniform = gl.getUniformLocation(shaderProgram, 'uSampler');
     shaderProgramLocations.replaceableColorUniform = gl.getUniformLocation(shaderProgram, 'uReplaceableColor');
+    shaderProgramLocations.replaceableTypeUniform = gl.getUniformLocation(shaderProgram, 'uReplaceableType');
+    shaderProgramLocations.discardAlphaLevelUniform = gl.getUniformLocation(shaderProgram, 'uDiscardAlphaLevel');
 
     shaderProgramLocations.nodesMatricesAttributes = [];
     for (let i = 0; i < 128; ++i) {
@@ -409,31 +483,24 @@ function initBuffers () {
     }
 }
 
-let prevMatrixUniform = [];
-for (let i = 0; i < 128; ++i) {
-    prevMatrixUniform[i] = -100500;
-}
-
 function drawScene () {
     gl.viewport(0, 0, canvas.width, canvas.height);
+    gl.depthMask(true);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
     mat4.perspective(pMatrix, Math.PI / 4 , canvas.width / canvas.height, 0.1, 1000.0);
 
     mat4.identity(mvMatrix);
-    mat4.translate(mvMatrix, mvMatrix, [0.0, -50.0, -300.0]);
+    mat4.translate(mvMatrix, mvMatrix, [0.0, -50.0, -400.0]);
     mat4.rotateX(mvMatrix, mvMatrix, -Math.PI / 3);
-    mat4.rotateZ(mvMatrix, mvMatrix, 0);
+    mat4.rotateZ(mvMatrix, mvMatrix, window.angle || 0);
 
     gl.uniformMatrix4fv(shaderProgramLocations.pMatrixUniform, false, pMatrix);
     gl.uniformMatrix4fv(shaderProgramLocations.mvMatrixUniform, false, mvMatrix);
 
     for (let j = 0; j < 128; ++j) {
         if (nodes[j]) {
-            if (prevMatrixUniform[j] !== nodes[j].matrix[5]) {
-                prevMatrixUniform[j] = nodes[j].matrix[5];
-                gl.uniformMatrix4fv(shaderProgramLocations.nodesMatricesAttributes[j], false, nodes[j].matrix);
-            }
+            gl.uniformMatrix4fv(shaderProgramLocations.nodesMatricesAttributes[j], false, nodes[j].matrix);
         }
     }
 
@@ -445,67 +512,7 @@ function drawScene () {
         let material = model.Materials[model.Geosets[i].MaterialID];
 
         for (let j = 0; j < material.Layers.length; ++j) {
-            let layer = material.Layers[j];
-            let texture = model.Textures[layer.TextureID];
-
-            if (layer.TwoSided) {
-                gl.disable(gl.CULL_FACE);
-            } else {
-                gl.enable(gl.CULL_FACE);
-            }
-
-            if (layer.FilterMode === 'None') {
-                gl.disable(gl.BLEND);
-                gl.enable(gl.DEPTH_TEST);
-                // gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-                gl.depthMask(true);
-            } else if (layer.FilterMode === 'Transparent') {
-                gl.enable(gl.BLEND);
-                gl.enable(gl.DEPTH_TEST);
-                gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-                gl.depthMask(true);
-            } else if (layer.FilterMode === 'Blend') {
-                gl.enable(gl.BLEND);
-                gl.enable(gl.DEPTH_TEST);
-                gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-                gl.depthMask(false);
-            } else if (layer.FilterMode === 'Additive') {
-                gl.enable(gl.BLEND);
-                gl.enable(gl.DEPTH_TEST);
-                gl.blendFunc(gl.SRC_COLOR, gl.ONE);
-                gl.depthMask(false);
-            } else if (layer.FilterMode === 'AddAlpha') {
-                gl.enable(gl.BLEND);
-                gl.enable(gl.DEPTH_TEST);
-                gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
-                gl.depthMask(false);
-            } else if (layer.FilterMode === 'Modulate') {
-                gl.enable(gl.BLEND);
-                gl.enable(gl.DEPTH_TEST);
-                gl.blendFunc(gl.ZERO, gl.SRC_COLOR);
-                gl.depthMask(false);
-            } else if (layer.FilterMode === 'Modulate2x') {
-                gl.enable(gl.BLEND);
-                gl.enable(gl.DEPTH_TEST);
-                gl.blendFunc(gl.DST_COLOR, gl.SRC_COLOR);
-                gl.depthMask(false);
-            }
-
-            if (texture.Image) {
-                gl.activeTexture(gl.TEXTURE0);
-                gl.bindTexture(gl.TEXTURE_2D, modelTexture);
-                gl.uniform1i(shaderProgramLocations.samplerUniform, 0);
-                gl.uniform3fv(shaderProgramLocations.replaceableColorUniform, [-1, -1, -1]);
-            } else if (texture.ReplaceableId === 1) {
-                gl.uniform3fv(shaderProgramLocations.replaceableColorUniform, teamColor);
-            }
-
-            if (layer.NoDepthTest) {
-                gl.disable(gl.DEPTH_TEST);
-            }
-            if (layer.NoDepthSet) {
-                gl.depthMask(false);
-            }
+            initLayer(material.Layers[j]);
 
             gl.bindBuffer(gl.ARRAY_BUFFER, modelVertexBuffer[i]);
             gl.vertexAttribPointer(shaderProgramLocations.vertexPositionAttribute, 3, gl.FLOAT, false, 0, 0);
@@ -528,13 +535,13 @@ function tick() {
     drawScene();
 }
 
-function loadTexture (texture) {
-    modelTexture = gl.createTexture();
-    modelTextureImage = new Image();
-    modelTextureImage.onload = () => {
-        gl.bindTexture(gl.TEXTURE_2D, modelTexture);
+function loadTexture (src) {
+    modelTextures[src] = gl.createTexture();
+    modelTextureImages[src] = new Image();
+    modelTextureImages[src].onload = () => {
+        gl.bindTexture(gl.TEXTURE_2D, modelTextures[src]);
         // gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, modelTextureImage);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, modelTextureImages[src]);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
@@ -548,9 +555,11 @@ function loadTexture (texture) {
         gl.generateMipmap(gl.TEXTURE_2D);
         gl.bindTexture(gl.TEXTURE_2D, null);
 
-        tick();
+        if (++loadedTextures === totalTextures) {
+            tick();
+        }
     };
-    modelTextureImage.src = texture;
+    modelTextureImages[src].src = src;
 }
 
 function parseModel (responseText: string) {
@@ -561,7 +570,12 @@ function parseModel (responseText: string) {
     processModel();
 
     initGL();
-    loadTexture(model.Textures[0].Image);
+    for (let texture of model.Textures) {
+        if (texture.Image) {
+            ++totalTextures;
+            loadTexture(texture.Image);
+        }
+    }
 }
 
 function loadModel () {
