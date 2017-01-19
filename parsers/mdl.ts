@@ -1,6 +1,6 @@
 import {
     Model, Layer, GeosetAnim, AnimVector, LineType, AnimKeyframe, Node,
-    CollisionShape, ParticleEmitter2
+    CollisionShape, ParticleEmitter2, Camera
 } from '../model';
 
 class State {
@@ -824,6 +824,61 @@ function parseParticleEmitter2 (state: State, model: Model) {
     model.Nodes.push(res);
 }
 
+function parseCamera (state: State, model: Model) {
+    let res: Camera = {
+        Name: null,
+        Position: null,
+        FieldOfView: 0,
+        NearClip: 0,
+        FarClip: 0,
+        Target: null
+    };
+
+    res.Name = parseString(state);
+
+    strictParseSymbol(state, '{');
+
+    while (state.char() !== '}') {
+        const keyword = parseKeyword(state);
+
+        if (keyword === 'Position') {
+            res.Position = new Float32Array(3);
+            parseArray(state, res.Position, 0);
+        } else if (keyword === 'FieldOfView' || keyword === 'NearClip' || keyword === 'FarClip') {
+            res[keyword] = parseNumber(state);
+        } else if (keyword === 'Target') {
+            res.Target = {
+                Position: null
+            };
+
+            strictParseSymbol(state, '{');
+
+            while (state.char() !== '}') {
+                const keyword2 = parseKeyword(state);
+
+                if (keyword2 === 'Position') {
+                    res.Target.Position = new Float32Array(3);
+                    parseArray(state, res.Target.Position, 0);
+                } else if (keyword2 === 'Translation') {
+                    res.Target.Translation = parseAnimVector(state, 3);
+                }
+
+                parseSymbol(state, ',');
+            }
+
+            strictParseSymbol(state, '}');
+        } else if (keyword === 'Translation' || keyword === 'Rotation') {
+            res[keyword] = parseAnimVector(state, keyword === 'Rotation' ? 1 : 3);
+        }
+
+        parseSymbol(state, ',');
+    }
+
+    strictParseSymbol(state, '}');
+
+    model.Cameras.push(res);
+}
+
 const parsers = {
     Version: parseVersion,
     Model: parseModel,
@@ -840,6 +895,7 @@ const parsers = {
     CollisionShape: parseCollisionShape,
     GlobalSequences: parseGlobalSequences,
     ParticleEmitter2: parseParticleEmitter2,
+    Camera: parseCamera,
 };
 
 export function parse (str: string): Model {
@@ -859,6 +915,7 @@ export function parse (str: string): Model {
         EventObjects: [],
         CollisionShapes: [],
         ParticleEmitters2: [],
+        Cameras: [],
         // default
         Version: 800
     };

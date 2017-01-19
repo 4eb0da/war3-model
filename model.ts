@@ -163,6 +163,20 @@ export interface GlobalSequences {
     Duration: number;
 }
 
+export interface Camera {
+    Name: string;
+    Position: Float32Array;
+    FieldOfView: number;
+    NearClip: number;
+    FarClip: number;
+    Target: {
+        Position: Float32Array;
+        Translation?: AnimVector;
+    };
+    Translation?: AnimVector;
+    Rotation?: AnimVector;
+}
+
 export interface Model {
     Version: number;
     Info: any;
@@ -180,4 +194,5 @@ export interface Model {
     CollisionShapes: CollisionShape[];
     GlobalSequences?: GlobalSequences;
     ParticleEmitters2?: ParticleEmitter2[];
+    Cameras?: Camera[];
 }
