@@ -11,6 +11,7 @@
         "ordered-imports": false,
         "prefer-for-of": false,
         "no-bitwise": false,
-        "arrow-parens": false
+        "arrow-parens": false,
+        "one-variable-per-declaration": false
     }
 }

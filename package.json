@@ -2,7 +2,7 @@
   "name": "war3-model",
   "version": "0.0.1",
   "scripts": {
-    "sample": "browserify sample.js -d -o sampleOut.js"
+    "sample": "tsc sample.ts parsers/*.ts && browserify sample.js -d -o sampleOut.js"
   },
   "dependencies": {
     "@types/gl-matrix": "^2.2.34",

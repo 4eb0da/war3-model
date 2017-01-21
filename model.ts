@@ -1,19 +1,48 @@
+export interface ModelInfo {
+    Name: String;
+    MinimumExtent: Float32Array;
+    MaximumExtent: Float32Array;
+    BoundsRadius: number;
+    BlendTime: number;
+}
+
 export interface Sequence {
     Interval: Uint32Array;
     NonLooping: boolean;
     MinimumExtent: Float32Array;
     MaximumExtent: Float32Array;
     BoundsRadius: number;
+    MoveSpeed: number;
+    Rarity: number;
+}
+
+export enum TextureFlags {
+    WrapWidth,
+    WrapHeight
 }
 
 export interface Texture {
     Image: string;
     ReplaceableId?: number;
+    Flags?: TextureFlags;
 }
 
-export type FilterMode = 'None'|'Transparent'|'Blend'|'Additive'|'AddAlpha'|'Modulate'|'Modulate2x';
+export enum FilterMode {
+    None = 0,
+    Transparent = 1,
+    Blend = 2,
+    Additive = 3,
+    AddAlpha = 4,
+    Modulate = 5,
+    Modulate2x = 6
+}
 
-export type LineType = 'DontInterp'|'Linear'|'Bezier'|'Hermite';
+export enum LineType {
+    DontInterp = 0,
+    Linear = 1,
+    Hermite = 2,
+    Bezier = 3
+}
 
 export interface AnimKeyframe {
     Frame: number;
@@ -24,27 +53,36 @@ export interface AnimKeyframe {
 
 export interface AnimVector {
     LineType: LineType;
-    Keys: AnimKeyframe[];
     GlobalSeqId?: number;
+    Keys: AnimKeyframe[];
+}
+
+export enum LayerShading {
+    Unshaded = 1,
+    SphereEnvMap = 2,
+    TwoSided = 16,
+    Unfogged = 32,
+    NoDepthTest = 64,
+    NoDepthSet = 128
 }
 
 export interface Layer {
     FilterMode?: FilterMode;
-    Unshaded?: boolean;
-    SphereEnvMap?: boolean;
-    TwoSided?: boolean;
-    Unfogged?: boolean;
-    NoDepthTest?: boolean;
-    NoDepthSet?: boolean;
-    TextureID?: number;
+    Shading?: number;
+    TextureID?: AnimVector|number;
+    TVertexAnimId?: number;
     Alpha?: AnimVector|number;
 }
 
+export enum MaterialRenderMode {
+    ConstantColor = 1,
+    SortPrimsFarZ = 16,
+    FullResolution = 32,
+}
+
 export interface Material {
-    ConstantColor?: boolean;
-    SortPrimsFarZ?: boolean;
-    FullResolution?: boolean;
     PriorityPlane?: number;
+    RenderMode?: number;
     Layers: Layer[];
 }
 
@@ -71,10 +109,27 @@ export interface Geoset {
     Unselectable: boolean;
 }
 
+export enum GeosetAnimFlags {
+    DropShadow = 1,
+    Color = 2
+}
+
 export interface GeosetAnim {
     Alpha: AnimVector|number;
-    DropShadow?: boolean;
+    Color: AnimVector|Float32Array;
+    Flags: number;
     GeosetId: number;
+}
+
+export enum NodeFlags {
+    DontInheritTranslation = 1,
+    DontInheritScaling = 2,
+    DontInheritRotation = 4,
+    Billboarded = 8,
+    BillboardedLockX = 16,
+    BillboardedLockY = 32,
+    BillboardedLockZ = 64,
+    CameraAnchored = 128
 }
 
 export interface Node {
@@ -83,32 +138,23 @@ export interface Node {
     ObjectId: number;
     Parent?: number;
     PivotPoint: Float32Array;
+    Flags: number;
 
-    BillboardedLockZ?: boolean;
-    BillboardedLockY?: boolean;
-    BillboardedLockX?: boolean;
-    Billboarded?: boolean;
-    CameraAnchored?: boolean;
-    DontInheritTranslation?: boolean;
-    DontInheritRotation?: boolean;
-    DontInheritScaling?: boolean;
+    Translation?: AnimVector;
+    Rotation?: AnimVector;
+    Scaling?: AnimVector;
 }
 
 export interface Bone extends Node {
     GeosetId?: number;
     GeosetAnimId?: number;
-    Translation?: AnimVector;
-    Rotation?: AnimVector;
-    Scaling?: AnimVector;
 }
 
 export interface Helper extends Node {
-    Translation?: AnimVector;
-    Rotation?: AnimVector;
-    Scaling?: AnimVector;
 }
 
 export interface Attachment extends Node {
+    Path?: string;
     AttachmentID?: number;
     Visibility?: AnimVector;
 }
@@ -117,8 +163,13 @@ export interface EventObject extends Node {
     EventTrack: Uint32Array;
 }
 
+export enum CollisionShapeType {
+    Box = 0,
+    Sphere = 2
+}
+
 export interface CollisionShape extends Node {
-    Shape: 'Box' | 'Sphere';
+    Shape: CollisionShapeType;
     Vertices: Float32Array;
     BoundsRadius?: number;
 }
@@ -179,7 +230,7 @@ export interface Camera {
 
 export interface Model {
     Version: number;
-    Info: any;
+    Info: ModelInfo;
     Sequences: {[key: string]: Sequence};
     Textures: Texture[];
     Materials: Material[];
@@ -190,8 +241,8 @@ export interface Model {
     Attachments: {[key: string]: Attachment};
     Nodes: Node[];
     PivotPoints: Float32Array[];
-    EventObjects: EventObject[];
-    CollisionShapes: CollisionShape[];
+    EventObjects: {[key: string]: EventObject};
+    CollisionShapes: {[key: string]: CollisionShape};
     GlobalSequences?: GlobalSequences;
     ParticleEmitters2?: ParticleEmitter2[];
     Cameras?: Camera[];

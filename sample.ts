@@ -1,6 +1,7 @@
-import {parse} from './parsers/mdl';
+import {parse as parseMdl} from './parsers/mdl';
+import {parse as parseMdx} from './parsers/mdx';
 import {vec3, mat4, quat} from 'gl-matrix';
-import {Model, Sequence, AnimVector, Layer} from './model';
+import {Model, Sequence, AnimVector, Layer, FilterMode, LayerShading, LineType} from './model';
 
 let model: Model;
 let canvas: HTMLCanvasElement;
@@ -28,7 +29,7 @@ let rootNode: any = {
 let nodes: any = {};
 let geosetAlpha: any = {};
 let animation = 'Walk Defend';
-let frame;
+let frm;
 let animationInfo: Sequence;
 let teamColor = vec3.fromValues(1, 0, 0);
 
@@ -72,9 +73,13 @@ function mat4fromRotationOrigin (out: mat4, rotation: quat, origin: vec3): mat4 
     return out;
 }
 
-function processModel () {
+function createModelHelpers () {
     animationInfo = model.Sequences[animation];
-    frame = animationInfo.Interval[0];
+    if (animationInfo) {
+        frm = animationInfo.Interval[0];
+    } else {
+        frm = 0;
+    }
 
     for (let node of model.Nodes) {
         nodes[node.ObjectId] = {
@@ -101,15 +106,15 @@ function updateModel () {
     // delta /= 10;
     start = Date.now();
 
-    frame += delta;
-    if (frame > animationInfo.Interval[1]) {
-        frame = animationInfo.Interval[0];
+    frm += delta;
+    if (frm > animationInfo.Interval[1]) {
+        frm = animationInfo.Interval[0];
     }
 
-    updateNode(rootNode, frame);
+    updateNode(rootNode, frm);
 
     for (let i = 0; i < model.Geosets.length; ++i) {
-        geosetAlpha[i] = findAlpha(i, frame, animationInfo.Interval);
+        geosetAlpha[i] = findAlpha(i, frm, animationInfo.Interval);
     }
 }
 
@@ -173,7 +178,7 @@ function interpNum (animVector: AnimVector, frame: number, interval: Uint32Array
 
     let t = (frame - left.Frame) / (right.Frame - left.Frame);
 
-    if (animVector.LineType === 'DontInterp') {
+    if (animVector.LineType === LineType.DontInterp) {
         return right.Vector[1];
     // } else if (animVector.LineType === 'Bezier') {
     //     return vec3.bezier(out, left.Vector, left.OutTan, right.InTan, right.Vector, t);
@@ -197,11 +202,11 @@ function interpVec3 (out: vec3, animVector: AnimVector, frame: number, interval:
 
     let t = (frame - left.Frame) / (right.Frame - left.Frame);
 
-    if (animVector.LineType === 'DontInterp') {
+    if (animVector.LineType === LineType.DontInterp) {
         return <vec3> left.Vector;
-    } else if (animVector.LineType === 'Bezier') {
+    } else if (animVector.LineType === LineType.Bezier) {
         return vec3.bezier(out, <vec3> left.Vector, <vec3> left.OutTan, <vec3> right.InTan, <vec3> right.Vector, t);
-    } else if (animVector.LineType === 'Hermite') {
+    } else if (animVector.LineType === LineType.Hermite) {
         return vec3.hermite(out, <vec3> left.Vector, <vec3> left.OutTan, <vec3> right.InTan, <vec3> right.Vector, t);
     } else {
         return vec3.lerp(out, <vec3> left.Vector, <vec3> right.Vector, t);
@@ -220,9 +225,9 @@ function interpQuat (out: quat, animVector: AnimVector, frame: number, interval:
 
     let t = (frame - left.Frame) / (right.Frame - left.Frame);
 
-    if (animVector.LineType === 'DontInterp') {
+    if (animVector.LineType === LineType.DontInterp) {
         return <quat> left.Vector;
-    } else if (animVector.LineType === 'Bezier' || animVector.LineType === 'Hermite') {
+    } else if (animVector.LineType === LineType.Hermite || animVector.LineType === LineType.Bezier) {
         return quat.sqlerp(out, <quat> left.Vector, <quat> left.OutTan, <quat> right.InTan, <quat> right.Vector, t);
     } else {
         return quat.slerp(out, <quat> left.Vector, <quat> right.Vector, t);
@@ -257,7 +262,7 @@ function updateNode (node, frame) {
         );
     }
 
-    if (node.node.Parent !== undefined) {
+    if (node.node.Parent) {
         mat4.mul(node.matrix, nodes[node.node.Parent].matrix, node.matrix);
     }
 
@@ -286,51 +291,52 @@ function findAlpha (geosetId: number, frame: number, interval: Uint32Array): num
 }
 
 function initLayer (layer: Layer) {
-    let texture = model.Textures[layer.TextureID];
+    // todo TextureID animation
+    let texture = model.Textures[<number> layer.TextureID];
 
-    if (layer.TwoSided) {
+    if (layer.Shading === LayerShading.TwoSided) {
         gl.disable(gl.CULL_FACE);
     } else {
         gl.enable(gl.CULL_FACE);
     }
 
-    if (layer.FilterMode === 'Transparent') {
+    if (layer.FilterMode === FilterMode.Transparent) {
         gl.uniform1f(shaderProgramLocations.discardAlphaLevelUniform, 0.75);
     } else {
         gl.uniform1f(shaderProgramLocations.discardAlphaLevelUniform, 0.);
     }
 
-    if (layer.FilterMode === 'None') {
+    if (layer.FilterMode === FilterMode.None) {
         gl.disable(gl.BLEND);
         gl.enable(gl.DEPTH_TEST);
         // gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
         gl.depthMask(true);
-    } else if (layer.FilterMode === 'Transparent') {
+    } else if (layer.FilterMode === FilterMode.Transparent) {
         gl.enable(gl.BLEND);
         gl.enable(gl.DEPTH_TEST);
         gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
         gl.depthMask(true);
-    } else if (layer.FilterMode === 'Blend') {
+    } else if (layer.FilterMode === FilterMode.Blend) {
         gl.enable(gl.BLEND);
         gl.enable(gl.DEPTH_TEST);
         gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
         gl.depthMask(false);
-    } else if (layer.FilterMode === 'Additive') {
+    } else if (layer.FilterMode === FilterMode.Additive) {
         gl.enable(gl.BLEND);
         gl.enable(gl.DEPTH_TEST);
         gl.blendFunc(gl.SRC_COLOR, gl.ONE);
         gl.depthMask(false);
-    } else if (layer.FilterMode === 'AddAlpha') {
+    } else if (layer.FilterMode === FilterMode.AddAlpha) {
         gl.enable(gl.BLEND);
         gl.enable(gl.DEPTH_TEST);
         gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
         gl.depthMask(false);
-    } else if (layer.FilterMode === 'Modulate') {
+    } else if (layer.FilterMode === FilterMode.Modulate) {
         gl.enable(gl.BLEND);
         gl.enable(gl.DEPTH_TEST);
         gl.blendFunc(gl.ZERO, gl.SRC_COLOR);
         gl.depthMask(false);
-    } else if (layer.FilterMode === 'Modulate2x') {
+    } else if (layer.FilterMode === FilterMode.Modulate2x) {
         gl.enable(gl.BLEND);
         gl.enable(gl.DEPTH_TEST);
         gl.blendFunc(gl.DST_COLOR, gl.SRC_COLOR);
@@ -347,10 +353,10 @@ function initLayer (layer: Layer) {
         gl.uniform1f(shaderProgramLocations.replaceableTypeUniform, texture.ReplaceableId);
     }
 
-    if (layer.NoDepthTest) {
+    if (layer.Shading === LayerShading.NoDepthTest) {
         gl.disable(gl.DEPTH_TEST);
     }
-    if (layer.NoDepthSet) {
+    if (layer.Shading === LayerShading.NoDepthSet) {
         gl.depthMask(false);
     }
 }
@@ -493,7 +499,8 @@ function drawScene () {
     mat4.identity(mvMatrix);
     mat4.translate(mvMatrix, mvMatrix, [0.0, -50.0, -400.0]);
     mat4.rotateX(mvMatrix, mvMatrix, -Math.PI / 3);
-    mat4.rotateZ(mvMatrix, mvMatrix, window.angle || 0);
+    // tslint:disable-next-line
+    mat4.rotateZ(mvMatrix, mvMatrix, window['angle'] || 0);
 
     gl.uniformMatrix4fv(shaderProgramLocations.pMatrixUniform, false, pMatrix);
     gl.uniformMatrix4fv(shaderProgramLocations.mvMatrixUniform, false, mvMatrix);
@@ -562,12 +569,18 @@ function loadTexture (src) {
     modelTextureImages[src].src = src;
 }
 
-function parseModel (responseText: string) {
-    model = parse(responseText);
+function parseModel(isBinary: boolean, xhr: XMLHttpRequest): Model {
+    if (isBinary) {
+        return parseMdx(<ArrayBuffer> xhr.response);
+    } else {
+        return parseMdl(xhr.responseText);
+    }
+}
 
+function processModelLoading() {
     console.log(model);
 
-    processModel();
+    createModelHelpers();
 
     initGL();
     for (let texture of model.Textures) {
@@ -580,11 +593,18 @@ function parseModel (responseText: string) {
 
 function loadModel () {
     const xhr = new XMLHttpRequest();
+    const file = 'Footman.mdl';
+    const isBinary = file.indexOf('.mdx') > -1;
 
-    xhr.open('GET', 'Footman.mdl', true);
+    if (isBinary) {
+        xhr.responseType = 'arraybuffer';
+    }
+
+    xhr.open('GET', file, true);
     xhr.onreadystatechange = () => {
         if (xhr.status === 200 && xhr.readyState === XMLHttpRequest.DONE) {
-            parseModel(xhr.responseText);
+            model = parseModel(isBinary, xhr);
+            processModelLoading();
         }
     };
     xhr.send();

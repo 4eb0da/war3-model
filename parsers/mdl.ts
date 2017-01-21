@@ -1,6 +1,7 @@
 import {
     Model, Layer, GeosetAnim, AnimVector, LineType, AnimKeyframe, Node,
-    CollisionShape, ParticleEmitter2, Camera
+    CollisionShape, ParticleEmitter2, Camera, MaterialRenderMode, FilterMode, LayerShading, TextureFlags,
+    GeosetAnimFlags, NodeFlags, CollisionShapeType
 } from '../model';
 
 class State {
@@ -198,11 +199,11 @@ function parseVersion (state: State, model: Model): void {
     }
 }
 
-function parseModel (state: State, model: Model): void {
+function parseModelInfo (state: State, model: Model): void {
     const [name, obj] = parseObject(state);
 
     model.Info = obj;
-    model.Info.name = name;
+    model.Info.Name = <string> name;
 }
 
 function parseSequences (state: State, model: Model): void {
@@ -237,8 +238,13 @@ function parseTextures (state: State, model: Model): void {
         parseKeyword(state); // Bitmap
 
         const [unused, obj] = parseObject(state);
-        obj.WrapWidth = 'WrapWidth' in obj;
-        obj.WrapHeight = 'WrapHeight' in obj;
+        obj.Flags = 0;
+        if ('WrapWidth' in obj) {
+            obj.Flags += TextureFlags.WrapWidth;
+        }
+        if ('WrapHeight' in obj) {
+            obj.Flags += TextureFlags.WrapHeight;
+        }
 
         res.push(obj);
     }
@@ -258,7 +264,7 @@ function parseAnimKeyframe (state: State, frame: number, itemCount: number, line
 
     strictParseSymbol(state, ',');
 
-    if (lineType === 'Bezier' || lineType === 'Hermite') {
+    if (lineType === LineType.Hermite || lineType === LineType.Bezier) {
         parseKeyword(state); // InTan
         res.InTan = parseArrayOrSingleItem(state, new Float32Array(itemCount));
         strictParseSymbol(state, ',');
@@ -273,7 +279,7 @@ function parseAnimKeyframe (state: State, frame: number, itemCount: number, line
 
 function parseAnimVector (state: State, itemCount: number): AnimVector {
     let animVector: AnimVector = {
-        LineType: 'Linear',
+        LineType: LineType.DontInterp,
         Keys: []
     };
 
@@ -282,15 +288,8 @@ function parseAnimVector (state: State, itemCount: number): AnimVector {
     strictParseSymbol(state, '{');
 
     let lineType: string = parseKeyword(state);
-    // string enum :(
-    if (lineType === 'DontInterp') {
-        animVector.LineType = 'DontInterp';
-    } else if (lineType === 'Linear') {
-        animVector.LineType = 'Linear';
-    } else if (lineType === 'Bezier') {
-        animVector.LineType = 'Bezier';
-    } else if (lineType === 'Hermite') {
-        animVector.LineType = 'Hermite';
+    if (lineType === 'DontInterp' || lineType === 'Linear' || lineType === 'Hermite' || lineType === 'Bezier') {
+        animVector.LineType = LineType[lineType];
     }
 
     strictParseSymbol(state, ',');
@@ -315,7 +314,9 @@ function parseAnimVector (state: State, itemCount: number): AnimVector {
 }
 
 function parseLayer (state: State): Layer {
-    let res: Layer = {};
+    let res: Layer = {
+        Shading: 0
+    };
 
     strictParseSymbol(state, '{');
 
@@ -331,8 +332,17 @@ function parseLayer (state: State): Layer {
         if (keyword === 'Alpha' && !isStatic) {
             res.Alpha = parseAnimVector(state, 1);
         } else if (keyword === 'Unshaded' || keyword === 'SphereEnvMap' || keyword === 'TwoSided' ||
-            keyword === 'Unfogged' || keyword === 'NoDepthTest' || keyword === 'NoDepthSet') {
-            res[keyword] = true;
+            keyword === 'Unfogged2' || keyword === 'NoDepthTest' || keyword === 'NoDepthSet') {
+            res.Shading |= LayerShading[keyword];
+        } else if (keyword === 'FilterMode') {
+            let val = parseKeyword(state);
+
+            if (val === 'None' || val === 'Transparent' || val === 'Blend' || val === 'Additive' ||
+                val === 'AddAlpha' || val === 'Modulate' || val === 'Modulate2x') {
+                res.FilterMode = FilterMode[val];
+            }
+        } else if (keyword === 'TVertexAnimId') {
+            res.TVertexAnimId = parseNumber(state);
         } else {
             let val: string|number = parseNumber(state);
 
@@ -360,6 +370,7 @@ function parseMaterials (state: State, model: Model): void {
 
     while (state.char() !== '}') {
         let obj = {
+            RenderMode: 0,
             Layers: []
         };
 
@@ -374,8 +385,10 @@ function parseMaterials (state: State, model: Model): void {
                 obj.Layers.push(parseLayer(state));
             } else if (keyword === 'PriorityPlane') {
                 obj[keyword] = parseNumber(state);
+            } else if (keyword === 'ConstantColor' || keyword === 'SortPrimsFarZ' || keyword === 'FullResolution') {
+                obj.RenderMode |= MaterialRenderMode[keyword];
             } else {
-                obj[keyword] = true;
+                throw new Error('Unknown material property ' + keyword);
             }
         }
 
@@ -494,18 +507,38 @@ function parseGeoset (state: State, model: Model): void {
 function parseGeosetAnim (state: State, model: Model) {
     let res: GeosetAnim = {
         GeosetId: -1,
-        Alpha: null
+        Alpha: null,
+        Color: null,
+        Flags: 0
     };
 
     strictParseSymbol(state, '{');
 
     while (state.char() !== '}') {
-        const keyword = parseKeyword(state);
+        let isStatic = false;
+        let keyword = parseKeyword(state);
+
+        if (keyword === 'static') {
+            isStatic = true;
+            keyword = parseKeyword(state);
+        }
 
         if (keyword === 'Alpha') {
-            res.Alpha = parseAnimVector(state, 1);
+            if (isStatic) {
+                res.Alpha = parseNumber(state);
+            } else {
+                res.Alpha = parseAnimVector(state, 1);
+            }
+        } else if (keyword === 'Color') {
+            // todo inverse color order
+            if (isStatic) {
+                let array = new Float32Array(3);
+                res.Color = <Float32Array> parseArray(state, array, 0);
+            } else {
+                res.Color = parseAnimVector(state, 3);
+            }
         } else if (keyword === 'DropShadow') {
-            res.DropShadow = true;
+            res.Flags |= GeosetAnimFlags[keyword];
         } else {
             res[keyword] = parseNumber(state);
         }
@@ -525,7 +558,8 @@ function parseNode (state: State, type: string, model: Model): Node {
         Type: type,
         Name: name,
         ObjectId: null,
-        PivotPoint: null
+        PivotPoint: null,
+        Flags: 0
     };
 
     strictParseSymbol(state, '{');
@@ -543,18 +577,18 @@ function parseNode (state: State, type: string, model: Model): Node {
             node[keyword] = parseAnimVector(state, itemCount);
         } else if (keyword === 'BillboardedLockZ' || keyword === 'BillboardedLockY' || keyword === 'BillboardedLockX' ||
             keyword === 'Billboarded' || keyword === 'CameraAnchored') {
-            node[keyword] = true;
+            node.Flags |= NodeFlags[keyword];
         } else if (keyword === 'DontInherit') {
             strictParseSymbol(state, '{');
 
             let val = parseKeyword(state);
 
             if (val === 'Translation') {
-                node.DontInheritTranslation = true;
+                node.Flags |= NodeFlags.DontInheritTranslation;
             } else if (val === 'Rotation') {
-                node.DontInheritRotation = true;
+                node.Flags |= NodeFlags.DontInheritRotation;
             } else if (val === 'Scaling') {
-                node.DontInheritScaling = true;
+                node.Flags |= NodeFlags.DontInheritScaling;
             }
 
             strictParseSymbol(state, '}');
@@ -622,7 +656,8 @@ function parseEventObject (state: State, model: Model) {
         Name: name,
         ObjectId: null,
         PivotPoint: null,
-        EventTrack: null
+        EventTrack: null,
+        Flags: 0
     };
 
     strictParseSymbol(state, '{');
@@ -643,7 +678,7 @@ function parseEventObject (state: State, model: Model) {
 
     strictParseSymbol(state, '}');
 
-    model.EventObjects.push(res);
+    model.EventObjects[res.Name] = res;
     model.Nodes.push(res);
 }
 
@@ -655,8 +690,9 @@ function parseCollisionShape (state: State, model: Model) {
         Name: name,
         ObjectId: null,
         PivotPoint: null,
-        Shape: 'Box',
-        Vertices: null
+        Shape: CollisionShapeType.Box,
+        Vertices: null,
+        Flags: 0
     };
 
     strictParseSymbol(state, '{');
@@ -665,9 +701,9 @@ function parseCollisionShape (state: State, model: Model) {
         const keyword = parseKeyword(state);
 
         if (keyword === 'Sphere') {
-            res.Shape = 'Sphere';
+            res.Shape = CollisionShapeType.Sphere;
         } else if (keyword === 'Box') {
-            res.Shape = 'Box';
+            res.Shape = CollisionShapeType.Box;
         } else if (keyword === 'Vertices') {
             let count = parseNumber(state);
             let vertices = new Float32Array(count * 3);
@@ -691,7 +727,7 @@ function parseCollisionShape (state: State, model: Model) {
 
     strictParseSymbol(state, '}');
 
-    model.CollisionShapes.push(res);
+    model.CollisionShapes[res.Name] = res;
     model.Nodes.push(res);
 }
 
@@ -744,7 +780,8 @@ function parseParticleEmitter2 (state: State, model: Model) {
         Type: 'ParticleEmitter2',
         Name: name,
         ObjectId: null,
-        PivotPoint: null
+        PivotPoint: null,
+        Flags: 0
     };
 
     strictParseSymbol(state, '{');
@@ -796,21 +833,10 @@ function parseParticleEmitter2 (state: State, model: Model) {
             res.SegmentColor = colors;
         } else if (keyword === 'Alpha' || keyword === 'ParticleScaling' || keyword === 'LifeSpanUVAnim' ||
                 keyword === 'DecayUVAnim' || keyword === 'TailUVAnim' || keyword === 'TailDecayUVAnim') {
-            res[keyword] = parseArray(state);
-        } else if (keyword === 'Transparent') {
-            res.FilterMode = 'Transparent';
-        } else if (keyword === 'Blend') {
-            res.FilterMode = 'Blend';
-        } else if (keyword === 'Additive') {
-            res.FilterMode = 'Additive';
-        } else if (keyword === 'AddAlpha') {
-            res.FilterMode = 'AddAlpha';
-        } else if (keyword === 'AddAlpha') {
-            res.FilterMode = 'AddAlpha';
-        } else if (keyword === 'Modulate') {
-            res.FilterMode = 'Modulate';
-        } else if (keyword === 'Modulate2x') {
-            res.FilterMode = 'Modulate2x';
+            res[keyword] = <number[]> parseArray(state);
+        } else if (keyword === 'Transparent' || keyword === 'Blend' || keyword === 'Additive' ||
+                keyword === 'AddAlpha' || keyword === 'Modulate' || keyword === 'Modulate2x') {
+            res.FilterMode = FilterMode[keyword];
         } else {
             res[keyword] = parseNumber(state);
         }
@@ -881,7 +907,7 @@ function parseCamera (state: State, model: Model) {
 
 const parsers = {
     Version: parseVersion,
-    Model: parseModel,
+    Model: parseModelInfo,
     Sequences: parseSequences,
     Textures: parseTextures,
     Materials: parseMaterials,
@@ -901,7 +927,13 @@ const parsers = {
 export function parse (str: string): Model {
     const state = new State(str);
     let model = {
-        Info: {},
+        Info: {
+            Name: '',
+            MinimumExtent: null,
+            MaximumExtent: null,
+            BoundsRadius: 0,
+            BlendTime: 150
+        },
         Sequences: {},
         Textures: [],
         Materials: [],
@@ -912,8 +944,8 @@ export function parse (str: string): Model {
         Attachments: {},
         Nodes: [],
         PivotPoints: [],
-        EventObjects: [],
-        CollisionShapes: [],
+        EventObjects: {},
+        CollisionShapes: {},
         ParticleEmitters2: [],
         Cameras: [],
         // default
