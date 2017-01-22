@@ -1,7 +1,7 @@
 import {
     Model, Layer, GeosetAnim, AnimVector, LineType, AnimKeyframe, Node,
     CollisionShape, ParticleEmitter2, Camera, MaterialRenderMode, FilterMode, LayerShading, TextureFlags,
-    GeosetAnimFlags, NodeFlags, CollisionShapeType
+    GeosetAnimFlags, NodeFlags, CollisionShapeType, ParticleEmitter2Flags, ParticleEmitter2FramesFlags
 } from '../model';
 
 class State {
@@ -732,9 +732,7 @@ function parseCollisionShape (state: State, model: Model) {
 }
 
 function parseGlobalSequences (state: State, model: Model) {
-    let res = {
-        Duration: null
-    };
+    let res = [];
 
     let count = parseNumber(state);
 
@@ -744,7 +742,7 @@ function parseGlobalSequences (state: State, model: Model) {
         const keyword = parseKeyword(state);
 
         if (keyword === 'Duration') {
-            res.Duration = parseNumber(state);
+            res.push(parseNumber(state));
         }
         parseSymbol(state, ',');
     }
@@ -781,7 +779,8 @@ function parseParticleEmitter2 (state: State, model: Model) {
         Name: name,
         ObjectId: null,
         PivotPoint: null,
-        Flags: 0
+        Flags: 0,
+        FrameFlags: 0
     };
 
     strictParseSymbol(state, '{');
@@ -816,8 +815,11 @@ function parseParticleEmitter2 (state: State, model: Model) {
             }
             res[keyword] = parseAnimVector(state, itemCount);
         } else if (keyword === 'SortPrimsFarZ' || keyword === 'Unshaded' || keyword === 'LineEmitter' ||
-            keyword === 'Unfogged' || keyword === 'ModelSpace' || keyword === 'XYQuad' || keyword === 'Squirt' ||
-            keyword === 'Head' || keyword === 'Tail') {
+            keyword === 'Unfogged' || keyword === 'ModelSpace' || keyword === 'XYQuad') {
+            res.Flags |= ParticleEmitter2Flags[keyword];
+        } else if (keyword === 'Head' || keyword === 'Tail') {
+            res.FrameFlags |= ParticleEmitter2FramesFlags[keyword];
+        } else if (keyword === 'Squirt') {
             res[keyword] = true;
         } else if (keyword === 'SegmentColor') {
             let colors = [];
@@ -825,17 +827,33 @@ function parseParticleEmitter2 (state: State, model: Model) {
             strictParseSymbol(state, '{');
             while (state.char() !== '}') {
                 parseKeyword(state); // Color
-                colors.push(parseArray(state));
+
+                let colorArr = new Float32Array(3);
+                parseArray(state, colorArr, 0);
+
+                // bgr order, inverse from mdx
+                let temp = colorArr[0];
+                colorArr[0] = colorArr[2];
+                colorArr[2] = temp;
+                colors.push(colorArr);
+
                 parseSymbol(state, ',');
             }
             strictParseSymbol(state, '}');
 
             res.SegmentColor = colors;
-        } else if (keyword === 'Alpha' || keyword === 'ParticleScaling' || keyword === 'LifeSpanUVAnim' ||
-                keyword === 'DecayUVAnim' || keyword === 'TailUVAnim' || keyword === 'TailDecayUVAnim') {
-            res[keyword] = <number[]> parseArray(state);
+        } else if (keyword === 'Alpha') {
+            res.Alpha = new Uint8Array(3);
+            parseArray(state, res.Alpha, 0);
+        } else if (keyword === 'ParticleScaling') {
+            res[keyword] = new Float32Array(3);
+            parseArray(state, res[keyword], 0);
+        } else if (keyword === 'LifeSpanUVAnim' || keyword === 'DecayUVAnim' || keyword === 'TailUVAnim' ||
+                keyword === 'TailDecayUVAnim') {
+            res[keyword] = new Uint32Array(3);
+            parseArray(state, res[keyword], 0);
         } else if (keyword === 'Transparent' || keyword === 'Blend' || keyword === 'Additive' ||
-                keyword === 'AddAlpha' || keyword === 'Modulate' || keyword === 'Modulate2x') {
+                keyword === 'AlphaKey' || keyword === 'Modulate' || keyword === 'Modulate2x') {
             res.FilterMode = FilterMode[keyword];
         } else {
             res[keyword] = parseNumber(state);
@@ -846,7 +864,7 @@ function parseParticleEmitter2 (state: State, model: Model) {
 
     strictParseSymbol(state, '}');
 
-    model.ParticleEmitters2.push(res);
+    model.ParticleEmitters2[res.Name] = res;
     model.Nodes.push(res);
 }
 
@@ -857,7 +875,7 @@ function parseCamera (state: State, model: Model) {
         FieldOfView: 0,
         NearClip: 0,
         FarClip: 0,
-        Target: null
+        TargetPosition: null
     };
 
     res.Name = parseString(state);
@@ -873,20 +891,16 @@ function parseCamera (state: State, model: Model) {
         } else if (keyword === 'FieldOfView' || keyword === 'NearClip' || keyword === 'FarClip') {
             res[keyword] = parseNumber(state);
         } else if (keyword === 'Target') {
-            res.Target = {
-                Position: null
-            };
-
             strictParseSymbol(state, '{');
 
             while (state.char() !== '}') {
                 const keyword2 = parseKeyword(state);
 
                 if (keyword2 === 'Position') {
-                    res.Target.Position = new Float32Array(3);
-                    parseArray(state, res.Target.Position, 0);
+                    res.TargetPosition = new Float32Array(3);
+                    parseArray(state, res.TargetPosition, 0);
                 } else if (keyword2 === 'Translation') {
-                    res.Target.Translation = parseAnimVector(state, 3);
+                    res.TargetTranslation = parseAnimVector(state, 3);
                 }
 
                 parseSymbol(state, ',');
@@ -946,7 +960,7 @@ export function parse (str: string): Model {
         PivotPoints: [],
         EventObjects: {},
         CollisionShapes: {},
-        ParticleEmitters2: [],
+        ParticleEmitters2: {},
         Cameras: [],
         // default
         Version: 800

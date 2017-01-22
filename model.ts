@@ -132,6 +132,17 @@ export enum NodeFlags {
     CameraAnchored = 128
 }
 
+export enum NodeType {
+    Helper = 0,
+    Bone = 256,
+    Light = 512,
+    EventObject = 1024,
+    Attachment = 2048,
+    ParticleEmitter = 4096,
+    CollisionShape = 8192,
+    RibbonEmitter = 16384
+}
+
 export interface Node {
     Type: string;
     Name: string;
@@ -174,13 +185,30 @@ export interface CollisionShape extends Node {
     BoundsRadius?: number;
 }
 
+export enum ParticleEmitter2Flags {
+    Unshaded = 32768,
+    SortPrimsFarZ = 65536,
+    LineEmitter = 131072,
+    Unfogged = 262144,
+    ModelSpace = 524288,
+    XYQuad = 1048576
+}
+
+export enum ParticleEmitter2FilterMode {
+    Blend = 0,
+    Additive = 1,
+    Modulate = 2,
+    Modulate2x = 3,
+    AlphaKey = 4
+}
+
+// Not actually mapped to mdx flags (0: Head, 1: Tail, 2: Both)
+export enum ParticleEmitter2FramesFlags {
+    Head = 1,
+    Tail = 2
+}
+
 export interface ParticleEmitter2 extends Node {
-    SortPrimsFarZ?: boolean;
-    Unshaded?: boolean;
-    LineEmitter?: boolean;
-    Unfogged?: boolean;
-    ModelSpace?: boolean;
-    XYQuad?: boolean;
     Speed?: AnimVector|number;
     Variation?: AnimVector|number;
     Latitude?: AnimVector|number;
@@ -191,27 +219,22 @@ export interface ParticleEmitter2 extends Node {
     EmissionRate?: AnimVector|number;
     Width?: AnimVector|number;
     Length?: AnimVector|number;
-    FilterMode?: FilterMode;
+    FilterMode?: ParticleEmitter2FilterMode;
     Rows?: number;
     Columns?: number;
-    Head?: boolean;
-    Tail?: boolean;
+    FrameFlags: number;
     TailLength?: number;
     Time?: number;
-    SegmentColor?: number[][];
-    Alpha?: number[];
-    ParticleScaling?: number[];
-    LifeSpanUVAnim?: number[];
-    DecayUVAnim?: number[];
-    TailUVAnim?: number[];
-    TailDecayUVAnim?: number[];
+    SegmentColor?: Float32Array[];
+    Alpha?: Uint8Array;
+    ParticleScaling?: Float32Array;
+    LifeSpanUVAnim?: Uint32Array;
+    DecayUVAnim?: Uint32Array;
+    TailUVAnim?: Uint32Array;
+    TailDecayUVAnim?: Uint32Array;
     TextureID?: number;
     ReplaceableId?: number;
     PriorityPlane?: number;
-}
-
-export interface GlobalSequences {
-    Duration: number;
 }
 
 export interface Camera {
@@ -220,10 +243,8 @@ export interface Camera {
     FieldOfView: number;
     NearClip: number;
     FarClip: number;
-    Target: {
-        Position: Float32Array;
-        Translation?: AnimVector;
-    };
+    TargetPosition: Float32Array;
+    TargetTranslation?: AnimVector;
     Translation?: AnimVector;
     Rotation?: AnimVector;
 }
@@ -243,7 +264,7 @@ export interface Model {
     PivotPoints: Float32Array[];
     EventObjects: {[key: string]: EventObject};
     CollisionShapes: {[key: string]: CollisionShape};
-    GlobalSequences?: GlobalSequences;
-    ParticleEmitters2?: ParticleEmitter2[];
+    GlobalSequences?: number[];
+    ParticleEmitters2?: {[key: string]: ParticleEmitter2};
     Cameras?: Camera[];
 }

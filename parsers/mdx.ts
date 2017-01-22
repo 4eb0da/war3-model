@@ -1,6 +1,7 @@
 import {
     Model, Sequence, Material, Layer, AnimVector, AnimKeyframe, LineType, Texture, Geoset,
-    GeosetAnimInfo, GeosetAnim, Node, Bone, Helper, Attachment, EventObject, CollisionShape, CollisionShapeType
+    GeosetAnimInfo, GeosetAnim, Node, Bone, Helper, Attachment, EventObject, CollisionShape, CollisionShapeType,
+    ParticleEmitter2, ParticleEmitter2FramesFlags, Camera
 } from '../model';
 
 const BIG_ENDIAN = true;
@@ -384,7 +385,7 @@ function parseGeosetAnims (model: Model, state: State, size: number): void {
         geosetAnim.Color[1] = state.float32() || 1;
         geosetAnim.Color[0] = state.float32() || 1;
         geosetAnim.GeosetId = state.int32();
-        if (geosetAnim.GeosetId === -1) {
+        if (geosetAnim.GeosetId === NONE) {
             geosetAnim.GeosetId = null;
         }
 
@@ -412,11 +413,11 @@ function parseNode (model: Model, node: Node, state: State): void {
 
     node.Name = state.str(MODEL_NODE_NAME_LENGTH);
     node.ObjectId = state.int32();
-    if (node.ObjectId === -1) {
+    if (node.ObjectId === NONE) {
         node.ObjectId = null;
     }
     node.Parent = state.int32();
-    if (node.Parent === -1) {
+    if (node.Parent === NONE) {
         node.Parent = null;
     }
     node.Flags = state.int32();
@@ -447,11 +448,11 @@ function parseBones (model: Model, state: State, size: number): void {
         parseNode(model, bone, state);
 
         bone.GeosetId = state.int32();
-        if (bone.GeosetId === -1) {
+        if (bone.GeosetId === NONE) {
             bone.GeosetId = null;
         }
         bone.GeosetAnimId = state.int32();
-        if (bone.GeosetAnimId === -1) {
+        if (bone.GeosetAnimId === NONE) {
             bone.GeosetAnimId = null;
         }
 
@@ -555,6 +556,152 @@ function parseCollisionShapes (model: Model, state: State, size: number): void {
     }
 }
 
+function parseGlobalSequences (model: Model, state: State, size: number): void {
+    let startPos = state.pos;
+
+    model.GlobalSequences = [];
+
+    while (state.pos < startPos + size) {
+        model.GlobalSequences.push(state.int32());
+    }
+}
+
+function parseParticleEmitters2 (model: Model, state: State, size: number): void {
+    let startPos = state.pos;
+
+    while (state.pos < startPos + size) {
+        let emitterStart = state.pos;
+        let emitterSize = state.int32();
+        let emitter: ParticleEmitter2 = <ParticleEmitter2> {};
+
+        parseNode(model, emitter, state);
+
+        emitter.Speed = state.float32();
+        emitter.Variation = state.float32();
+        emitter.Latitude = state.float32();
+        emitter.Gravity = state.float32();
+        emitter.LifeSpan = state.float32();
+        emitter.EmissionRate = state.float32();
+        emitter.Length = state.float32();
+        emitter.Width = state.float32();
+
+        emitter.FilterMode = state.int32();
+        emitter.Rows = state.int32();
+        emitter.Columns = state.int32();
+
+        let frameFlags = state.int32();
+        emitter.FrameFlags = 0;
+        if (frameFlags === 0 || frameFlags === 2) {
+            emitter.FrameFlags |= ParticleEmitter2FramesFlags.Head;
+        }
+        if (frameFlags === 1 || frameFlags === 2) {
+            emitter.FrameFlags |= ParticleEmitter2FramesFlags.Tail;
+        }
+
+        emitter.TailLength = state.float32();
+        emitter.Time = state.float32();
+
+        emitter.SegmentColor = [];
+        // always 3 segments?
+        for (let i = 0; i < 3; ++i) {
+            emitter.SegmentColor[i] = new Float32Array(3);
+            //  rgb order, inverse from mdl
+            for (let j = 0; j < 3; ++j) {
+                emitter.SegmentColor[i][j] = state.float32();
+            }
+        }
+
+        emitter.Alpha = new Uint8Array(3);
+        for (let i = 0; i < 3; ++i) {
+            emitter.Alpha[i] = state.int8();
+        }
+
+        emitter.ParticleScaling = new Float32Array(3);
+        for (let i = 0; i < 3; ++i) {
+            emitter.ParticleScaling[i] = state.float32();
+        }
+
+        for (let part of ['LifeSpanUVAnim', 'DecayUVAnim', 'TailUVAnim', 'TailDecayUVAnim']) {
+            emitter[part] = new Uint32Array(3);
+            for (let i = 0; i < 3; ++i) {
+                emitter[part][i] = state.int32();
+            }
+        }
+
+        emitter.TextureID = state.int32();
+        if (emitter.TextureID === NONE) {
+            emitter.TextureID = null;
+        }
+        emitter.Squirt = state.int32() > 0;
+        emitter.PriorityPlane = state.int32();
+        emitter.ReplaceableId = state.int32();
+
+        while (state.pos < emitterStart + emitterSize) {
+            let keyword = state.keyword();
+
+            if (keyword === 'KP2V') {
+                emitter.Visibility = state.animVector(AnimVectorType.FLOAT1);
+            } else if (keyword === 'KP2E') {
+                emitter.EmissionRate = state.animVector(AnimVectorType.FLOAT1);
+            } else if (keyword === 'KP2W') {
+                emitter.Width = state.animVector(AnimVectorType.FLOAT1);
+            } else if (keyword === 'KP2N') {
+                emitter.Length = state.animVector(AnimVectorType.FLOAT1);
+            } else if (keyword === 'KP2S') {
+                emitter.Speed = state.animVector(AnimVectorType.FLOAT1);
+            } else {
+                throw new Error('Incorrect particle emitter2 chunk data ' + keyword);
+            }
+        }
+
+        model.ParticleEmitters2[emitter.Name] = emitter;
+    }
+}
+
+const MODEL_CAMERA_NAME_LENGTH = 0x50;
+function parseCameras (model: Model, state: State, size: number): void {
+    let startPos = state.pos;
+
+    while (state.pos < startPos + size) {
+        let cameraStart = state.pos;
+        let cameraSize = state.int32();
+
+        let camera: Camera = <Camera> {};
+
+        camera.Name = state.str(MODEL_CAMERA_NAME_LENGTH);
+
+        camera.Position = new Float32Array(3);
+        camera.Position[0] = state.float32();
+        camera.Position[1] = state.float32();
+        camera.Position[2] = state.float32();
+
+        camera.FieldOfView = state.float32();
+        camera.FarClip = state.float32();
+        camera.NearClip = state.float32();
+
+        camera.TargetPosition = new Float32Array(3);
+        camera.TargetPosition[0] = state.float32();
+        camera.TargetPosition[1] = state.float32();
+        camera.TargetPosition[2] = state.float32();
+
+        while (state.pos < cameraStart + cameraSize) {
+            let keyword = state.keyword();
+
+            if (keyword === 'KCTR') {
+                camera.Translation = state.animVector(AnimVectorType.FLOAT3);
+            } else if (keyword === 'KTTR') {
+                camera.TargetTranslation = state.animVector(AnimVectorType.FLOAT3);
+            } else if (keyword === 'KCRL') {
+                camera.Rotation = state.animVector(AnimVectorType.FLOAT1);
+            } else {
+                throw new Error('Incorrect camera chunk data ' + keyword);
+            }
+        }
+
+        model.Cameras.push(camera);
+    }
+}
+
 const parsers: {[key: string]: (model: Model, state: State, size: number) => void} = {
     VERS: parseVersion,
     MODL: parseModelInfo,
@@ -568,7 +715,10 @@ const parsers: {[key: string]: (model: Model, state: State, size: number) => voi
     ATCH: parseAttachments,
     PIVT: parsePivotPoints,
     EVTS: parseEventObjects,
-    CLID: parseCollisionShapes
+    CLID: parseCollisionShapes,
+    GLBS: parseGlobalSequences,
+    PRE2: parseParticleEmitters2,
+    CAMS: parseCameras
 };
 
 export function parse (arrayBuffer: ArrayBuffer): Model {
@@ -598,7 +748,7 @@ export function parse (arrayBuffer: ArrayBuffer): Model {
         PivotPoints: [],
         EventObjects: {},
         CollisionShapes: {},
-        ParticleEmitters2: [],
+        ParticleEmitters2: {},
         Cameras: [],
         // default
         Version: 800
