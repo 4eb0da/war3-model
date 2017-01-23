@@ -1,7 +1,7 @@
 import {parse as parseMdl} from './parsers/mdl';
 import {parse as parseMdx} from './parsers/mdx';
 import {vec3, mat4, quat} from 'gl-matrix';
-import {Model, Sequence, AnimVector, Layer, FilterMode, LayerShading, LineType} from './model';
+import {Model, Sequence, AnimVector, Layer, FilterMode, LayerShading, LineType, NodeFlags} from './model';
 
 let model: Model;
 let canvas: HTMLCanvasElement;
@@ -31,7 +31,16 @@ let geosetAlpha: any = {};
 let animation = 'Walk Defend';
 let frm;
 let animationInfo: Sequence;
-let teamColor = vec3.fromValues(1, 0, 0);
+let teamColor: vec3 = vec3.fromValues(1, 0, 0);
+
+let cameraBasePos: vec3 = vec3.fromValues(200, 0, 200);
+let cameraPos: vec3 = vec3.clone(cameraBasePos);
+let cameraTarget: vec3 = vec3.fromValues(0, 0, 50);
+let cameraUp: vec3 = vec3.fromValues(0, 0, 1);
+let cameraQuat: quat = quat.create();
+
+let rotateCenter: vec3 = vec3.fromValues(0, 0, 0);
+let fromCameraBaseVec: vec3 = vec3.fromValues(1, 0, 0);
 
 function mat4fromRotationOrigin (out: mat4, rotation: quat, origin: vec3): mat4 {
     let x = rotation[0], y = rotation[1], z = rotation[2], w = rotation[3],
@@ -242,6 +251,10 @@ let defaultTranslation = vec3.fromValues(0, 0, 0);
 let defaultRotation = quat.fromValues(0, 0, 0, 1);
 let defaultScaling = vec3.fromValues(1, 1, 1);
 
+let tempParentRotationQuat: quat = quat.create();
+let tempParentRotationMat: mat4 = mat4.create();
+let tempCameraMat: mat4 = mat4.create();
+
 function updateNode (node, frame) {
     let translationRes = interpVec3(translation, node.node.Translation, frame, animationInfo.Interval);
     let rotationRes = interpQuat(rotation, node.node.Rotation, frame, animationInfo.Interval);
@@ -264,6 +277,18 @@ function updateNode (node, frame) {
 
     if (node.node.Parent) {
         mat4.mul(node.matrix, nodes[node.node.Parent].matrix, node.matrix);
+    }
+
+    if (node.node.Flags & NodeFlags.Billboarded) {
+        if (node.node.Parent) {
+            // cancel parent rotation from PivotPoint
+            mat4.getRotation(tempParentRotationQuat, nodes[node.node.Parent].matrix);
+            mat4fromRotationOrigin(tempParentRotationMat, tempParentRotationQuat, node.node.PivotPoint);
+            mat4.mul(node.matrix, node.matrix, tempParentRotationMat);
+        }
+        // rotate to camera
+        mat4fromRotationOrigin(tempCameraMat, cameraQuat, node.node.PivotPoint);
+        mat4.mul(node.matrix, node.matrix, tempCameraMat);
     }
 
     for (let child of node.childs) {
@@ -496,11 +521,10 @@ function drawScene () {
 
     mat4.perspective(pMatrix, Math.PI / 4 , canvas.width / canvas.height, 0.1, 1000.0);
 
-    mat4.identity(mvMatrix);
-    mat4.translate(mvMatrix, mvMatrix, [0.0, -50.0, -400.0]);
-    mat4.rotateX(mvMatrix, mvMatrix, -Math.PI / 3);
     // tslint:disable-next-line
-    mat4.rotateZ(mvMatrix, mvMatrix, window['angle'] || 0);
+    mat4.lookAt(mvMatrix, vec3.rotateZ(cameraPos, cameraBasePos, rotateCenter, window['angle'] || 0), cameraTarget, cameraUp);
+    // calc quat for billboard bones
+    quat.rotationTo(cameraQuat, fromCameraBaseVec, vec3.normalize(cameraPos, cameraPos));
 
     gl.uniformMatrix4fv(shaderProgramLocations.pMatrixUniform, false, pMatrix);
     gl.uniformMatrix4fv(shaderProgramLocations.mvMatrixUniform, false, mvMatrix);
