@@ -27,10 +27,12 @@ let rootNode: any = {
 };
 
 let nodes: any = {};
+let geosetAnims: any = {};
 let geosetAlpha: any = {};
 let animation = 'Walk Defend';
-let frm;
 let animationInfo: Sequence;
+let frm;
+let globalSequencesFrames = [];
 let teamColor: vec3 = vec3.fromValues(1, 0, 0);
 
 let cameraBasePos: vec3 = vec3.fromValues(200, 0, 200);
@@ -104,33 +106,79 @@ function createModelHelpers () {
             nodes[node.Parent].childs.push(nodes[node.ObjectId]);
         }
     }
+
+    if (model.GlobalSequences) {
+        for (let i = 0; i < model.GlobalSequences.length; ++i) {
+            globalSequencesFrames[i] = 0;
+        }
+    }
+
+    for (let i = 0; i < model.GeosetAnims.length; ++i) {
+        geosetAnims[model.GeosetAnims[i].GeosetId] = model.GeosetAnims[i];
+    }
 }
 
 let start;
-function updateModel () {
+function updateModel (timestamp: number) {
     if (!start) {
-        start = Date.now();
+        start = timestamp;
     }
-    let delta = Date.now() - start;
+    let delta = timestamp - start;
     // delta /= 10;
-    start = Date.now();
+    start = timestamp;
 
     frm += delta;
     if (frm > animationInfo.Interval[1]) {
         frm = animationInfo.Interval[0];
+        resetGlobalSequences();
+    } else {
+        updateGlobalSequences(delta);
     }
 
     updateNode(rootNode, frm);
 
     for (let i = 0; i < model.Geosets.length; ++i) {
-        geosetAlpha[i] = findAlpha(i, frm, animationInfo.Interval);
+        geosetAlpha[i] = findAlpha(i);
     }
 }
 
-function findKeyframes (animVector: AnimVector, frame: number, interval: Uint32Array) {
+function updateGlobalSequences (delta) {
+    for (let i = 0; i < globalSequencesFrames.length; ++i) {
+        globalSequencesFrames[i] += delta;
+        if (globalSequencesFrames[i] > model.GlobalSequences[i]) {
+            globalSequencesFrames[i] = 0;
+        }
+    }
+}
+
+function resetGlobalSequences () {
+    for (let i = 0; i < globalSequencesFrames.length; ++i) {
+        globalSequencesFrames[i] = 0;
+    }
+}
+
+function findLocalFrame (animVector: AnimVector) {
+    if (typeof animVector.GlobalSeqId === 'number') {
+        return {
+            frame: globalSequencesFrames[animVector.GlobalSeqId],
+            from: 0,
+            to: model.GlobalSequences[animVector.GlobalSeqId]
+        };
+    } else {
+        return {
+            frame: frm,
+            from: animationInfo.Interval[0],
+            to: animationInfo.Interval[1]
+        };
+    }
+}
+
+function findKeyframes (animVector: AnimVector) {
     if (!animVector) {
         return null;
     }
+
+    let {frame, from, to} = findLocalFrame(animVector);
 
     let array = animVector.Keys;
     let first = 0;
@@ -140,14 +188,14 @@ function findKeyframes (animVector: AnimVector, frame: number, interval: Uint32A
         return null;
     }
 
-    if (array[0].Frame > interval[1]) {
+    if (array[0].Frame > to) {
         return null;
-    } else if (array[count - 1].Frame < interval[0]) {
+    } else if (array[count - 1].Frame < from) {
         return null;
     }
 
     while (count > 0) {
-        let step = Math.floor(count / 2);
+        let step = count >> 1;
         if (array[first + step].Frame <= frame) {
             first = first + step + 1;
             count -= step + 1;
@@ -159,24 +207,26 @@ function findKeyframes (animVector: AnimVector, frame: number, interval: Uint32A
     if (first === 0) {
         return null;
     }
-    if (first === array.length || array[first].Frame > interval[1]) {
+    if (first === array.length || array[first].Frame > to) {
         return {
+            frame,
             left: array[first - 1],
             right: array[first - 1]
         };
     }
-    if (array[first - 1].Frame < interval[0]) {
+    if (array[first - 1].Frame < from) {
         return null;
     }
 
     return {
+        frame,
         left: array[first - 1],
         right: array[first]
     };
 }
 
-function interpNum (animVector: AnimVector, frame: number, interval: Uint32Array): number|null {
-    let res = findKeyframes(animVector, frame, interval);
+function interpNum (animVector: AnimVector): number|null {
+    let res = findKeyframes(animVector);
     if (!res) {
         return null;
     }
@@ -185,7 +235,7 @@ function interpNum (animVector: AnimVector, frame: number, interval: Uint32Array
         return left.Vector[0];
     }
 
-    let t = (frame - left.Frame) / (right.Frame - left.Frame);
+    let t = (res.frame - left.Frame) / (right.Frame - left.Frame);
 
     if (animVector.LineType === LineType.DontInterp) {
         return right.Vector[1];
@@ -199,8 +249,8 @@ function interpNum (animVector: AnimVector, frame: number, interval: Uint32Array
     }
 }
 
-function interpVec3 (out: vec3, animVector: AnimVector, frame: number, interval: Uint32Array): vec3 {
-    let res = findKeyframes(animVector, frame, interval);
+function interpVec3 (out: vec3, animVector: AnimVector): vec3 {
+    let res = findKeyframes(animVector);
     if (!res) {
         return null;
     }
@@ -209,7 +259,7 @@ function interpVec3 (out: vec3, animVector: AnimVector, frame: number, interval:
         return <vec3> left.Vector;
     }
 
-    let t = (frame - left.Frame) / (right.Frame - left.Frame);
+    let t = (res.frame - left.Frame) / (right.Frame - left.Frame);
 
     if (animVector.LineType === LineType.DontInterp) {
         return <vec3> left.Vector;
@@ -222,8 +272,8 @@ function interpVec3 (out: vec3, animVector: AnimVector, frame: number, interval:
     }
 }
 
-function interpQuat (out: quat, animVector: AnimVector, frame: number, interval: Uint32Array): quat {
-    let res = findKeyframes(animVector, frame, interval);
+function interpQuat (out: quat, animVector: AnimVector): quat {
+    let res = findKeyframes(animVector);
     if (!res) {
         return null;
     }
@@ -232,7 +282,7 @@ function interpQuat (out: quat, animVector: AnimVector, frame: number, interval:
         return <quat> left.Vector;
     }
 
-    let t = (frame - left.Frame) / (right.Frame - left.Frame);
+    let t = (res.frame - left.Frame) / (right.Frame - left.Frame);
 
     if (animVector.LineType === LineType.DontInterp) {
         return <quat> left.Vector;
@@ -256,9 +306,9 @@ let tempParentRotationMat: mat4 = mat4.create();
 let tempCameraMat: mat4 = mat4.create();
 
 function updateNode (node, frame) {
-    let translationRes = interpVec3(translation, node.node.Translation, frame, animationInfo.Interval);
-    let rotationRes = interpQuat(rotation, node.node.Rotation, frame, animationInfo.Interval);
-    let scalingRes = interpVec3(scaling, node.node.Scaling, frame, animationInfo.Interval);
+    let translationRes = interpVec3(translation, node.node.Translation);
+    let rotationRes = interpQuat(rotation, node.node.Rotation);
+    let scalingRes = interpVec3(scaling, node.node.Scaling);
 
     if (!translationRes && !rotationRes && !scalingRes) {
         mat4.identity(node.matrix);
@@ -296,8 +346,8 @@ function updateNode (node, frame) {
     }
 }
 
-function findAlpha (geosetId: number, frame: number, interval: Uint32Array): number {
-    let geosetAnim = model.GeosetAnims[geosetId];
+function findAlpha (geosetId: number): number {
+    let geosetAnim = geosetAnims[geosetId];
 
     if (!geosetAnim || geosetAnim.Alpha === undefined) {
         return 1;
@@ -307,7 +357,7 @@ function findAlpha (geosetId: number, frame: number, interval: Uint32Array): num
         return geosetAnim.Alpha;
     }
 
-    let interpRes = interpNum(geosetAnim.Alpha, frame, interval);
+    let interpRes = interpNum(geosetAnim.Alpha);
 
     if (interpRes === null) {
         return 1;
@@ -560,9 +610,9 @@ function drawScene () {
     }
 }
 
-function tick() {
+function tick(timestamp: number) {
     requestAnimationFrame(tick);
-    updateModel();
+    updateModel(timestamp);
     drawScene();
 }
 
@@ -587,7 +637,7 @@ function loadTexture (src) {
         gl.bindTexture(gl.TEXTURE_2D, null);
 
         if (++loadedTextures === totalTextures) {
-            tick();
+            requestAnimationFrame(tick);
         }
     };
     modelTextureImages[src].src = src;

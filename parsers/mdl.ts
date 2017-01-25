@@ -390,6 +390,8 @@ function parseMaterials (state: State, model: Model): void {
             } else {
                 throw new Error('Unknown material property ' + keyword);
             }
+
+            parseSymbol(state, ',');
         }
 
         strictParseSymbol(state, '}');
