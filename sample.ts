@@ -238,7 +238,7 @@ function interpNum (animVector: AnimVector): number|null {
     let t = (res.frame - left.Frame) / (right.Frame - left.Frame);
 
     if (animVector.LineType === LineType.DontInterp) {
-        return right.Vector[1];
+        return left.Vector[0];
     // } else if (animVector.LineType === 'Bezier') {
     //     return vec3.bezier(out, left.Vector, left.OutTan, right.InTan, right.Vector, t);
     // } else if (animVector.LineType === 'Hermite') {

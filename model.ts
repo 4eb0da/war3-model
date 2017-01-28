@@ -249,6 +249,26 @@ export interface Camera {
     Rotation?: AnimVector;
 }
 
+export enum LightType {
+    Omnidirectional = 0,
+    Directional = 1,
+    Ambient = 2
+}
+
+export interface Light extends Node {
+    LightType: LightType;
+
+    AttenuationStart?: number;
+    AttenuationEnd?: number;
+
+    Color?: AnimVector|Float32Array;
+    Intensity?: AnimVector|number;
+    AmbIntensity?: AnimVector|number;
+    AmbColor?: AnimVector|Float32Array;
+
+    Visibility?: AnimVector;
+}
+
 export interface Model {
     Version: number;
     Info: ModelInfo;
@@ -266,5 +286,6 @@ export interface Model {
     CollisionShapes: {[key: string]: CollisionShape};
     GlobalSequences?: number[];
     ParticleEmitters2?: {[key: string]: ParticleEmitter2};
-    Cameras?: Camera[];
+    Cameras?: {[key: string]: Camera};
+    Lights?: {[key: string]: Light};
 }

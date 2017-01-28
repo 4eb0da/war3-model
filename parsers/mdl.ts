@@ -1,7 +1,7 @@
 import {
     Model, Layer, GeosetAnim, AnimVector, LineType, AnimKeyframe, Node,
     CollisionShape, ParticleEmitter2, Camera, MaterialRenderMode, FilterMode, LayerShading, TextureFlags,
-    GeosetAnimFlags, NodeFlags, CollisionShapeType, ParticleEmitter2Flags, ParticleEmitter2FramesFlags
+    GeosetAnimFlags, NodeFlags, CollisionShapeType, ParticleEmitter2Flags, ParticleEmitter2FramesFlags, Light, LightType
 } from '../model';
 
 class State {
@@ -918,7 +918,70 @@ function parseCamera (state: State, model: Model) {
 
     strictParseSymbol(state, '}');
 
-    model.Cameras.push(res);
+    model.Cameras[res.Name] = res;
+}
+
+function parseLight (state: State, model: Model) {
+    let name = parseString(state);
+
+    let res: Light = {
+        Type: 'Light',
+        Name: name,
+        ObjectId: null,
+        PivotPoint: null,
+        Flags: 0,
+        LightType: 0
+    };
+
+    strictParseSymbol(state, '{');
+
+    while (state.char() !== '}') {
+        let keyword = parseKeyword(state);
+        let isStatic = false;
+
+        if (keyword === 'static') {
+            isStatic = true;
+            keyword = parseKeyword(state);
+        }
+
+        if (!isStatic && (keyword === 'Visibility' || keyword === 'Color' || keyword === 'Intensity' ||
+            keyword === 'AmbIntensity' || keyword === 'AmbColor' || keyword === 'Translation' ||
+            keyword === 'Rotation' || keyword === 'Scaling')) {
+            let itemCount = 3;
+            switch (keyword) {
+                case 'Rotation':
+                    itemCount = 4;
+                    break;
+                case 'Visibility':
+                case 'Intensity':
+                case 'AmbIntensity':
+                    itemCount = 1;
+                    break;
+            }
+            res[keyword] = parseAnimVector(state, itemCount);
+        } else if (keyword === 'Omnidirectional' || keyword === 'Directional' || keyword === 'Ambient') {
+            res.LightType = LightType[keyword];
+        } else if (keyword === 'Color' || keyword === 'AmbColor') {
+            let color = new Float32Array(3);
+            parseArray(state, color, 0);
+
+            // bgr order, inverse from mdx
+            let temp = color[0];
+            color[0] = color[2];
+            color[2] = temp;
+
+            res[keyword] = color;
+        } else {
+            res[keyword] = parseNumber(state);
+        }
+
+        parseSymbol(state, ',');
+    }
+
+    strictParseSymbol(state, '}');
+
+    model.Lights[res.Name] = res;
+    model.Nodes.push(res);
 }
 
 const parsers = {
@@ -938,6 +1001,7 @@ const parsers = {
     GlobalSequences: parseGlobalSequences,
     ParticleEmitter2: parseParticleEmitter2,
     Camera: parseCamera,
+    Light: parseLight
 };
 
 export function parse (str: string): Model {
@@ -963,7 +1027,8 @@ export function parse (str: string): Model {
         EventObjects: {},
         CollisionShapes: {},
         ParticleEmitters2: {},
-        Cameras: [],
+        Cameras: {},
+        Lights: {},
         // default
         Version: 800
     };

@@ -1,7 +1,7 @@
 import {
     Model, Sequence, Material, Layer, AnimVector, AnimKeyframe, LineType, Texture, Geoset,
     GeosetAnimInfo, GeosetAnim, Node, Bone, Helper, Attachment, EventObject, CollisionShape, CollisionShapeType,
-    ParticleEmitter2, ParticleEmitter2FramesFlags, Camera
+    ParticleEmitter2, ParticleEmitter2FramesFlags, Camera, Light
 } from '../model';
 
 const BIG_ENDIAN = true;
@@ -698,7 +698,60 @@ function parseCameras (model: Model, state: State, size: number): void {
             }
         }
 
-        model.Cameras.push(camera);
+        model.Cameras[camera.Name] = camera;
+    }
+}
+
+function parseLights (model: Model, state: State, size: number): void {
+    let startPos = state.pos;
+
+    while (state.pos < startPos + size) {
+        let lightStart = state.pos;
+        let lightSize = state.int32();
+
+        let light: Light = <Light> {};
+
+        parseNode(model, light, state);
+
+        light.LightType = state.int32();
+        light.AttenuationStart = state.float32();
+        light.AttenuationEnd = state.float32();
+
+        light.Color = new Float32Array(3);
+        //  rgb order, inverse from mdl
+        for (let j = 0; j < 3; ++j) {
+            light.Color[j] = state.float32();
+        }
+
+        light.Intensity = state.float32();
+
+        light.AmbColor = new Float32Array(3);
+        //  rgb order, inverse from mdl
+        for (let j = 0; j < 3; ++j) {
+            light.AmbColor[j] = state.float32();
+        }
+
+        light.AmbIntensity = state.float32();
+
+        while (state.pos < lightStart + lightSize) {
+            let keyword = state.keyword();
+
+            if (keyword === 'KLAV') {
+                light.Visibility = state.animVector(AnimVectorType.FLOAT1);
+            } else if (keyword === 'KLAC') {
+                light.Color = state.animVector(AnimVectorType.FLOAT3);
+            } else if (keyword === 'KLAI') {
+                light.Intensity = state.animVector(AnimVectorType.FLOAT1);
+            } else if (keyword === 'KLBC') {
+                light.AmbColor = state.animVector(AnimVectorType.FLOAT3);
+            } else if (keyword === 'KLBI') {
+                light.AmbIntensity = state.animVector(AnimVectorType.FLOAT1);
+            } else {
+                throw new Error('Incorrect light chunk data ' + keyword);
+            }
+        }
+
+        model.Lights[light.Name] = light;
     }
 }
 
@@ -718,7 +771,8 @@ const parsers: {[key: string]: (model: Model, state: State, size: number) => voi
     CLID: parseCollisionShapes,
     GLBS: parseGlobalSequences,
     PRE2: parseParticleEmitters2,
-    CAMS: parseCameras
+    CAMS: parseCameras,
+    LITE: parseLights
 };
 
 export function parse (arrayBuffer: ArrayBuffer): Model {
@@ -749,7 +803,8 @@ export function parse (arrayBuffer: ArrayBuffer): Model {
         EventObjects: {},
         CollisionShapes: {},
         ParticleEmitters2: {},
-        Cameras: [],
+        Cameras: {},
+        Lights: {},
         // default
         Version: 800
     };
