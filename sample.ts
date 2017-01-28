@@ -1,7 +1,7 @@
 import {parse as parseMdl} from './parsers/mdl';
 import {parse as parseMdx} from './parsers/mdx';
 import {vec3, mat4, quat} from 'gl-matrix';
-import {Model, Sequence, AnimVector, Layer, FilterMode, LayerShading, LineType, NodeFlags} from './model';
+import {Model, Sequence, AnimVector, Layer, FilterMode, LayerShading, LineType, NodeFlags, TextureFlags} from './model';
 
 let model: Model;
 let canvas: HTMLCanvasElement;
@@ -29,6 +29,7 @@ let rootNode: any = {
 let nodes: any = {};
 let geosetAnims: any = {};
 let geosetAlpha: any = {};
+let materialLayerTextureID: any = [];
 let animation = 'Walk Defend';
 let animationInfo: Sequence;
 let frm;
@@ -116,6 +117,10 @@ function createModelHelpers () {
     for (let i = 0; i < model.GeosetAnims.length; ++i) {
         geosetAnims[model.GeosetAnims[i].GeosetId] = model.GeosetAnims[i];
     }
+
+    for (let i = 0; i < model.Materials.length; ++i) {
+        materialLayerTextureID[i] = new Array(model.Materials[i].Layers.length);
+    }
 }
 
 let start;
@@ -139,6 +144,18 @@ function updateModel (timestamp: number) {
 
     for (let i = 0; i < model.Geosets.length; ++i) {
         geosetAlpha[i] = findAlpha(i);
+    }
+
+    for (let i = 0; i < materialLayerTextureID.length; ++i) {
+        for (let j = 0; j < materialLayerTextureID[i].length; ++j) {
+            let TextureID: AnimVector|number = model.Materials[i].Layers[j].TextureID;
+
+            if (typeof TextureID === 'number') {
+                materialLayerTextureID[i][j] = TextureID;
+            } else {
+                materialLayerTextureID[i][j] = interpNum(TextureID);
+            }
+        }
     }
 }
 
@@ -365,9 +382,8 @@ function findAlpha (geosetId: number): number {
     return interpRes;
 }
 
-function initLayer (layer: Layer) {
-    // todo TextureID animation
-    let texture = model.Textures[<number> layer.TextureID];
+function initLayer (layer: Layer, textureID: number) {
+    let texture = model.Textures[textureID];
 
     if (layer.Shading === LayerShading.TwoSided) {
         gl.disable(gl.CULL_FACE);
@@ -590,10 +606,11 @@ function drawScene () {
             continue;
         }
 
-        let material = model.Materials[model.Geosets[i].MaterialID];
+        let materialID = model.Geosets[i].MaterialID;
+        let material = model.Materials[materialID];
 
         for (let j = 0; j < material.Layers.length; ++j) {
-            initLayer(material.Layers[j]);
+            initLayer(material.Layers[j], materialLayerTextureID[materialID][j]);
 
             gl.bindBuffer(gl.ARRAY_BUFFER, modelVertexBuffer[i]);
             gl.vertexAttribPointer(shaderProgramLocations.vertexPositionAttribute, 3, gl.FLOAT, false, 0, 0);
@@ -616,15 +633,23 @@ function tick(timestamp: number) {
     drawScene();
 }
 
-function loadTexture (src) {
+function loadTexture (src: string, flags: TextureFlags) {
     modelTextures[src] = gl.createTexture();
     modelTextureImages[src] = new Image();
     modelTextureImages[src].onload = () => {
         gl.bindTexture(gl.TEXTURE_2D, modelTextures[src]);
         // gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, modelTextureImages[src]);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        if (flags & TextureFlags.WrapWidth) {
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+        } else {
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        }
+        if (flags & TextureFlags.WrapHeight) {
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+        } else {
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        }
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_NEAREST);
 
@@ -660,7 +685,7 @@ function processModelLoading() {
     for (let texture of model.Textures) {
         if (texture.Image) {
             ++totalTextures;
-            loadTexture(texture.Image);
+            loadTexture(texture.Image, texture.Flags);
         }
     }
 }

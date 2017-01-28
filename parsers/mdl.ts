@@ -1,7 +1,8 @@
 import {
     Model, Layer, GeosetAnim, AnimVector, LineType, AnimKeyframe, Node,
     CollisionShape, ParticleEmitter2, Camera, MaterialRenderMode, FilterMode, LayerShading, TextureFlags,
-    GeosetAnimFlags, NodeFlags, CollisionShapeType, ParticleEmitter2Flags, ParticleEmitter2FramesFlags, Light, LightType
+    GeosetAnimFlags, NodeFlags, CollisionShapeType, ParticleEmitter2Flags, ParticleEmitter2FramesFlags, Light,
+    LightType, TVertexAnim, RibbonEmitter
 } from '../model';
 
 class State {
@@ -241,9 +242,11 @@ function parseTextures (state: State, model: Model): void {
         obj.Flags = 0;
         if ('WrapWidth' in obj) {
             obj.Flags += TextureFlags.WrapWidth;
+            delete obj.WrapWidth;
         }
         if ('WrapHeight' in obj) {
             obj.Flags += TextureFlags.WrapHeight;
+            delete obj.WrapHeight;
         }
 
         res.push(obj);
@@ -329,8 +332,8 @@ function parseLayer (state: State): Layer {
             keyword = parseKeyword(state);
         }
 
-        if (keyword === 'Alpha' && !isStatic) {
-            res.Alpha = parseAnimVector(state, 1);
+        if (!isStatic && (keyword === 'Alpha' || keyword === 'TextureID')) {
+            res[keyword] = parseAnimVector(state, 1);
         } else if (keyword === 'Unshaded' || keyword === 'SphereEnvMap' || keyword === 'TwoSided' ||
             keyword === 'Unfogged2' || keyword === 'NoDepthTest' || keyword === 'NoDepthSet') {
             res.Shading |= LayerShading[keyword];
@@ -984,6 +987,102 @@ function parseLight (state: State, model: Model) {
     model.Nodes.push(res);
 }
 
+function parseTextureAnims (state: State, model: Model): void {
+    let res = [];
+
+    parseNumber(state); // count, not used
+
+    strictParseSymbol(state, '{');
+
+    while (state.char() !== '}') {
+        let obj: TVertexAnim = {};
+
+        parseKeyword(state); // TVertexAnim
+
+        strictParseSymbol(state, '{');
+
+        while (state.char() !== '}') {
+            const keyword = parseKeyword(state);
+
+            if (keyword === 'Translation' || keyword === 'Rotation' || keyword === 'Scaling') {
+                let itemCount = keyword === 'Rotation' ? 4 : 3;
+                obj[keyword] = parseAnimVector(state, itemCount);
+            } else {
+                throw new Error('Unknown texture anim property ' + keyword);
+            }
+
+            parseSymbol(state, ',');
+        }
+
+        strictParseSymbol(state, '}');
+
+        res.push(obj);
+    }
+
+    strictParseSymbol(state, '}');
+
+    model.TextureAnims = res;
+}
+
+function parseRibbonEmitter (state: State, model: Model) {
+    let name = parseString(state);
+
+    let res: RibbonEmitter = {
+        Type: 'RibbonEmitter',
+        Name: name,
+        ObjectId: null,
+        PivotPoint: null,
+        Flags: 0
+    };
+
+    strictParseSymbol(state, '{');
+
+    while (state.char() !== '}') {
+        let keyword = parseKeyword(state);
+        let isStatic = false;
+
+        if (keyword === 'static') {
+            isStatic = true;
+            keyword = parseKeyword(state);
+        }
+
+        if (!isStatic && (keyword === 'Visibility' || keyword === 'HeightAbove' || keyword === 'HeightBelow' ||
+            keyword === 'Translation' || keyword === 'Rotation' || keyword === 'Scaling')) {
+            let itemCount = 3;
+            switch (keyword) {
+                case 'Rotation':
+                    itemCount = 4;
+                    break;
+                case 'Visibility':
+                case 'HeightAbove':
+                case 'HeightBelow':
+                    itemCount = 1;
+                    break;
+            }
+            res[keyword] = parseAnimVector(state, itemCount);
+        } else if (keyword === 'Color') {
+            let color = new Float32Array(3);
+            parseArray(state, color, 0);
+
+            // bgr order, inverse from mdx
+            let temp = color[0];
+            color[0] = color[2];
+            color[2] = temp;
+
+            res[keyword] = color;
+        } else {
+            res[keyword] = parseNumber(state);
+        }
+
+        parseSymbol(state, ',');
+    }
+
+    strictParseSymbol(state, '}');
+
+    model.RibbonEmitters[res.Name] = res;
+    model.Nodes.push(res);
+}
+
 const parsers = {
     Version: parseVersion,
     Model: parseModelInfo,
@@ -1001,7 +1100,9 @@ const parsers = {
     GlobalSequences: parseGlobalSequences,
     ParticleEmitter2: parseParticleEmitter2,
     Camera: parseCamera,
-    Light: parseLight
+    Light: parseLight,
+    TextureAnims: parseTextureAnims,
+    RibbonEmitter: parseRibbonEmitter
 };
 
 export function parse (str: string): Model {
@@ -1029,6 +1130,7 @@ export function parse (str: string): Model {
         ParticleEmitters2: {},
         Cameras: {},
         Lights: {},
+        RibbonEmitters: {},
         // default
         Version: 800
     };

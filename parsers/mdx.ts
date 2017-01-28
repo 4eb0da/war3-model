@@ -1,7 +1,7 @@
 import {
     Model, Sequence, Material, Layer, AnimVector, AnimKeyframe, LineType, Texture, Geoset,
     GeosetAnimInfo, GeosetAnim, Node, Bone, Helper, Attachment, EventObject, CollisionShape, CollisionShapeType,
-    ParticleEmitter2, ParticleEmitter2FramesFlags, Camera, Light
+    ParticleEmitter2, ParticleEmitter2FramesFlags, Camera, Light, TVertexAnim, RibbonEmitter
 } from '../model';
 
 const BIG_ENDIAN = true;
@@ -755,6 +755,81 @@ function parseLights (model: Model, state: State, size: number): void {
     }
 }
 
+function parseTextureAnims (model: Model, state: State, size: number): void {
+    let startPos = state.pos;
+
+    while (state.pos < startPos + size) {
+        let animStart = state.pos;
+        let animSize = state.int32();
+
+        let anim: TVertexAnim = <TVertexAnim> {};
+
+        while (state.pos < animStart + animSize) {
+            let keyword = state.keyword();
+
+            if (keyword === 'KTAT') {
+                anim.Translation = state.animVector(AnimVectorType.FLOAT3);
+            } else if (keyword === 'KTAR') {
+                anim.Rotation = state.animVector(AnimVectorType.FLOAT4);
+            } else if (keyword === 'KTAS') {
+                anim.Scaling = state.animVector(AnimVectorType.FLOAT3);
+            } else {
+                throw new Error('Incorrect light chunk data ' + keyword);
+            }
+        }
+
+        model.TextureAnims.push(anim);
+    }
+}
+
+function parseRibbonEmitters (model: Model, state: State, size: number): void {
+    let startPos = state.pos;
+
+    while (state.pos < startPos + size) {
+        let emitterStart = state.pos;
+        let emitterSize = state.int32();
+
+        let emitter: RibbonEmitter = <RibbonEmitter> {};
+
+        parseNode(model, emitter, state);
+
+        emitter.HeightAbove = state.float32();
+        emitter.HeightBelow = state.float32();
+        emitter.Alpha = state.float32();
+
+        emitter.Color = new Float32Array(3);
+        //  rgb order, inverse from mdl
+        for (let j = 0; j < 3; ++j) {
+            emitter.Color[j] = state.float32();
+        }
+
+        emitter.LifeSpan = state.float32();
+        emitter.TextureSlot = state.int32();
+
+        emitter.EmissionRate = state.int32();
+        emitter.Rows = state.int32();
+        emitter.Columns = state.int32();
+        emitter.MaterialID = state.int32();
+        emitter.Gravity = state.float32();
+
+        while (state.pos < emitterStart + emitterSize) {
+            let keyword = state.keyword();
+
+            if (keyword === 'KRVS') {
+                emitter.Visibility = state.animVector(AnimVectorType.FLOAT1);
+            } else if (keyword === 'KRHA') {
+                emitter.HeightAbove = state.animVector(AnimVectorType.FLOAT3);
+            } else if (keyword === 'KRHB') {
+                emitter.HeightBelow = state.animVector(AnimVectorType.FLOAT1);
+            } else {
+                throw new Error('Incorrect ribbon emitter chunk data ' + keyword);
+            }
+        }
+
+        model.RibbonEmitters[emitter.Name] = emitter;
+    }
+}
+
 const parsers: {[key: string]: (model: Model, state: State, size: number) => void} = {
     VERS: parseVersion,
     MODL: parseModelInfo,
@@ -772,7 +847,9 @@ const parsers: {[key: string]: (model: Model, state: State, size: number) => voi
     GLBS: parseGlobalSequences,
     PRE2: parseParticleEmitters2,
     CAMS: parseCameras,
-    LITE: parseLights
+    LITE: parseLights,
+    TXAN: parseTextureAnims,
+    RIBB: parseRibbonEmitters
 };
 
 export function parse (arrayBuffer: ArrayBuffer): Model {
@@ -805,6 +882,8 @@ export function parse (arrayBuffer: ArrayBuffer): Model {
         ParticleEmitters2: {},
         Cameras: {},
         Lights: {},
+        RibbonEmitters: {},
+        TextureAnims: [],
         // default
         Version: 800
     };

@@ -17,8 +17,8 @@ export interface Sequence {
 }
 
 export enum TextureFlags {
-    WrapWidth,
-    WrapHeight
+    WrapWidth = 1,
+    WrapHeight = 2
 }
 
 export interface Texture {
@@ -269,6 +269,28 @@ export interface Light extends Node {
     Visibility?: AnimVector;
 }
 
+export interface RibbonEmitter extends Node {
+    HeightAbove?: AnimVector|number;
+    HeightBelow?: AnimVector|number;
+    Alpha?: number;
+    Color?: Float32Array;
+    LifeSpan?: number;
+    TextureSlot?: number;
+    EmissionRate?: number;
+    Rows?: number;
+    Columns?: number;
+    MaterialID?: number;
+    Gravity?: number;
+
+    Visibility?: AnimVector;
+}
+
+export interface TVertexAnim {
+    Translation?: AnimVector;
+    Rotation?: AnimVector;
+    Scaling?: AnimVector;
+}
+
 export interface Model {
     Version: number;
     Info: ModelInfo;
@@ -288,4 +310,6 @@ export interface Model {
     ParticleEmitters2?: {[key: string]: ParticleEmitter2};
     Cameras?: {[key: string]: Camera};
     Lights?: {[key: string]: Light};
+    RibbonEmitters?: {[key: string]: RibbonEmitter};
+    TextureAnims?: TVertexAnim[];
 }
