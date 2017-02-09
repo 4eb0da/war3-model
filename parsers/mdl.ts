@@ -2,7 +2,7 @@ import {
     Model, Layer, GeosetAnim, AnimVector, LineType, AnimKeyframe, Node,
     CollisionShape, ParticleEmitter2, Camera, MaterialRenderMode, FilterMode, LayerShading, TextureFlags,
     GeosetAnimFlags, NodeFlags, CollisionShapeType, ParticleEmitter2Flags, ParticleEmitter2FramesFlags, Light,
-    LightType, TVertexAnim, RibbonEmitter
+    LightType, TVertexAnim, RibbonEmitter, ParticleEmitter2FilterMode
 } from '../model';
 
 class State {
@@ -859,7 +859,7 @@ function parseParticleEmitter2 (state: State, model: Model) {
             parseArray(state, res[keyword], 0);
         } else if (keyword === 'Transparent' || keyword === 'Blend' || keyword === 'Additive' ||
                 keyword === 'AlphaKey' || keyword === 'Modulate' || keyword === 'Modulate2x') {
-            res.FilterMode = FilterMode[keyword];
+            res.FilterMode = ParticleEmitter2FilterMode[keyword];
         } else {
             res[keyword] = parseNumber(state);
         }
