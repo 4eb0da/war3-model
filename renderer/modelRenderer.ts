@@ -485,7 +485,7 @@ export class ModelRenderer {
         } else if (layer.FilterMode === FilterMode.Modulate2x) {
             gl.enable(gl.BLEND);
             gl.enable(gl.DEPTH_TEST);
-            gl.blendFunc(gl.DST_COLOR, gl.SRC_COLOR);
+            gl.blendFuncSeparate(gl.DST_COLOR, gl.SRC_COLOR, gl.ZERO, gl.ONE);
             gl.depthMask(false);
         }
 

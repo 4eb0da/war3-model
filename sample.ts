@@ -53,8 +53,8 @@ let cameraPosProjected: vec3 = vec3.create();
 let verticalQuat: quat = quat.create();
 let fromCameraBaseVec: vec3 = vec3.fromValues(1, 0, 0);
 function calcCameraQuat () {
-    // todo cameraTarget usage
     vec3.set(cameraPosProjected, cameraPos[0], cameraPos[1], 0);
+    vec3.subtract(cameraPos, cameraPos, cameraTarget);
     vec3.normalize(cameraPosProjected, cameraPosProjected);
     vec3.normalize(cameraPos, cameraPos);
 

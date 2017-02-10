@@ -44,6 +44,7 @@ let fragmentShader = `
     uniform sampler2D uSampler;
     uniform vec3 uReplaceableColor;
     uniform float uReplaceableType;
+    uniform float uDiscardAlphaLevel;
 
     float hypot (vec2 z) {
         float t;
@@ -68,6 +69,10 @@ let fragmentShader = `
             gl_FragColor = vec4(uReplaceableColor * alpha, 1.0);
         }
         gl_FragColor *= vColor;
+        
+        if (gl_FragColor[3] < uDiscardAlphaLevel) {
+            discard;
+        }
     }
 `;
 
@@ -101,6 +106,9 @@ interface ParticleEmitterWrapper {
     indices: Uint16Array;
     indexBuffer: WebGLBuffer;
 }
+
+const DISCARD_ALPHA_KEY_LEVEL = 0.83;
+const DISCARD_MODULATE_LEVEL = 0.01;
 
 export class ParticlesController {
     public static initGL (glContext: WebGLRenderingContext) {
@@ -143,6 +151,8 @@ export class ParticlesController {
             gl.getUniformLocation(shaderProgram, 'uReplaceableColor');
         shaderProgramLocations.replaceableTypeUniform =
             gl.getUniformLocation(shaderProgram, 'uReplaceableType');
+        shaderProgramLocations.discardAlphaLevelUniform =
+            gl.getUniformLocation(shaderProgram, 'uDiscardAlphaLevel');
     }
 
     private static updateParticle (particle: Particle, delta: number): void {
@@ -273,16 +283,29 @@ export class ParticlesController {
                 continue;
             }
 
+            if (emitter.props.FilterMode === ParticleEmitter2FilterMode.AlphaKey) {
+                gl.uniform1f(shaderProgramLocations.discardAlphaLevelUniform, DISCARD_ALPHA_KEY_LEVEL);
+            } else if (emitter.props.FilterMode === ParticleEmitter2FilterMode.Modulate ||
+                emitter.props.FilterMode === ParticleEmitter2FilterMode.Modulate2x) {
+                gl.uniform1f(shaderProgramLocations.discardAlphaLevelUniform, DISCARD_MODULATE_LEVEL);
+            } else {
+                gl.uniform1f(shaderProgramLocations.discardAlphaLevelUniform, 0.);
+            }
+
             if (emitter.props.FilterMode === ParticleEmitter2FilterMode.Blend) {
                 gl.enable(gl.BLEND);
                 gl.enable(gl.DEPTH_TEST);
                 gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
                 gl.depthMask(false);
-            } else if (emitter.props.FilterMode === ParticleEmitter2FilterMode.Additive ||
-                emitter.props.FilterMode === ParticleEmitter2FilterMode.AlphaKey) {
+            } else if (emitter.props.FilterMode === ParticleEmitter2FilterMode.Additive) {
                 gl.enable(gl.BLEND);
                 gl.enable(gl.DEPTH_TEST);
-                gl.blendFunc(gl.SRC_COLOR, gl.ONE);
+                gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+                gl.depthMask(false);
+            } else if (emitter.props.FilterMode === ParticleEmitter2FilterMode.AlphaKey) {
+                gl.enable(gl.BLEND);
+                gl.enable(gl.DEPTH_TEST);
+                gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
                 gl.depthMask(false);
             } else if (emitter.props.FilterMode === ParticleEmitter2FilterMode.Modulate) {
                 gl.enable(gl.BLEND);
@@ -292,7 +315,7 @@ export class ParticlesController {
             } else if (emitter.props.FilterMode === ParticleEmitter2FilterMode.Modulate2x) {
                 gl.enable(gl.BLEND);
                 gl.enable(gl.DEPTH_TEST);
-                gl.blendFunc(gl.DST_COLOR, gl.SRC_COLOR);
+                gl.blendFuncSeparate(gl.DST_COLOR, gl.SRC_COLOR, gl.ZERO, gl.ONE);
                 gl.depthMask(false);
             }
 
