@@ -1,8 +1,8 @@
 import {
     Model, Node, AnimVector, NodeFlags, Layer, LayerShading, FilterMode,
-    TextureFlags
+    TextureFlags, TVertexAnim
 } from '../model';
-import {vec3, quat, mat4} from 'gl-matrix';
+import {vec3, quat, mat3, mat4} from 'gl-matrix';
 import {mat4fromRotationOrigin, getShader} from './util';
 import {ModelInterp} from './modelInterp';
 import {ParticlesController} from './particles';
@@ -59,6 +59,7 @@ const fragmentShader = `
     uniform vec3 uReplaceableColor;
     uniform float uReplaceableType;
     uniform float uDiscardAlphaLevel;
+    uniform mat3 uTVextexAnim;
 
     float hypot (vec2 z) {
         float t;
@@ -71,17 +72,19 @@ const fragmentShader = `
     }
 
     void main(void) {
-        vec2 coords = vec2(vTextureCoord.s, vTextureCoord.t);
+        vec2 texCoord = (uTVextexAnim * vec3(vTextureCoord.s, vTextureCoord.t, 1.)).st;
+
         if (uReplaceableType == 0.) {
-            gl_FragColor = texture2D(uSampler, coords);
+            gl_FragColor = texture2D(uSampler, texCoord);
         } else if (uReplaceableType == 1.) {
             gl_FragColor = vec4(uReplaceableColor, 1.0);
         } else if (uReplaceableType == 2.) {
-            float dist = hypot(coords - vec2(0.5, 0.5)) * 2.;
+            float dist = hypot(texCoord - vec2(0.5, 0.5)) * 2.;
             float truncateDist = clamp(1. - dist * 1.4, 0., 1.);
             float alpha = sin(truncateDist);
             gl_FragColor = vec4(uReplaceableColor * alpha, 1.0);
         }
+
         // hand-made alpha-test
         if (gl_FragColor[3] < uDiscardAlphaLevel) {
             discard;
@@ -100,6 +103,10 @@ let defaultScaling = vec3.fromValues(1, 1, 1);
 let tempParentRotationQuat: quat = quat.create();
 let tempParentRotationMat: mat4 = mat4.create();
 let tempCameraMat: mat4 = mat4.create();
+
+let identifyMat3: mat3 = mat3.create();
+let texCoordMat4: mat4 = mat4.create();
+let texCoordMat3: mat3 = mat3.create();
 
 export class ModelRenderer {
     private static initShaders (): void {
@@ -136,6 +143,7 @@ export class ModelRenderer {
         shaderProgramLocations.replaceableColorUniform = gl.getUniformLocation(shaderProgram, 'uReplaceableColor');
         shaderProgramLocations.replaceableTypeUniform = gl.getUniformLocation(shaderProgram, 'uReplaceableType');
         shaderProgramLocations.discardAlphaLevelUniform = gl.getUniformLocation(shaderProgram, 'uDiscardAlphaLevel');
+        shaderProgramLocations.tVertexAnimUniform = gl.getUniformLocation(shaderProgram, 'uTVextexAnim');
 
         shaderProgramLocations.nodesMatricesAttributes = [];
         for (let i = 0; i < 128; ++i) {
@@ -504,6 +512,29 @@ export class ModelRenderer {
         }
         if (layer.Shading === LayerShading.NoDepthSet) {
             gl.depthMask(false);
+        }
+
+        if (typeof layer.TVertexAnimId === 'number') {
+            let anim: TVertexAnim = this.rendererData.model.TextureAnims[layer.TVertexAnimId];
+            let translationRes = this.interp.vec3(translation, anim.Translation);
+            let rotationRes = this.interp.quat(rotation, anim.Rotation);
+            let scalingRes = this.interp.vec3(scaling, anim.Scaling);
+            mat4.fromRotationTranslationScale(
+                texCoordMat4,
+                rotationRes || defaultRotation,
+                translationRes || defaultTranslation,
+                scalingRes || defaultScaling
+            );
+            mat3.set(
+                texCoordMat3,
+                texCoordMat4[0], texCoordMat4[1], 0,
+                texCoordMat4[4], texCoordMat4[5], 0,
+                texCoordMat4[12], texCoordMat4[13], 0
+            );
+
+            gl.uniformMatrix3fv(shaderProgramLocations.tVertexAnimUniform, false, texCoordMat3);
+        } else {
+            gl.uniformMatrix3fv(shaderProgramLocations.tVertexAnimUniform, false, identifyMat3);
         }
     }
 }
