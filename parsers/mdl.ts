@@ -218,6 +218,7 @@ function parseSequences (state: State, model: Model): void {
         parseKeyword(state); // Anim
 
         const [name, obj] = parseObject(state);
+        obj.Name = name;
         obj.NonLooping = 'NonLooping' in obj;
 
         res[name] = obj;
@@ -335,7 +336,7 @@ function parseLayer (state: State): Layer {
         if (!isStatic && (keyword === 'Alpha' || keyword === 'TextureID')) {
             res[keyword] = parseAnimVector(state, 1);
         } else if (keyword === 'Unshaded' || keyword === 'SphereEnvMap' || keyword === 'TwoSided' ||
-            keyword === 'Unfogged2' || keyword === 'NoDepthTest' || keyword === 'NoDepthSet') {
+            keyword === 'Unfogged' || keyword === 'NoDepthTest' || keyword === 'NoDepthSet') {
             res.Shading |= LayerShading[keyword];
         } else if (keyword === 'FilterMode') {
             let val = parseKeyword(state);
@@ -488,7 +489,7 @@ function parseGeoset (state: State, model: Model): void {
             res.Groups = groups;
         } else if (keyword === 'MinimumExtent' || keyword === 'MaximumExtent') {
             let arr = new Float32Array(3);
-            res[keyword] = parseArray(state, arr, 3);
+            res[keyword] = parseArray(state, arr, 0);
             strictParseSymbol(state, ',');
         } else if (keyword === 'BoundsRadius' || keyword === 'MaterialID' || keyword === 'SelectionGroup') {
             res[keyword] = parseNumber(state);
@@ -535,12 +536,19 @@ function parseGeosetAnim (state: State, model: Model) {
                 res.Alpha = parseAnimVector(state, 1);
             }
         } else if (keyword === 'Color') {
-            // todo inverse color order
             if (isStatic) {
                 let array = new Float32Array(3);
                 res.Color = <Float32Array> parseArray(state, array, 0);
+                res.Color.reverse();
             } else {
                 res.Color = parseAnimVector(state, 3);
+                for (let key of res.Color.Keys) {
+                    key.Vector.reverse();
+                    if (key.InTan) {
+                        key.InTan.reverse();
+                        key.OutTan.reverse();
+                    }
+                }
             }
         } else if (keyword === 'DropShadow') {
             res.Flags |= GeosetAnimFlags[keyword];
@@ -602,7 +610,7 @@ function parseNode (state: State, type: string, model: Model): Node {
 
             if (keyword === 'GeosetId' && val === 'Multiple' ||
                 keyword === 'GeosetAnimId' && val === 'None') {
-                val = -1;
+                val = null;
             }
 
             node[keyword] = val;
@@ -822,6 +830,8 @@ function parseParticleEmitter2 (state: State, model: Model) {
         } else if (keyword === 'SortPrimsFarZ' || keyword === 'Unshaded' || keyword === 'LineEmitter' ||
             keyword === 'Unfogged' || keyword === 'ModelSpace' || keyword === 'XYQuad') {
             res.Flags |= ParticleEmitter2Flags[keyword];
+        } else if (keyword === 'Both') {
+            res.FrameFlags |= ParticleEmitter2FramesFlags.Head | ParticleEmitter2FramesFlags.Tail;
         } else if (keyword === 'Head' || keyword === 'Tail') {
             res.FrameFlags |= ParticleEmitter2FramesFlags[keyword];
         } else if (keyword === 'Squirt') {

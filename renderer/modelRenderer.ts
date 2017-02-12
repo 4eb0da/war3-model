@@ -8,6 +8,8 @@ import {ModelInterp} from './modelInterp';
 import {ParticlesController} from './particles';
 import {RendererData, NodeWrapper} from './rendererData';
 
+const MAX_NODES = 128;
+
 let gl: WebGLRenderingContext;
 let shaderProgram: WebGLProgram;
 let shaderProgramLocations: any = {};
@@ -20,7 +22,7 @@ const vertexShader = `
 
     uniform mat4 uMVMatrix;
     uniform mat4 uPMatrix;
-    uniform mat4 uNodesMatrices[128];
+    uniform mat4 uNodesMatrices[${MAX_NODES}];
 
     varying vec2 vTextureCoord;
 
@@ -29,15 +31,15 @@ const vertexShader = `
         int count = 1;
         vec4 sum = uNodesMatrices[int(aGroup[0])] * position;
 
-        if (aGroup[1] < 128.) {
+        if (aGroup[1] < ${MAX_NODES}.) {
             sum += uNodesMatrices[int(aGroup[1])] * position;
             count += 1;
         }
-        if (aGroup[2] < 128.) {
+        if (aGroup[2] < ${MAX_NODES}.) {
             sum += uNodesMatrices[int(aGroup[2])] * position;
             count += 1;
         }
-        if (aGroup[3] < 128.) {
+        if (aGroup[3] < ${MAX_NODES}.) {
             sum += uNodesMatrices[int(aGroup[3])] * position;
             count += 1;
         }
@@ -146,7 +148,7 @@ export class ModelRenderer {
         shaderProgramLocations.tVertexAnimUniform = gl.getUniformLocation(shaderProgram, 'uTVextexAnim');
 
         shaderProgramLocations.nodesMatricesAttributes = [];
-        for (let i = 0; i < 128; ++i) {
+        for (let i = 0; i < MAX_NODES; ++i) {
             shaderProgramLocations.nodesMatricesAttributes[i] =
                 gl.getUniformLocation(shaderProgram, `uNodesMatrices[${i}]`);
         }
@@ -306,7 +308,7 @@ export class ModelRenderer {
         gl.uniformMatrix4fv(shaderProgramLocations.pMatrixUniform, false, pMatrix);
         gl.uniformMatrix4fv(shaderProgramLocations.mvMatrixUniform, false, mvMatrix);
 
-        for (let j = 0; j < 128; ++j) {
+        for (let j = 0; j < MAX_NODES; ++j) {
             if (this.rendererData.nodes[j]) {
                 gl.uniformMatrix4fv(shaderProgramLocations.nodesMatricesAttributes[j], false,
                     this.rendererData.nodes[j].matrix);
@@ -358,9 +360,9 @@ export class ModelRenderer {
                 let index = j / 4;
                 let group = this.model.Geosets[i].Groups[this.model.Geosets[i].VertexGroup[index]];
                 buffer[j] = group[0];
-                buffer[j + 1] = group.length > 1 ? group[1] : 128;
-                buffer[j + 2] = group.length > 2 ? group[2] : 128;
-                buffer[j + 3] = group.length > 3 ? group[3] : 128;
+                buffer[j + 1] = group.length > 1 ? group[1] : MAX_NODES;
+                buffer[j + 2] = group.length > 2 ? group[2] : MAX_NODES;
+                buffer[j + 3] = group.length > 3 ? group[3] : MAX_NODES;
             }
             gl.bufferData(gl.ARRAY_BUFFER, buffer, gl.STATIC_DRAW);
 

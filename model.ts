@@ -1,5 +1,5 @@
 export interface ModelInfo {
-    Name: String;
+    Name: string;
     MinimumExtent: Float32Array;
     MaximumExtent: Float32Array;
     BoundsRadius: number;
@@ -7,6 +7,7 @@ export interface ModelInfo {
 }
 
 export interface Sequence {
+    Name: string;
     Interval: Uint32Array;
     NonLooping: boolean;
     MinimumExtent: Float32Array;
@@ -115,10 +116,10 @@ export enum GeosetAnimFlags {
 }
 
 export interface GeosetAnim {
+    GeosetId: number;
     Alpha: AnimVector|number;
     Color: AnimVector|Float32Array;
     Flags: number;
-    GeosetId: number;
 }
 
 export enum NodeFlags {

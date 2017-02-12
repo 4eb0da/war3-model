@@ -185,6 +185,8 @@ function parseSequences (model: Model, state: State, size: number): void {
 
         let sequence: Sequence = <Sequence> {};
 
+        sequence.Name = name;
+
         let interval = new Uint32Array(2);
         interval[0] = state.int32();
         interval[1] = state.int32();
@@ -395,7 +397,6 @@ function parseGeosetAnims (model: Model, state: State, size: number): void {
             if (keyword === 'KGAO') {
                 geosetAnim.Alpha = state.animVector(AnimVectorType.FLOAT1);
             } else if (keyword === 'KGAC') {
-                // todo inverse color order
                 geosetAnim.Color = state.animVector(AnimVectorType.FLOAT3);
             } else {
                 throw new Error('Incorrect GeosetAnim chunk data ' + keyword);
