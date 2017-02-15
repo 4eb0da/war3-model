@@ -1,4 +1,4 @@
-import {ParticleEmitter2, ParticleEmitter2FilterMode} from '../model';
+import {ParticleEmitter2, ParticleEmitter2FilterMode, ParticleEmitter2Flags} from '../model';
 import {vec3, vec4} from 'gl-matrix';
 import {ModelInterp} from './modelInterp';
 import {mat4} from 'gl-matrix';
@@ -269,15 +269,6 @@ export class ParticlesController {
         gl.uniformMatrix4fv(shaderProgramLocations.pMatrixUniform, false, pMatrix);
         gl.uniformMatrix4fv(shaderProgramLocations.mvMatrixUniform, false, mvMatrix);
 
-        vec3.set(this.particleBaseVectors[0], 0, -1,  1);
-        vec3.set(this.particleBaseVectors[1], 0, -1, -1);
-        vec3.set(this.particleBaseVectors[2], 0,  1,  1);
-        vec3.set(this.particleBaseVectors[3], 0,  1, -1);
-
-        for (let i = 0; i < 4; ++i) {
-            vec3.transformQuat(this.particleBaseVectors[i], this.particleBaseVectors[i], this.rendererData.cameraQuat);
-        }
-
         for (let emitter of this.emitters) {
             if (!emitter.capacity) {
                 continue;
@@ -373,6 +364,23 @@ export class ParticlesController {
             }
             emitter.particles = updatedParticles;
 
+            if (emitter.props.Flags & ParticleEmitter2Flags.XYQuad) {
+                vec3.set(this.particleBaseVectors[0], -1,  1, 0);
+                vec3.set(this.particleBaseVectors[1], -1, -1, 0);
+                vec3.set(this.particleBaseVectors[2],  1,  1, 0);
+                vec3.set(this.particleBaseVectors[3],  1, -1, 0);
+            } else {
+                vec3.set(this.particleBaseVectors[0], 0, -1,  1);
+                vec3.set(this.particleBaseVectors[1], 0, -1, -1);
+                vec3.set(this.particleBaseVectors[2], 0,  1,  1);
+                vec3.set(this.particleBaseVectors[3], 0,  1, -1);
+
+                for (let i = 0; i < 4; ++i) {
+                    vec3.transformQuat(this.particleBaseVectors[i], this.particleBaseVectors[i],
+                        this.rendererData.cameraQuat);
+                }
+            }
+
             ParticlesController.resizeEmitterBuffers(emitter, emitter.particles.length);
             for (let i = 0; i < emitter.particles.length; ++i) {
                 this.updateParticleBuffers(emitter.particles[i], i, emitter);
@@ -413,8 +421,12 @@ export class ParticlesController {
         }
 
         vec3.set(particle.speed, 0, 0, speedScale);
-        vec3.rotateY(particle.speed, particle.speed, rotateCenter, rand(0, latitude));
-        vec3.rotateZ(particle.speed, particle.speed, rotateCenter, rand(0, Math.PI * 2));
+        if (emitter.props.Flags & ParticleEmitter2Flags.LineEmitter) {
+            vec3.rotateY(particle.speed, particle.speed, rotateCenter, rand(-latitude, latitude));
+        } else {
+            vec3.rotateY(particle.speed, particle.speed, rotateCenter, rand(0, latitude));
+            vec3.rotateZ(particle.speed, particle.speed, rotateCenter, rand(0, Math.PI * 2));
+        }
         vec3.transformMat4(particle.speed, particle.speed, emitterMatrix);
         // translation of emitterMatrix
         particle.speed[0] -= emitterMatrix[12];
