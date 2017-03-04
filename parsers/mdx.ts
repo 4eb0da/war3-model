@@ -106,9 +106,9 @@ class State {
     }
 
     public animVector(type: AnimVectorType): AnimVector {
-        let res: AnimVector = <AnimVector> {
+        let res: AnimVector = {
             Keys: []
-        };
+        } as AnimVector;
 
         let vectorSize = animVectorSize[type];
 
@@ -121,7 +121,7 @@ class State {
         }
 
         for (let i = 0; i < keysCount; ++i) {
-            let animKeyFrame: AnimKeyframe = <AnimKeyframe> {};
+            let animKeyFrame: AnimKeyframe = {} as AnimKeyframe;
 
             animKeyFrame.Frame = this.int32();
 
@@ -183,7 +183,7 @@ function parseSequences (model: Model, state: State, size: number): void {
     while (state.pos < startPos + size) {
         let name = state.str(MODEL_SEQUENCE_NAME_LENGTH);
 
-        let sequence: Sequence = <Sequence> {};
+        let sequence: Sequence = {} as Sequence;
 
         sequence.Name = name;
 
@@ -209,9 +209,9 @@ function parseMaterials (model: Model, state: State, size: number): void {
     while (state.pos < startPos + size) {
         state.int32(); // meterial size inclusive
 
-        let material: Material = <Material> {
+        let material: Material = {
             Layers: []
-        };
+        } as Material;
 
         material.PriorityPlane = state.int32();
         material.RenderMode = state.int32();
@@ -224,7 +224,7 @@ function parseMaterials (model: Model, state: State, size: number): void {
             let startPos2 = state.pos;
             let size2 = state.int32();
 
-            let layer: Layer = <Layer> {};
+            let layer: Layer = {} as Layer;
 
             layer.FilterMode = state.int32();
             layer.Shading = state.int32();
@@ -260,7 +260,7 @@ function parseTextures (model: Model, state: State, size: number) {
     let startPos = state.pos;
 
     while (state.pos < startPos + size) {
-        let texture: Texture = <Texture> {};
+        let texture: Texture = {} as Texture;
 
         texture.ReplaceableId = state.int32();
         texture.Image = state.str(MODEL_TEXTURE_PATH_LENGTH);
@@ -275,7 +275,7 @@ function parseGeosets (model: Model, state: State, size: number) {
     let startPos = state.pos;
 
     while (state.pos < startPos + size) {
-        let geoset: Geoset = <Geoset> {};
+        let geoset: Geoset = {} as Geoset;
 
         state.int32(); // geoset size, not used
 
@@ -350,7 +350,7 @@ function parseGeosets (model: Model, state: State, size: number) {
         geoset.Anims = [];
 
         for (let i = 0; i < geosetAnimCount; ++i) {
-            let geosetAnim: GeosetAnimInfo = <GeosetAnimInfo> {};
+            let geosetAnim: GeosetAnimInfo = {} as GeosetAnimInfo;
 
             parseExtent(geosetAnim, state);
 
@@ -378,7 +378,7 @@ function parseGeosetAnims (model: Model, state: State, size: number): void {
         let animStartPos = state.pos;
         let animSize = state.int32();
 
-        let geosetAnim: GeosetAnim = <GeosetAnim> {};
+        let geosetAnim: GeosetAnim = {} as GeosetAnim;
 
         geosetAnim.Alpha = state.float32();
         geosetAnim.Flags = state.int32();
@@ -444,7 +444,7 @@ function parseBones (model: Model, state: State, size: number): void {
     let startPos = state.pos;
 
     while (state.pos < startPos + size) {
-        let bone: Bone = <Bone> {};
+        let bone: Bone = {} as Bone;
 
         parseNode(model, bone, state);
 
@@ -465,7 +465,7 @@ function parseHelpers (model: Model, state: State, size: number): void {
     let startPos = state.pos;
 
     while (state.pos < startPos + size) {
-        let helper: Helper = <Helper> {};
+        let helper: Helper = {} as Helper;
 
         parseNode(model, helper, state);
 
@@ -480,7 +480,7 @@ function parseAttachments (model: Model, state: State, size: number): void {
     while (state.pos < startPos + size) {
         let attachmentStart = state.pos;
         let attachmentSize = state.int32();
-        let attachment: Attachment = <Attachment> {};
+        let attachment: Attachment = {} as Attachment;
 
         parseNode(model, attachment, state);
 
@@ -513,7 +513,7 @@ function parseEventObjects (model: Model, state: State, size: number): void {
     let startPos = state.pos;
 
     while (state.pos < startPos + size) {
-        let eventObject: EventObject = <EventObject> {};
+        let eventObject: EventObject = {} as EventObject;
 
         parseNode(model, eventObject, state);
         state.expectKeyword('KEVT', 'Incorrect EventObject chunk data');
@@ -533,7 +533,7 @@ function parseCollisionShapes (model: Model, state: State, size: number): void {
     let startPos = state.pos;
 
     while (state.pos < startPos + size) {
-        let collisionShape: CollisionShape = <CollisionShape> {};
+        let collisionShape: CollisionShape = {} as CollisionShape;
 
         parseNode(model, collisionShape, state);
 
@@ -573,7 +573,7 @@ function parseParticleEmitters2 (model: Model, state: State, size: number): void
     while (state.pos < startPos + size) {
         let emitterStart = state.pos;
         let emitterSize = state.int32();
-        let emitter: ParticleEmitter2 = <ParticleEmitter2> {};
+        let emitter: ParticleEmitter2 = {} as ParticleEmitter2;
 
         parseNode(model, emitter, state);
 
@@ -667,7 +667,7 @@ function parseCameras (model: Model, state: State, size: number): void {
         let cameraStart = state.pos;
         let cameraSize = state.int32();
 
-        let camera: Camera = <Camera> {};
+        let camera: Camera = {} as Camera;
 
         camera.Name = state.str(MODEL_CAMERA_NAME_LENGTH);
 
@@ -710,7 +710,7 @@ function parseLights (model: Model, state: State, size: number): void {
         let lightStart = state.pos;
         let lightSize = state.int32();
 
-        let light: Light = <Light> {};
+        let light: Light = {} as Light;
 
         parseNode(model, light, state);
 
@@ -763,7 +763,7 @@ function parseTextureAnims (model: Model, state: State, size: number): void {
         let animStart = state.pos;
         let animSize = state.int32();
 
-        let anim: TVertexAnim = <TVertexAnim> {};
+        let anim: TVertexAnim = {} as TVertexAnim;
 
         while (state.pos < animStart + animSize) {
             let keyword = state.keyword();
@@ -790,7 +790,7 @@ function parseRibbonEmitters (model: Model, state: State, size: number): void {
         let emitterStart = state.pos;
         let emitterSize = state.int32();
 
-        let emitter: RibbonEmitter = <RibbonEmitter> {};
+        let emitter: RibbonEmitter = {} as RibbonEmitter;
 
         parseNode(model, emitter, state);
 

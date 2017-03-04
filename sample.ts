@@ -36,7 +36,7 @@ function updateModel (timestamp: number) {
 }
 
 function initGL () {
-    canvas = <HTMLCanvasElement> document.getElementById('canvas');
+    canvas = document.getElementById('canvas') as HTMLCanvasElement;
 
     try {
         gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
@@ -71,7 +71,8 @@ function drawScene () {
     mat4.perspective(pMatrix, Math.PI / 4 , canvas.width / canvas.height, 0.1, 1000.0);
 
     // tslint:disable-next-line
-    mat4.lookAt(mvMatrix, vec3.rotateZ(cameraPos, cameraBasePos, rotateCenter, window['angle'] || 0), cameraTarget, cameraUp);
+    vec3.rotateZ(cameraPos, cameraBasePos, rotateCenter, window['angle'] || 0);
+    mat4.lookAt(mvMatrix, cameraPos, cameraTarget, cameraUp);
 
     calcCameraQuat();
 
@@ -100,7 +101,7 @@ function loadTexture (src: string, flags: TextureFlags) {
 
 function parseModel(isBinary: boolean, xhr: XMLHttpRequest): Model {
     if (isBinary) {
-        return parseMdx(<ArrayBuffer> xhr.response);
+        return parseMdx(xhr.response as ArrayBuffer);
     } else {
         return parseMdl(xhr.responseText);
     }

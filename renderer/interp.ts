@@ -27,35 +27,36 @@ export function interpNum (frame: number, left: AnimKeyframe, right: AnimKeyfram
 export function interpVec3 (out: vec3, frame: number, left: AnimKeyframe, right: AnimKeyframe,
                             lineType: LineType): vec3 {
     if (left.Frame === right.Frame) {
-        return <vec3> left.Vector;
+        return left.Vector as vec3;
     }
 
     let t = (frame - left.Frame) / (right.Frame - left.Frame);
 
     if (lineType === LineType.DontInterp) {
-        return <vec3> left.Vector;
+        return left.Vector as vec3;
     } else if (lineType === LineType.Bezier) {
-        return vec3.bezier(out, <vec3> left.Vector, <vec3> left.OutTan, <vec3> right.InTan, <vec3> right.Vector, t);
+        return vec3.bezier(out, left.Vector as vec3, left.OutTan as vec3, right.InTan as vec3, right.Vector as vec3, t);
     } else if (lineType === LineType.Hermite) {
-        return vec3.hermite(out, <vec3> left.Vector, <vec3> left.OutTan, <vec3> right.InTan, <vec3> right.Vector, t);
+        return vec3.hermite(out, left.Vector as vec3, left.OutTan as vec3,
+            right.InTan as vec3, right.Vector as vec3, t);
     } else {
-        return vec3.lerp(out, <vec3> left.Vector, <vec3> right.Vector, t);
+        return vec3.lerp(out, left.Vector as vec3, right.Vector as vec3, t);
     }
 }
 
 export function interpQuat (out: quat, frame: number, left: AnimKeyframe, right: AnimKeyframe,
                             lineType: LineType): quat {
     if (left.Frame === right.Frame) {
-        return <quat> left.Vector;
+        return left.Vector as quat;
     }
 
     let t = (frame - left.Frame) / (right.Frame - left.Frame);
 
     if (lineType === LineType.DontInterp) {
-        return <quat> left.Vector;
+        return left.Vector as quat;
     } else if (lineType === LineType.Hermite || lineType === LineType.Bezier) {
-        return quat.sqlerp(out, <quat> left.Vector, <quat> left.OutTan, <quat> right.InTan, <quat> right.Vector, t);
+        return quat.sqlerp(out, left.Vector as quat, left.OutTan as quat, right.InTan as quat, right.Vector as quat, t);
     } else {
-        return quat.slerp(out, <quat> left.Vector, <quat> right.Vector, t);
+        return quat.slerp(out, left.Vector as quat, right.Vector as quat, t);
     }
 }

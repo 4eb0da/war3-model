@@ -204,7 +204,7 @@ function parseModelInfo (state: State, model: Model): void {
     const [name, obj] = parseObject(state);
 
     model.Info = obj;
-    model.Info.Name = <string> name;
+    model.Info.Name = name as string;
 }
 
 function parseSequences (state: State, model: Model): void {
@@ -538,7 +538,7 @@ function parseGeosetAnim (state: State, model: Model) {
         } else if (keyword === 'Color') {
             if (isStatic) {
                 let array = new Float32Array(3);
-                res.Color = <Float32Array> parseArray(state, array, 0);
+                res.Color = parseArray(state, array, 0) as Float32Array;
                 res.Color.reverse();
             } else {
                 res.Color = parseAnimVector(state, 3);
