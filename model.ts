@@ -47,9 +47,9 @@ export enum LineType {
 
 export interface AnimKeyframe {
     Frame: number;
-    Vector: Float32Array;
-    InTan?: Float32Array;
-    OutTan?: Float32Array;
+    Vector: Float32Array|Int32Array;
+    InTan?: Float32Array|Int32Array;
+    OutTan?: Float32Array|Int32Array;
 }
 
 export interface AnimVector {
@@ -97,7 +97,7 @@ export interface Geoset {
     Vertices: Float32Array;
     Normals: Float32Array;
     TVertices: Float32Array;
-    VertexGroup: Uint16Array;
+    VertexGroup: Uint8Array;
     Faces: Uint16Array;
     Groups: number[][];
     TotalGroupsCount: number;
@@ -211,9 +211,9 @@ export enum ParticleEmitter2FramesFlags {
 
 export interface ParticleEmitter2 extends Node {
     Speed?: AnimVector|number;
-    Variation?: AnimVector|number;
+    Variation?: number;
     Latitude?: AnimVector|number;
-    Gravity?: AnimVector|number;
+    Gravity?: number;
     Visibility?: AnimVector|number;
     Squirt?: boolean;
     LifeSpan?: number;

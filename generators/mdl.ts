@@ -9,10 +9,10 @@ import {
 const FLOAT_PRESICION: number = 6;
 const EPSILON: number = 1e-6;
 
-function isNotEmptyVec3 (vec: Float32Array) {
-    return Math.abs(vec[0]) > EPSILON ||
-        Math.abs(vec[1]) > EPSILON ||
-        Math.abs(vec[2]) > EPSILON;
+function isNotEmptyVec3 (vec: Float32Array, val: number = 0) {
+    return Math.abs(vec[0] - val) > EPSILON ||
+        Math.abs(vec[1] - val) > EPSILON ||
+        Math.abs(vec[2] - val) > EPSILON;
 }
 
 function generateTab (tabSize: number = 1): string {
@@ -184,7 +184,7 @@ function generateAnimVectorProp (name, val: AnimVector|number, defaultVal: numbe
     } else {
         return generateBlockStart(name, val.Keys.length, tabSize) +
             generateBooleanProp(generateLineType(val.LineType), tabSize + 1) +
-            (val.GlobalSeqId !== undefined ? generateIntProp('GlobalSeqId', val.GlobalSeqId, null, tabSize + 1) : '') +
+            (val.GlobalSeqId !== null ? generateIntProp('GlobalSeqId', val.GlobalSeqId, null, tabSize + 1) : '') +
             val.Keys.map(key => generateAnimKeyFrame(key, tabSize + 1)).join('') +
             generateBlockEnd(tabSize);
     }
@@ -455,20 +455,22 @@ function generateGeosetAnims (model: Model): string {
     return model.GeosetAnims.map(generateGeosetAnimChunk).join('');
 }
 
-function generateColorProp (name: string, color: AnimVector|Float32Array, isStatic: boolean|null = false,
+function generateColorProp (name: string, color: AnimVector|Float32Array, isStatic: boolean|null,
                             tabSize: number = 1): string {
     if (color) {
         if (color instanceof Float32Array) {
-            let middle = '';
+            if (!isStatic || isNotEmptyVec3(color, 1)) {
+                let middle = '';
 
-            for (let i = 2; i >= 0; --i) {
-                if (i < 2) {
-                    middle += ', ';
+                for (let i = 2; i >= 0; --i) {
+                    if (i < 2) {
+                        middle += ', ';
+                    }
+                    middle += generateFloat(color[i]);
                 }
-                middle += generateFloat(color[i]);
-            }
 
-            return `${generateTab(tabSize)}${isStatic ? 'static ' : ''}${name} \{ ${middle} },\n`;
+                return `${generateTab(tabSize)}${isStatic ? 'static ' : ''}${name} \{ ${middle} },\n`;
+            }
         } else {
             return generateAnimVectorProp(name, color, null, tabSize);
         }
@@ -662,9 +664,9 @@ function generateParticleEmitter2Chunk (particleEmitter2: ParticleEmitter2) {
         generateNodeProps(particleEmitter2) +
         generateBooleanProp(generateParticleEmitters2FilterMode(particleEmitter2.FilterMode)) +
         generateAnimVectorProp('Speed', particleEmitter2.Speed, null) +
-        generateAnimVectorProp('Variation', particleEmitter2.Variation, null) +
+        generateFloatProp('Variation', particleEmitter2.Variation) +
         generateAnimVectorProp('Latitude', particleEmitter2.Latitude, null) +
-        generateAnimVectorProp('Gravity', particleEmitter2.Gravity, null) +
+        generateFloatProp('Gravity', particleEmitter2.Gravity, null) +
         generateAnimVectorProp('EmissionRate', particleEmitter2.EmissionRate, null) +
         generateAnimVectorProp('Width', particleEmitter2.Width, null) +
         generateAnimVectorProp('Length', particleEmitter2.Length, null) +

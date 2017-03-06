@@ -192,7 +192,7 @@ export class ModelRenderer {
 
         this.rendererData.rootNode = {
             // todo
-            node: <Node> {},
+            node: {} as Node,
             matrix: mat4.create(),
             childs: []
         };
@@ -333,7 +333,7 @@ export class ModelRenderer {
                 gl.vertexAttribPointer(shaderProgramLocations.textureCoordAttribute, 2, gl.FLOAT, false, 0, 0);
 
                 gl.bindBuffer(gl.ARRAY_BUFFER, this.groupBuffer[i]);
-                gl.vertexAttribPointer(shaderProgramLocations.groupAttribute, 4, gl.UNSIGNED_SHORT, false, 0, 0);
+                gl.vertexAttribPointer(shaderProgramLocations.groupAttribute, 4, gl.UNSIGNED_BYTE, false, 0, 0);
 
                 gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.indexBuffer[i]);
                 gl.drawElements(gl.TRIANGLES, this.model.Geosets[i].Faces.length, gl.UNSIGNED_SHORT, 0);
@@ -355,7 +355,7 @@ export class ModelRenderer {
 
             this.groupBuffer[i] = gl.createBuffer();
             gl.bindBuffer(gl.ARRAY_BUFFER, this.groupBuffer[i]);
-            let buffer = new Uint16Array(this.model.Geosets[i].VertexGroup.length * 4);
+            let buffer = new Uint8Array(this.model.Geosets[i].VertexGroup.length * 4);
             for (let j = 0; j < buffer.length; j += 4) {
                 let index = j / 4;
                 let group = this.model.Geosets[i].Groups[this.model.Geosets[i].VertexGroup[index]];
@@ -397,13 +397,13 @@ export class ModelRenderer {
         } else if (translationRes && !rotationRes && !scalingRes) {
             mat4.fromTranslation(node.matrix, translationRes);
         } else if (!translationRes && rotationRes && !scalingRes) {
-            mat4fromRotationOrigin(node.matrix, rotationRes, <vec3> node.node.PivotPoint);
+            mat4fromRotationOrigin(node.matrix, rotationRes, node.node.PivotPoint as vec3);
         } else {
             mat4.fromRotationTranslationScaleOrigin(node.matrix,
                 rotationRes || defaultRotation,
                 translationRes || defaultTranslation,
                 scalingRes || defaultScaling,
-                <vec3> node.node.PivotPoint
+                node.node.PivotPoint as vec3
             );
         }
 
@@ -415,11 +415,11 @@ export class ModelRenderer {
             if (node.node.Parent) {
                 // cancel parent rotation from PivotPoint
                 mat4.getRotation(tempParentRotationQuat, this.rendererData.nodes[node.node.Parent].matrix);
-                mat4fromRotationOrigin(tempParentRotationMat, tempParentRotationQuat, <vec3> node.node.PivotPoint);
+                mat4fromRotationOrigin(tempParentRotationMat, tempParentRotationQuat, node.node.PivotPoint as vec3);
                 mat4.mul(node.matrix, node.matrix, tempParentRotationMat);
             }
             // rotate to camera
-            mat4fromRotationOrigin(tempCameraMat, this.rendererData.cameraQuat, <vec3> node.node.PivotPoint);
+            mat4fromRotationOrigin(tempCameraMat, this.rendererData.cameraQuat, node.node.PivotPoint as vec3);
             mat4.mul(node.matrix, node.matrix, tempCameraMat);
         }
 

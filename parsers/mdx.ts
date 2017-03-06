@@ -58,12 +58,12 @@ class State {
         }
     }
 
-    public int8 (): number {
-        return this.view.getInt8(this.pos++);
+    public uint8 (): number {
+        return this.view.getUint8(this.pos++);
     }
 
-    public int16 (): number {
-        let res = this.view.getInt16(this.pos, BIG_ENDIAN);
+    public uint16 (): number {
+        let res = this.view.getUint16(this.pos, BIG_ENDIAN);
 
         this.pos += 2;
 
@@ -105,10 +105,12 @@ class State {
         return res;
     }
 
-    public animVector(type: AnimVectorType): AnimVector {
+    public animVector (type: AnimVectorType): AnimVector {
         let res: AnimVector = {
             Keys: []
         } as AnimVector;
+
+        let isInt = type === AnimVectorType.INT1;
 
         let vectorSize = animVectorSize[type];
 
@@ -125,17 +127,28 @@ class State {
 
             animKeyFrame.Frame = this.int32();
 
-            // todo support int
-            animKeyFrame.Vector = new Float32Array(vectorSize);
+            if (isInt) {
+                animKeyFrame.Vector = new Int32Array(vectorSize);
+            } else {
+                animKeyFrame.Vector = new Float32Array(vectorSize);
+            }
             for (let j = 0; j < vectorSize; ++j) {
-                animKeyFrame.Vector[j] = this.float32();
+                if (isInt) {
+                    animKeyFrame.Vector[j] = this.int32();
+                } else {
+                    animKeyFrame.Vector[j] = this.float32();
+                }
             }
 
             if (res.LineType === LineType.Hermite || res.LineType === LineType.Bezier) {
                 for (let part of ['InTan', 'OutTan']) {
                     animKeyFrame[part] = new Float32Array(vectorSize);
                     for (let j = 0; j < vectorSize; ++j) {
-                        animKeyFrame[part][j] = this.float32();
+                        if (isInt) {
+                            animKeyFrame[part][j] = this.int32();
+                        } else {
+                            animKeyFrame[part][j] = this.float32();
+                        }
                     }
                 }
             }
@@ -207,7 +220,7 @@ function parseMaterials (model: Model, state: State, size: number): void {
     let startPos = state.pos;
 
     while (state.pos < startPos + size) {
-        state.int32(); // meterial size inclusive
+        state.int32(); // material size inclusive
 
         let material: Material = {
             Layers: []
@@ -311,20 +324,21 @@ function parseGeosets (model: Model, state: State, size: number) {
         let indicesCount = state.int32();
         geoset.Faces = new Uint16Array(indicesCount);
         for (let i = 0; i < indicesCount; ++i) {
-            geoset.Faces[i] = state.int16();
+            geoset.Faces[i] = state.uint16();
         }
 
         state.expectKeyword('GNDX', 'Incorrect geosets format');
         let verticesGroupCount = state.int32();
-        geoset.VertexGroup = new Uint16Array(verticesGroupCount);
+        geoset.VertexGroup = new Uint8Array(verticesGroupCount);
         for (let i = 0; i < verticesGroupCount; ++i) {
-            geoset.VertexGroup[i] = state.int8();
+            geoset.VertexGroup[i] = state.uint8();
         }
 
         state.expectKeyword('MTGC', 'Incorrect geosets format');
         let groupsCount = state.int32();
         geoset.Groups = [];
         for (let i = 0; i < groupsCount; ++i) {
+            // new Array(array length)
             geoset.Groups[i] = new Array(state.int32());
         }
 
@@ -383,9 +397,9 @@ function parseGeosetAnims (model: Model, state: State, size: number): void {
         geosetAnim.Alpha = state.float32();
         geosetAnim.Flags = state.int32();
         geosetAnim.Color = new Float32Array(3);
-        geosetAnim.Color[2] = state.float32() || 1;
-        geosetAnim.Color[1] = state.float32() || 1;
-        geosetAnim.Color[0] = state.float32() || 1;
+        for (let i = 0; i < 3; ++i) {
+            geosetAnim.Color[i] = state.float32() || 1;
+        }
         geosetAnim.GeosetId = state.int32();
         if (geosetAnim.GeosetId === NONE) {
             geosetAnim.GeosetId = null;
@@ -603,7 +617,7 @@ function parseParticleEmitters2 (model: Model, state: State, size: number): void
         emitter.Time = state.float32();
 
         emitter.SegmentColor = [];
-        // always 3 segments?
+        // always 3 segments
         for (let i = 0; i < 3; ++i) {
             emitter.SegmentColor[i] = new Float32Array(3);
             //  rgb order, inverse from mdl
@@ -614,7 +628,7 @@ function parseParticleEmitters2 (model: Model, state: State, size: number): void
 
         emitter.Alpha = new Uint8Array(3);
         for (let i = 0; i < 3; ++i) {
-            emitter.Alpha[i] = state.int8();
+            emitter.Alpha[i] = state.uint8();
         }
 
         emitter.ParticleScaling = new Float32Array(3);
@@ -650,6 +664,8 @@ function parseParticleEmitters2 (model: Model, state: State, size: number): void
                 emitter.Length = state.animVector(AnimVectorType.FLOAT1);
             } else if (keyword === 'KP2S') {
                 emitter.Speed = state.animVector(AnimVectorType.FLOAT1);
+            } else if (keyword === 'KP2L') {
+                emitter.Latitude = state.animVector(AnimVectorType.FLOAT1);
             } else {
                 throw new Error('Incorrect particle emitter2 chunk data ' + keyword);
             }
@@ -819,7 +835,7 @@ function parseRibbonEmitters (model: Model, state: State, size: number): void {
             if (keyword === 'KRVS') {
                 emitter.Visibility = state.animVector(AnimVectorType.FLOAT1);
             } else if (keyword === 'KRHA') {
-                emitter.HeightAbove = state.animVector(AnimVectorType.FLOAT3);
+                emitter.HeightAbove = state.animVector(AnimVectorType.FLOAT1);
             } else if (keyword === 'KRHB') {
                 emitter.HeightBelow = state.animVector(AnimVectorType.FLOAT1);
             } else {

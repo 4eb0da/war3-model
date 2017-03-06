@@ -334,6 +334,7 @@ function parseLayer (state: State): Layer {
         }
 
         if (!isStatic && (keyword === 'Alpha' || keyword === 'TextureID')) {
+            // todo support int (TextureID)
             res[keyword] = parseAnimVector(state, 1);
         } else if (keyword === 'Unshaded' || keyword === 'SphereEnvMap' || keyword === 'TwoSided' ||
             keyword === 'Unfogged' || keyword === 'NoDepthTest' || keyword === 'NoDepthSet') {
@@ -451,7 +452,7 @@ function parseGeoset (state: State, model: Model): void {
 
             strictParseSymbol(state, '}');
         } else if (keyword === 'VertexGroup') {
-            res[keyword] = new Uint16Array(res.Vertices.length / 3);
+            res[keyword] = new Uint8Array(res.Vertices.length / 3);
 
             parseArray(state, res[keyword], 0);
         } else if (keyword === 'Faces') {
