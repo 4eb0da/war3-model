@@ -131,13 +131,8 @@ export class ModelRenderer {
         gl.useProgram(shaderProgram);
 
         shaderProgramLocations.vertexPositionAttribute = gl.getAttribLocation(shaderProgram, 'aVertexPosition');
-        gl.enableVertexAttribArray(shaderProgramLocations.vertexPositionAttribute);
-
         shaderProgramLocations.textureCoordAttribute = gl.getAttribLocation(shaderProgram, 'aTextureCoord');
-        gl.enableVertexAttribArray(shaderProgramLocations.textureCoordAttribute);
-
         shaderProgramLocations.groupAttribute = gl.getAttribLocation(shaderProgram, 'aGroup');
-        gl.enableVertexAttribArray(shaderProgramLocations.groupAttribute);
 
         shaderProgramLocations.pMatrixUniform = gl.getUniformLocation(shaderProgram, 'uPMatrix');
         shaderProgramLocations.mvMatrixUniform = gl.getUniformLocation(shaderProgram, 'uMVMatrix');
@@ -179,11 +174,13 @@ export class ModelRenderer {
             geosetAlpha: [],
             materialLayerTextureID: [],
             teamColor: null,
+            cameraPos: null,
             cameraQuat: null,
             textures: {}
         };
 
         this.rendererData.teamColor = vec3.fromValues(1., 0., 0.);
+        this.rendererData.cameraPos = vec3.create();
         this.rendererData.cameraQuat = quat.create();
 
         this.rendererData.animation = Object.keys(model.Sequences)[0];
@@ -268,7 +265,8 @@ export class ModelRenderer {
         gl.bindTexture(gl.TEXTURE_2D, null);
     }
 
-    public setCameraQuat (cameraQuat: quat): void {
+    public setCamera (cameraPos: vec3, cameraQuat: quat): void {
+        vec3.copy(this.rendererData.cameraPos, cameraPos);
         quat.copy(this.rendererData.cameraQuat, cameraQuat);
     }
 
@@ -291,13 +289,7 @@ export class ModelRenderer {
 
         for (let i = 0; i < this.rendererData.materialLayerTextureID.length; ++i) {
             for (let j = 0; j < this.rendererData.materialLayerTextureID[i].length; ++j) {
-                let TextureID: AnimVector|number = this.model.Materials[i].Layers[j].TextureID;
-
-                if (typeof TextureID === 'number') {
-                    this.rendererData.materialLayerTextureID[i][j] = TextureID;
-                } else {
-                    this.rendererData.materialLayerTextureID[i][j] = this.interp.num(TextureID);
-                }
+                this.updateLayerTextureId(i, j);
             }
         }
     }
@@ -307,6 +299,10 @@ export class ModelRenderer {
 
         gl.uniformMatrix4fv(shaderProgramLocations.pMatrixUniform, false, pMatrix);
         gl.uniformMatrix4fv(shaderProgramLocations.mvMatrixUniform, false, mvMatrix);
+
+        gl.enableVertexAttribArray(shaderProgramLocations.vertexPositionAttribute);
+        gl.enableVertexAttribArray(shaderProgramLocations.textureCoordAttribute);
+        gl.enableVertexAttribArray(shaderProgramLocations.groupAttribute);
 
         for (let j = 0; j < MAX_NODES; ++j) {
             if (this.rendererData.nodes[j]) {
@@ -340,7 +336,21 @@ export class ModelRenderer {
             }
         }
 
+        gl.disableVertexAttribArray(shaderProgramLocations.vertexPositionAttribute);
+        gl.disableVertexAttribArray(shaderProgramLocations.textureCoordAttribute);
+        gl.disableVertexAttribArray(shaderProgramLocations.groupAttribute);
+
         this.particlesController.render(mvMatrix, pMatrix);
+    }
+
+    private updateLayerTextureId (materialId: number, layerId: number): void {
+        let TextureID: AnimVector|number = this.model.Materials[materialId].Layers[layerId].TextureID;
+
+        if (typeof TextureID === 'number') {
+            this.rendererData.materialLayerTextureID[materialId][layerId] = TextureID;
+        } else {
+            this.rendererData.materialLayerTextureID[materialId][layerId] = this.interp.num(TextureID);
+        }
     }
 
     private initBuffers (): void {

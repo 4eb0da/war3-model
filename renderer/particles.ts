@@ -1,4 +1,7 @@
-import {ParticleEmitter2, ParticleEmitter2FilterMode, ParticleEmitter2Flags} from '../model';
+import {
+    ParticleEmitter2, ParticleEmitter2FilterMode, ParticleEmitter2Flags,
+    ParticleEmitter2FramesFlags
+} from '../model';
 import {vec3, vec4} from 'gl-matrix';
 import {ModelInterp} from './modelInterp';
 import {mat4} from 'gl-matrix';
@@ -15,6 +18,8 @@ let rotateCenter: vec3 = vec3.fromValues(0, 0, 0);
 let firstColor = vec4.create();
 let secondColor = vec4.create();
 let color = vec4.create();
+let tailPos = vec3.create();
+let tailCross = vec3.create();
 
 let vertexShader = `
     attribute vec3 aVertexPosition;
@@ -82,6 +87,7 @@ interface Particle {
     pos: vec3;
     // xyz
     speed: vec3;
+    angle: number;
     gravity: number;
     lifeSpan: number;
 }
@@ -92,10 +98,15 @@ interface ParticleEmitterWrapper {
     props: ParticleEmitter2;
     capacity: number;
     baseCapacity: number;
+    // head or tail or both
+    type: number;
 
     // xyz
-    vertices: Float32Array;
-    vertexBuffer: WebGLBuffer;
+    tailVertices: Float32Array;
+    tailVertexBuffer: WebGLBuffer;
+    // xyz
+    headVertices: Float32Array;
+    headVertexBuffer: WebGLBuffer;
     // xy
     texCoords: Float32Array;
     texCoordBuffer: WebGLBuffer;
@@ -134,15 +145,10 @@ export class ParticlesController {
 
         shaderProgramLocations.vertexPositionAttribute =
             gl.getAttribLocation(shaderProgram, 'aVertexPosition');
-        gl.enableVertexAttribArray(shaderProgramLocations.vertexPositionAttribute);
-
         shaderProgramLocations.textureCoordAttribute =
             gl.getAttribLocation(shaderProgram, 'aTextureCoord');
-        gl.enableVertexAttribArray(shaderProgramLocations.textureCoordAttribute);
-
         shaderProgramLocations.colorAttribute =
             gl.getAttribLocation(shaderProgram, 'aColor');
-        gl.enableVertexAttribArray(shaderProgramLocations.colorAttribute);
 
         shaderProgramLocations.pMatrixUniform = gl.getUniformLocation(shaderProgram, 'uPMatrix');
         shaderProgramLocations.mvMatrixUniform = gl.getUniformLocation(shaderProgram, 'uMVMatrix');
@@ -176,7 +182,16 @@ export class ParticlesController {
 
         size = Math.min(size, emitter.baseCapacity);
 
-        let vertices = new Float32Array(size * 4 * 3);  // 4 vertices * xyz
+        let tailVertices;
+        let headVertices;
+
+        if (emitter.type & ParticleEmitter2FramesFlags.Tail) {
+            tailVertices = new Float32Array(size * 4 * 3); // 4 vertices * xyz
+        }
+        if (emitter.type & ParticleEmitter2FramesFlags.Head) {
+            headVertices = new Float32Array(size * 4 * 3); // 4 vertices * xyz
+        }
+
         let texCoords = new Float32Array(size * 4 * 2); // 4 vertices * xy
         let colors = new Float32Array(size * 4 * 4);    // 4 vertices * rgba
         let indices = new Uint16Array(size * 6);        // 4 vertices * 2 triangles
@@ -194,15 +209,25 @@ export class ParticlesController {
             indices[i * 6 + 5] = i * 4 + 3;
         }
 
-        emitter.vertices = vertices;
+        if (tailVertices) {
+            emitter.tailVertices = tailVertices;
+        }
+        if (headVertices) {
+            emitter.headVertices = headVertices;
+        }
         emitter.texCoords = texCoords;
         emitter.colors = colors;
         emitter.indices = indices;
 
         emitter.capacity = size;
 
-        if (!emitter.vertexBuffer) {
-            emitter.vertexBuffer = gl.createBuffer();
+        if (!emitter.indexBuffer) {
+            if (emitter.type & ParticleEmitter2FramesFlags.Tail) {
+                emitter.tailVertexBuffer = gl.createBuffer();
+            }
+            if (emitter.type & ParticleEmitter2FramesFlags.Head) {
+                emitter.headVertexBuffer = gl.createBuffer();
+            }
             emitter.texCoordBuffer = gl.createBuffer();
             emitter.colorBuffer = gl.createBuffer();
             emitter.indexBuffer = gl.createBuffer();
@@ -236,8 +261,11 @@ export class ParticlesController {
                         props: rendererData.model.ParticleEmitters2[i],
                         capacity: 0,
                         baseCapacity: 0,
-                        vertices: null,
-                        vertexBuffer: null,
+                        type: rendererData.model.ParticleEmitters2[i].FrameFlags,
+                        tailVertices: null,
+                        tailVertexBuffer: null,
+                        headVertices: null,
+                        headVertexBuffer: null,
                         texCoords: null,
                         texCoordBuffer: null,
                         colors: null,
@@ -269,74 +297,29 @@ export class ParticlesController {
         gl.uniformMatrix4fv(shaderProgramLocations.pMatrixUniform, false, pMatrix);
         gl.uniformMatrix4fv(shaderProgramLocations.mvMatrixUniform, false, mvMatrix);
 
+        gl.enableVertexAttribArray(shaderProgramLocations.vertexPositionAttribute);
+        gl.enableVertexAttribArray(shaderProgramLocations.textureCoordAttribute);
+        gl.enableVertexAttribArray(shaderProgramLocations.colorAttribute);
+
         for (let emitter of this.emitters) {
             if (!emitter.capacity) {
                 continue;
             }
 
-            if (emitter.props.FilterMode === ParticleEmitter2FilterMode.AlphaKey) {
-                gl.uniform1f(shaderProgramLocations.discardAlphaLevelUniform, DISCARD_ALPHA_KEY_LEVEL);
-            } else if (emitter.props.FilterMode === ParticleEmitter2FilterMode.Modulate ||
-                emitter.props.FilterMode === ParticleEmitter2FilterMode.Modulate2x) {
-                gl.uniform1f(shaderProgramLocations.discardAlphaLevelUniform, DISCARD_MODULATE_LEVEL);
-            } else {
-                gl.uniform1f(shaderProgramLocations.discardAlphaLevelUniform, 0.);
+            this.setLayerProps(emitter);
+            this.setGeneralBuffers(emitter);
+
+            if (emitter.type & ParticleEmitter2FramesFlags.Tail) {
+                this.renderEmitterType(emitter, ParticleEmitter2FramesFlags.Tail);
             }
-
-            if (emitter.props.FilterMode === ParticleEmitter2FilterMode.Blend) {
-                gl.enable(gl.BLEND);
-                gl.enable(gl.DEPTH_TEST);
-                gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
-                gl.depthMask(false);
-            } else if (emitter.props.FilterMode === ParticleEmitter2FilterMode.Additive) {
-                gl.enable(gl.BLEND);
-                gl.enable(gl.DEPTH_TEST);
-                gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
-                gl.depthMask(false);
-            } else if (emitter.props.FilterMode === ParticleEmitter2FilterMode.AlphaKey) {
-                gl.enable(gl.BLEND);
-                gl.enable(gl.DEPTH_TEST);
-                gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
-                gl.depthMask(false);
-            } else if (emitter.props.FilterMode === ParticleEmitter2FilterMode.Modulate) {
-                gl.enable(gl.BLEND);
-                gl.enable(gl.DEPTH_TEST);
-                gl.blendFuncSeparate(gl.ZERO, gl.SRC_COLOR, gl.ZERO, gl.ONE);
-                gl.depthMask(false);
-            } else if (emitter.props.FilterMode === ParticleEmitter2FilterMode.Modulate2x) {
-                gl.enable(gl.BLEND);
-                gl.enable(gl.DEPTH_TEST);
-                gl.blendFuncSeparate(gl.DST_COLOR, gl.SRC_COLOR, gl.ZERO, gl.ONE);
-                gl.depthMask(false);
+            if (emitter.type & ParticleEmitter2FramesFlags.Head) {
+                this.renderEmitterType(emitter, ParticleEmitter2FramesFlags.Head);
             }
-
-            let texture = this.rendererData.model.Textures[emitter.props.TextureID];
-            if (texture.Image) {
-                gl.activeTexture(gl.TEXTURE0);
-                gl.bindTexture(gl.TEXTURE_2D, this.rendererData.textures[texture.Image]);
-                gl.uniform1i(shaderProgramLocations.samplerUniform, 0);
-                gl.uniform1f(shaderProgramLocations.replaceableTypeUniform, 0);
-            } else if (texture.ReplaceableId === 1 || texture.ReplaceableId === 2) {
-                gl.uniform3fv(shaderProgramLocations.replaceableColorUniform, this.rendererData.teamColor);
-                gl.uniform1f(shaderProgramLocations.replaceableTypeUniform, texture.ReplaceableId);
-            }
-
-            gl.bindBuffer(gl.ARRAY_BUFFER, emitter.vertexBuffer);
-            gl.bufferData(gl.ARRAY_BUFFER, emitter.vertices, gl.DYNAMIC_DRAW);
-            gl.vertexAttribPointer(shaderProgramLocations.vertexPositionAttribute, 3, gl.FLOAT, false, 0, 0);
-
-            gl.bindBuffer(gl.ARRAY_BUFFER, emitter.texCoordBuffer);
-            gl.bufferData(gl.ARRAY_BUFFER, emitter.texCoords, gl.DYNAMIC_DRAW);
-            gl.vertexAttribPointer(shaderProgramLocations.textureCoordAttribute, 2, gl.FLOAT, false, 0, 0);
-
-            gl.bindBuffer(gl.ARRAY_BUFFER, emitter.colorBuffer);
-            gl.bufferData(gl.ARRAY_BUFFER, emitter.colors, gl.DYNAMIC_DRAW);
-            gl.vertexAttribPointer(shaderProgramLocations.colorAttribute, 4, gl.FLOAT, false, 0, 0);
-
-            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, emitter.indexBuffer);
-            gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, emitter.indices, gl.DYNAMIC_DRAW);
-            gl.drawElements(gl.TRIANGLES, emitter.particles.length * 6, gl.UNSIGNED_SHORT, 0);
         }
+
+        gl.disableVertexAttribArray(shaderProgramLocations.vertexPositionAttribute);
+        gl.disableVertexAttribArray(shaderProgramLocations.textureCoordAttribute);
+        gl.disableVertexAttribArray(shaderProgramLocations.colorAttribute);
     }
 
     private updateEmitter (emitter: ParticleEmitterWrapper, delta: number): void {
@@ -364,20 +347,22 @@ export class ParticlesController {
             }
             emitter.particles = updatedParticles;
 
-            if (emitter.props.Flags & ParticleEmitter2Flags.XYQuad) {
-                vec3.set(this.particleBaseVectors[0], -1,  1, 0);
-                vec3.set(this.particleBaseVectors[1], -1, -1, 0);
-                vec3.set(this.particleBaseVectors[2],  1,  1, 0);
-                vec3.set(this.particleBaseVectors[3],  1, -1, 0);
-            } else {
-                vec3.set(this.particleBaseVectors[0], 0, -1,  1);
-                vec3.set(this.particleBaseVectors[1], 0, -1, -1);
-                vec3.set(this.particleBaseVectors[2], 0,  1,  1);
-                vec3.set(this.particleBaseVectors[3], 0,  1, -1);
+            if (emitter.type & ParticleEmitter2FramesFlags.Head) {
+                if (emitter.props.Flags & ParticleEmitter2Flags.XYQuad) {
+                    vec3.set(this.particleBaseVectors[0], -1,  1, 0);
+                    vec3.set(this.particleBaseVectors[1], -1, -1, 0);
+                    vec3.set(this.particleBaseVectors[2],  1,  1, 0);
+                    vec3.set(this.particleBaseVectors[3],  1, -1, 0);
+                } else {
+                    vec3.set(this.particleBaseVectors[0], 0, -1,  1);
+                    vec3.set(this.particleBaseVectors[1], 0, -1, -1);
+                    vec3.set(this.particleBaseVectors[2], 0,  1,  1);
+                    vec3.set(this.particleBaseVectors[3], 0,  1, -1);
 
-                for (let i = 0; i < 4; ++i) {
-                    vec3.transformQuat(this.particleBaseVectors[i], this.particleBaseVectors[i],
-                        this.rendererData.cameraQuat);
+                    for (let i = 0; i < 4; ++i) {
+                        vec3.transformQuat(this.particleBaseVectors[i], this.particleBaseVectors[i],
+                            this.rendererData.cameraQuat);
+                    }
                 }
             }
 
@@ -397,6 +382,7 @@ export class ParticlesController {
             particle = {
                 emitter: null,
                 pos: vec3.create(),
+                angle: 0,
                 speed: vec3.create(),
                 gravity: null,
                 lifeSpan: null
@@ -406,7 +392,7 @@ export class ParticlesController {
         let width: number = this.interp.animVectorVal(emitter.props.Width, 0);
         let length: number = this.interp.animVectorVal(emitter.props.Length, 0);
         let speedScale: number = this.interp.animVectorVal(emitter.props.Speed, 0);
-        let variation: number = this.interp.animVectorVal(emitter.props.Variation, 0);
+        let variation: number = emitter.props.Variation || 0;
         let latitude: number = degToRad(this.interp.animVectorVal(emitter.props.Latitude, 0));
 
         particle.emitter = emitter;
@@ -421,27 +407,43 @@ export class ParticlesController {
         }
 
         vec3.set(particle.speed, 0, 0, speedScale);
+        particle.angle = rand(0, Math.PI * 2);
+        vec3.rotateY(particle.speed, particle.speed, rotateCenter, rand(0, latitude));
+        vec3.rotateZ(particle.speed, particle.speed, rotateCenter, particle.angle);
         if (emitter.props.Flags & ParticleEmitter2Flags.LineEmitter) {
-            vec3.rotateY(particle.speed, particle.speed, rotateCenter, rand(-latitude, latitude));
-        } else {
-            vec3.rotateY(particle.speed, particle.speed, rotateCenter, rand(0, latitude));
-            vec3.rotateZ(particle.speed, particle.speed, rotateCenter, rand(0, Math.PI * 2));
+            particle.speed[0] = 0;
         }
         vec3.transformMat4(particle.speed, particle.speed, emitterMatrix);
-        // translation of emitterMatrix
+        // minus translation of emitterMatrix
         particle.speed[0] -= emitterMatrix[12];
         particle.speed[1] -= emitterMatrix[13];
         particle.speed[2] -= emitterMatrix[14];
 
-        particle.gravity = this.interp.animVectorVal(emitter.props.Gravity, 0);
+        particle.gravity = emitter.props.Gravity || 0;
 
         particle.lifeSpan = emitter.props.LifeSpan;
 
         return particle;
     }
 
-    private updateParicleVertices (particle: Particle, index: number, emitter: ParticleEmitterWrapper,
-                                   firstHalf: boolean, t: number) {
+    private updateParticleBuffers (particle: Particle, index: number, emitter: ParticleEmitterWrapper): void {
+        let globalT: number = 1 - particle.lifeSpan / emitter.props.LifeSpan;
+        let firstHalf: boolean = globalT < emitter.props.Time;
+        let t: number;
+
+        if (firstHalf) {
+            t = globalT / emitter.props.Time;
+        } else {
+            t = (globalT - emitter.props.Time) / (1 - emitter.props.Time);
+        }
+
+        this.updateParticleVertices(particle, index, emitter, firstHalf, t);
+        this.updateParticleTexCoords(index, emitter, firstHalf, t);
+        this.updateParticleColor(index, emitter, firstHalf, t);
+    }
+
+    private updateParticleVertices (particle: Particle, index: number, emitter: ParticleEmitterWrapper,
+                                    firstHalf: boolean, t: number) {
         let firstScale;
         let secondScale;
         let scale;
@@ -456,33 +458,60 @@ export class ParticlesController {
 
         scale = lerp(firstScale, secondScale, t);
 
-        for (let i = 0; i < 4; ++i) {
-            emitter.vertices[index * 12 + i * 3] = this.particleBaseVectors[i][0] * scale;
-            emitter.vertices[index * 12 + i * 3 + 1] = this.particleBaseVectors[i][1] * scale;
-            emitter.vertices[index * 12 + i * 3 + 2] = this.particleBaseVectors[i][2] * scale;
+        if (emitter.type & ParticleEmitter2FramesFlags.Head) {
+            for (let i = 0; i < 4; ++i) {
+                emitter.headVertices[index * 12 + i * 3]     = this.particleBaseVectors[i][0] * scale;
+                emitter.headVertices[index * 12 + i * 3 + 1] = this.particleBaseVectors[i][1] * scale;
+                emitter.headVertices[index * 12 + i * 3 + 2] = this.particleBaseVectors[i][2] * scale;
+
+                if (emitter.props.Flags & ParticleEmitter2Flags.XYQuad) {
+                    let x = emitter.headVertices[index * 12 + i * 3];
+                    let y = emitter.headVertices[index * 12 + i * 3 + 1];
+                    emitter.headVertices[index * 12 + i * 3]     = x * Math.cos(particle.angle) -
+                        y * Math.sin(particle.angle);
+                    emitter.headVertices[index * 12 + i * 3 + 1] = x * Math.sin(particle.angle) +
+                        y * Math.cos(particle.angle);
+                }
+            }
+        }
+        if (emitter.type & ParticleEmitter2FramesFlags.Tail) {
+            tailPos[0] = -particle.speed[0] * emitter.props.TailLength;
+            tailPos[1] = -particle.speed[1] * emitter.props.TailLength;
+            tailPos[2] = -particle.speed[2] * emitter.props.TailLength;
+
+            vec3.cross(tailCross, particle.speed, this.rendererData.cameraPos);
+            vec3.normalize(tailCross, tailCross);
+            vec3.scale(tailCross, tailCross, scale);
+
+            emitter.tailVertices[index * 12]             =  tailCross[0];
+            emitter.tailVertices[index * 12         + 1] =  tailCross[1];
+            emitter.tailVertices[index * 12         + 2] =  tailCross[2];
+
+            emitter.tailVertices[index * 12 +     3]     = -tailCross[0];
+            emitter.tailVertices[index * 12 +     3 + 1] = -tailCross[1];
+            emitter.tailVertices[index * 12 +     3 + 2] = -tailCross[2];
+
+            emitter.tailVertices[index * 12 + 2 * 3]     =  tailCross[0] + tailPos[0];
+            emitter.tailVertices[index * 12 + 2 * 3 + 1] =  tailCross[1] + tailPos[1];
+            emitter.tailVertices[index * 12 + 2 * 3 + 2] =  tailCross[2] + tailPos[2];
+
+            emitter.tailVertices[index * 12 + 3 * 3]     = -tailCross[0] + tailPos[0];
+            emitter.tailVertices[index * 12 + 3 * 3 + 1] = -tailCross[1] + tailPos[1];
+            emitter.tailVertices[index * 12 + 3 * 3 + 2] = -tailCross[2] + tailPos[2];
         }
 
         for (let i = 0; i < 4; ++i) {
-            emitter.vertices[index * 12 + i * 3] += particle.pos[0];
-            emitter.vertices[index * 12 + i * 3 + 1] += particle.pos[1];
-            emitter.vertices[index * 12 + i * 3 + 2] += particle.pos[2];
+            if (emitter.headVertices) {
+                emitter.headVertices[index * 12 + i * 3]     += particle.pos[0];
+                emitter.headVertices[index * 12 + i * 3 + 1] += particle.pos[1];
+                emitter.headVertices[index * 12 + i * 3 + 2] += particle.pos[2];
+            }
+            if (emitter.tailVertices) {
+                emitter.tailVertices[index * 12 + i * 3]     += particle.pos[0];
+                emitter.tailVertices[index * 12 + i * 3 + 1] += particle.pos[1];
+                emitter.tailVertices[index * 12 + i * 3 + 2] += particle.pos[2];
+            }
         }
-    }
-
-    private updateParticleBuffers (particle: Particle, index: number, emitter: ParticleEmitterWrapper): void {
-        let globalT: number = 1 - particle.lifeSpan / emitter.props.LifeSpan;
-        let firstHalf: boolean = globalT < emitter.props.Time;
-        let t: number;
-
-        if (firstHalf) {
-            t = globalT / emitter.props.Time;
-        } else {
-            t = (globalT - emitter.props.Time) / (1 - emitter.props.Time);
-        }
-
-        this.updateParicleVertices(particle, index, emitter, firstHalf, t);
-        this.updateParticleTexCoords(index, emitter, firstHalf, t);
-        this.updateParticleColor(index, emitter, firstHalf, t);
     }
 
     private updateParticleTexCoords (index: number, emitter: ParticleEmitterWrapper, firstHalf: boolean, t: number) {
@@ -534,10 +563,85 @@ export class ParticlesController {
         vec4.lerp(color, firstColor, secondColor, t);
 
         for (let i = 0; i < 4; ++i) {
-            emitter.colors[index * 16 + i * 4] = color[0];
+            emitter.colors[index * 16 + i * 4]     = color[0];
             emitter.colors[index * 16 + i * 4 + 1] = color[1];
             emitter.colors[index * 16 + i * 4 + 2] = color[2];
             emitter.colors[index * 16 + i * 4 + 3] = color[3];
         }
+    }
+
+    private setLayerProps (emitter: ParticleEmitterWrapper): void {
+        if (emitter.props.FilterMode === ParticleEmitter2FilterMode.AlphaKey) {
+            gl.uniform1f(shaderProgramLocations.discardAlphaLevelUniform, DISCARD_ALPHA_KEY_LEVEL);
+        } else if (emitter.props.FilterMode === ParticleEmitter2FilterMode.Modulate ||
+            emitter.props.FilterMode === ParticleEmitter2FilterMode.Modulate2x) {
+            gl.uniform1f(shaderProgramLocations.discardAlphaLevelUniform, DISCARD_MODULATE_LEVEL);
+        } else {
+            gl.uniform1f(shaderProgramLocations.discardAlphaLevelUniform, 0.);
+        }
+
+        if (emitter.props.FilterMode === ParticleEmitter2FilterMode.Blend) {
+            gl.enable(gl.BLEND);
+            gl.enable(gl.DEPTH_TEST);
+            gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+            gl.depthMask(false);
+        } else if (emitter.props.FilterMode === ParticleEmitter2FilterMode.Additive) {
+            gl.enable(gl.BLEND);
+            gl.enable(gl.DEPTH_TEST);
+            gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+            gl.depthMask(false);
+        } else if (emitter.props.FilterMode === ParticleEmitter2FilterMode.AlphaKey) {
+            gl.enable(gl.BLEND);
+            gl.enable(gl.DEPTH_TEST);
+            gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+            gl.depthMask(false);
+        } else if (emitter.props.FilterMode === ParticleEmitter2FilterMode.Modulate) {
+            gl.enable(gl.BLEND);
+            gl.enable(gl.DEPTH_TEST);
+            gl.blendFuncSeparate(gl.ZERO, gl.SRC_COLOR, gl.ZERO, gl.ONE);
+            gl.depthMask(false);
+        } else if (emitter.props.FilterMode === ParticleEmitter2FilterMode.Modulate2x) {
+            gl.enable(gl.BLEND);
+            gl.enable(gl.DEPTH_TEST);
+            gl.blendFuncSeparate(gl.DST_COLOR, gl.SRC_COLOR, gl.ZERO, gl.ONE);
+            gl.depthMask(false);
+        }
+
+        let texture = this.rendererData.model.Textures[emitter.props.TextureID];
+        if (texture.Image) {
+            gl.activeTexture(gl.TEXTURE0);
+            gl.bindTexture(gl.TEXTURE_2D, this.rendererData.textures[texture.Image]);
+            gl.uniform1i(shaderProgramLocations.samplerUniform, 0);
+            gl.uniform1f(shaderProgramLocations.replaceableTypeUniform, 0);
+        } else if (texture.ReplaceableId === 1 || texture.ReplaceableId === 2) {
+            gl.uniform3fv(shaderProgramLocations.replaceableColorUniform, this.rendererData.teamColor);
+            gl.uniform1f(shaderProgramLocations.replaceableTypeUniform, texture.ReplaceableId);
+        }
+    }
+
+    private setGeneralBuffers (emitter: ParticleEmitterWrapper): void {
+        gl.bindBuffer(gl.ARRAY_BUFFER, emitter.texCoordBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, emitter.texCoords, gl.DYNAMIC_DRAW);
+        gl.vertexAttribPointer(shaderProgramLocations.textureCoordAttribute, 2, gl.FLOAT, false, 0, 0);
+
+        gl.bindBuffer(gl.ARRAY_BUFFER, emitter.colorBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, emitter.colors, gl.DYNAMIC_DRAW);
+        gl.vertexAttribPointer(shaderProgramLocations.colorAttribute, 4, gl.FLOAT, false, 0, 0);
+
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, emitter.indexBuffer);
+        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, emitter.indices, gl.DYNAMIC_DRAW);
+    }
+
+    private renderEmitterType (emitter: ParticleEmitterWrapper, type: ParticleEmitter2FramesFlags): void {
+        if (type === ParticleEmitter2FramesFlags.Tail) {
+            gl.bindBuffer(gl.ARRAY_BUFFER, emitter.tailVertexBuffer);
+            gl.bufferData(gl.ARRAY_BUFFER, emitter.tailVertices, gl.DYNAMIC_DRAW);
+        } else {
+            gl.bindBuffer(gl.ARRAY_BUFFER, emitter.headVertexBuffer);
+            gl.bufferData(gl.ARRAY_BUFFER, emitter.headVertices, gl.DYNAMIC_DRAW);
+        }
+        gl.vertexAttribPointer(shaderProgramLocations.vertexPositionAttribute, 3, gl.FLOAT, false, 0, 0);
+
+        gl.drawElements(gl.TRIANGLES, emitter.particles.length * 6, gl.UNSIGNED_SHORT, 0);
     }
 }

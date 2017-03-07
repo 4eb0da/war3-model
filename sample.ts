@@ -76,7 +76,7 @@ function drawScene () {
 
     calcCameraQuat();
 
-    modelRenderer.setCameraQuat(cameraQuat);
+    modelRenderer.setCamera(cameraPos, cameraQuat);
     modelRenderer.render(mvMatrix, pMatrix);
 }
 

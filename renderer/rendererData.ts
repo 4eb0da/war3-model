@@ -22,6 +22,7 @@ export interface RendererData {
     geosetAlpha: number[];
     materialLayerTextureID: number[][];
     teamColor: vec3;
+    cameraPos: vec3;
     cameraQuat: quat;
     textures: {[key: string]: WebGLTexture};
 }
