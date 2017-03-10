@@ -3,7 +3,7 @@ import {
     AnimVector, LineType, AnimKeyframe, LayerShading, TVertexAnim, Geoset, GeosetAnimInfo, GeosetAnim, GeosetAnimFlags,
     NodeFlags, Bone, Light, LightType, Helper, Attachment, ParticleEmitter2, ParticleEmitter2FilterMode,
     ParticleEmitter2Flags, ParticleEmitter2FramesFlags, RibbonEmitter, EventObject, Camera, CollisionShape,
-    CollisionShapeType
+    CollisionShapeType, ParticleEmitter, ParticleEmitterFlags
 } from '../model';
 
 const FLOAT_PRESICION: number = 6;
@@ -619,6 +619,30 @@ function generatePivotPoints (model: Model): string {
         generateBlockEnd();
 }
 
+function generateParticleEmitters (model: Model): string {
+    let keys = Object.keys(model.ParticleEmitters || {});
+
+    return keys.map(key => generateParticleEmitterChunk(model.ParticleEmitters[key])).join('');
+}
+
+function generateParticleEmitterChunk (emitter: ParticleEmitter): string {
+    return generateBlockStart('ParticleEmitter', emitter.Name) +
+        generateNodeProps(emitter) +
+        (emitter.Flags & ParticleEmitterFlags.EmitterUsesMDL ? generateBooleanProp('EmitterUsesMDL') : '') +
+        (emitter.Flags & ParticleEmitterFlags.EmitterUsesTGA ? generateBooleanProp('EmitterUsesTGA') : '') +
+        generateFloatProp('EmissionRate', emitter.EmissionRate) +
+        generateFloatProp('Gravity', emitter.Gravity) +
+        generateFloatProp('Longitude', emitter.Longitude) +
+        generateFloatProp('Latitude', emitter.Latitude) +
+        generateAnimVectorProp('Visibility', emitter.Visibility) +
+        generateBlockStart('Particle', null, 1) +
+        generateFloatProp('LifeSpan', emitter.LifeSpan, false, 2) +
+        generateFloatProp('InitVelocity', emitter.InitVelocity, false, 2) +
+        generateWrappedStringProp('Path', emitter.Path, false, 2) +
+        generateBlockEnd(1) +
+        generateBlockEnd();
+}
+
 function generateParticleEmitters2 (model: Model): string {
     let keys = Object.keys(model.ParticleEmitters2 || {});
 
@@ -809,6 +833,7 @@ const generators: [(model: Model) => string] = [
     generateHelpers,
     generateAttachments,
     generatePivotPoints,
+    generateParticleEmitters,
     generateParticleEmitters2,
     generateRibbonEmitters,
     generateEventObjects,

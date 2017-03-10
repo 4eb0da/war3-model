@@ -2,7 +2,7 @@ import {
     Model, Layer, GeosetAnim, AnimVector, LineType, AnimKeyframe, Node,
     CollisionShape, ParticleEmitter2, Camera, MaterialRenderMode, FilterMode, LayerShading, TextureFlags,
     GeosetAnimFlags, NodeFlags, CollisionShapeType, ParticleEmitter2Flags, ParticleEmitter2FramesFlags, Light,
-    LightType, TVertexAnim, RibbonEmitter, ParticleEmitter2FilterMode
+    LightType, TVertexAnim, RibbonEmitter, ParticleEmitter2FilterMode, ParticleEmitter, ParticleEmitterFlags
 } from '../model';
 
 class State {
@@ -284,6 +284,7 @@ function parseAnimKeyframe (state: State, frame: number, itemCount: number, line
 function parseAnimVector (state: State, itemCount: number): AnimVector {
     let animVector: AnimVector = {
         LineType: LineType.DontInterp,
+        GlobalSeqId: null,
         Keys: []
     };
 
@@ -785,6 +786,71 @@ function parseUnknownBlock (state: State) {
     parseSpace(state);
 }
 
+function parseParticleEmitter (state: State, model: Model) {
+    let res: ParticleEmitter = {
+        Name: null,
+        Flags: 0
+    } as ParticleEmitter;
+
+    res.Name = parseString(state);
+
+    strictParseSymbol(state, '{');
+
+    while (state.char() !== '}') {
+        let keyword = parseKeyword(state);
+        let isStatic = false;
+
+        if (keyword === 'static') {
+            isStatic = true;
+            keyword = parseKeyword(state);
+        }
+
+        if (keyword === 'EmissionRate' || keyword === 'Gravity' || keyword === 'Longitude' || keyword === 'Latitude' ||
+            keyword === 'ObjectId' || keyword === 'Parent') {
+            res[keyword] = parseNumber(state);
+        } else if (keyword === 'EmitterUsesMDL' || keyword === 'EmitterUsesTGA') {
+            res.Flags |= ParticleEmitterFlags[keyword];
+        } else if (keyword === 'Visibility' || keyword === 'Translation' || keyword === 'Rotation' ||
+            keyword === 'Scaling') {
+            let itemCount = 3;
+            if (keyword === 'Visibility') {
+                itemCount = 1;
+            } else if (keyword === 'Rotation') {
+                itemCount = 4;
+            }
+            res[keyword] = parseAnimVector(state, itemCount);
+        } else if (keyword === 'Particle') {
+            strictParseSymbol(state, '{');
+
+            while (state.char() !== '}') {
+                let keyword2 = parseKeyword(state);
+                let isStatic2 = false;
+
+                if (keyword2 === 'static') {
+                    isStatic2 = true;
+                    keyword2 = parseKeyword(state);
+                }
+
+                if (keyword2 === 'LifeSpan' || keyword2 === 'InitVelocity') {
+                    res[keyword2] = parseNumber(state);
+                } else if (keyword2 === 'Path') {
+                    res.Path = parseString(state);
+                }
+
+                parseSymbol(state, ',');
+            }
+
+            strictParseSymbol(state, '}');
+        }
+
+        parseSymbol(state, ',');
+    }
+
+    strictParseSymbol(state, '}');
+
+    model.ParticleEmitters[res.Name] = res;
+}
+
 function parseParticleEmitter2 (state: State, model: Model) {
     let name = parseString(state);
 
@@ -1109,6 +1175,7 @@ const parsers = {
     EventObject: parseEventObject,
     CollisionShape: parseCollisionShape,
     GlobalSequences: parseGlobalSequences,
+    ParticleEmitter: parseParticleEmitter,
     ParticleEmitter2: parseParticleEmitter2,
     Camera: parseCamera,
     Light: parseLight,
@@ -1138,6 +1205,7 @@ export function parse (str: string): Model {
         PivotPoints: [],
         EventObjects: {},
         CollisionShapes: {},
+        ParticleEmitters: {},
         ParticleEmitters2: {},
         Cameras: {},
         Lights: {},

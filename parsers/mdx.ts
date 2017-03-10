@@ -1,7 +1,7 @@
 import {
     Model, Sequence, Material, Layer, AnimVector, AnimKeyframe, LineType, Texture, Geoset,
     GeosetAnimInfo, GeosetAnim, Node, Bone, Helper, Attachment, EventObject, CollisionShape, CollisionShapeType,
-    ParticleEmitter2, ParticleEmitter2FramesFlags, Camera, Light, TVertexAnim, RibbonEmitter
+    ParticleEmitter2, ParticleEmitter2FramesFlags, Camera, Light, TVertexAnim, RibbonEmitter, ParticleEmitter
 } from '../model';
 
 const BIG_ENDIAN = true;
@@ -581,6 +581,42 @@ function parseGlobalSequences (model: Model, state: State, size: number): void {
     }
 }
 
+const MODEL_PARTICLE_EMITTER_PATH_LENGTH = 0x100;
+function parseParticleEmitters (model: Model, state: State, size: number): void {
+    let startPos = state.pos;
+
+    while (state.pos < startPos + size) {
+        let emitterStart = state.pos;
+        let emitterSize = state.int32();
+        let emitter: ParticleEmitter = {} as ParticleEmitter;
+
+        parseNode(model, emitter, state);
+
+        emitter.EmissionRate = state.float32();
+        emitter.Gravity = state.float32();
+        emitter.Longitude = state.float32();
+        emitter.Latitude = state.float32();
+
+        emitter.Path = state.str(MODEL_PARTICLE_EMITTER_PATH_LENGTH);
+        state.int32();
+
+        emitter.LifeSpan = state.float32();
+        emitter.InitVelocity = state.float32();
+
+        while (state.pos < emitterStart + emitterSize) {
+            let keyword = state.keyword();
+
+            if (keyword === 'KPEV') {
+                emitter.Visibility = state.animVector(AnimVectorType.FLOAT1);
+            } else {
+                throw new Error('Incorrect particle emitter chunk data ' + keyword);
+            }
+        }
+
+        model.ParticleEmitters[emitter.Name] = emitter;
+    }
+}
+
 function parseParticleEmitters2 (model: Model, state: State, size: number): void {
     let startPos = state.pos;
 
@@ -862,6 +898,7 @@ const parsers: {[key: string]: (model: Model, state: State, size: number) => voi
     EVTS: parseEventObjects,
     CLID: parseCollisionShapes,
     GLBS: parseGlobalSequences,
+    PREM: parseParticleEmitters,
     PRE2: parseParticleEmitters2,
     CAMS: parseCameras,
     LITE: parseLights,
@@ -896,6 +933,7 @@ export function parse (arrayBuffer: ArrayBuffer): Model {
         PivotPoints: [],
         EventObjects: {},
         CollisionShapes: {},
+        ParticleEmitters: {},
         ParticleEmitters2: {},
         Cameras: {},
         Lights: {},

@@ -186,6 +186,22 @@ export interface CollisionShape extends Node {
     BoundsRadius?: number;
 }
 
+export enum ParticleEmitterFlags {
+    EmitterUsesMDL = 32768,
+    EmitterUsesTGA = 65536
+}
+
+export interface ParticleEmitter extends Node {
+    EmissionRate: number;
+    Gravity: number;
+    Longitude: number;
+    Latitude: number;
+    Path: string;
+    LifeSpan: number;
+    InitVelocity: number;
+    Visibility: AnimVector;
+}
+
 export enum ParticleEmitter2Flags {
     Unshaded = 32768,
     SortPrimsFarZ = 65536,
@@ -308,6 +324,7 @@ export interface Model {
     EventObjects: {[key: string]: EventObject};
     CollisionShapes: {[key: string]: CollisionShape};
     GlobalSequences?: number[];
+    ParticleEmitters?: {[key: string]: ParticleEmitter};
     ParticleEmitters2?: {[key: string]: ParticleEmitter2};
     Cameras?: {[key: string]: Camera};
     Lights?: {[key: string]: Light};

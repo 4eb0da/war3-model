@@ -1,7 +1,7 @@
 import {
     Model, Sequence, Material, Layer, AnimVector, LineType, TVertexAnim, Geoset, GeosetAnim, Node,
     Bone, Light, Attachment, ParticleEmitter2, ParticleEmitter2FramesFlags, RibbonEmitter, Camera, EventObject,
-    CollisionShape, CollisionShapeType
+    CollisionShape, CollisionShapeType, ParticleEmitter
 } from '../model';
 
 const BIG_ENDIAN = true;
@@ -822,6 +822,66 @@ function generatePivotPoints (model: Model, stream: Stream): void {
 }
 
 
+const MODEL_PARTICLE_EMITTER_PATH_LENGTH = 0x100;
+function byteLengthParticleEmitter (emitter: ParticleEmitter): number {
+    return 4 /* size */ +
+        byteLengthNode(emitter) +
+        4 /* EmissionRate */ +
+        4 /* Gravity */ +
+        4 /* Longitude */ +
+        4 /* Latitude */ +
+        MODEL_PARTICLE_EMITTER_PATH_LENGTH +
+        4 +
+        4 /* LifeSpan */ +
+        4 /* InitVelocity */ +
+        (typeof emitter.Visibility !== 'number' ?
+            4 /* keyword */ + byteLengthAnimVector(emitter.Visibility, AnimVectorType.FLOAT1) :
+            0
+        );
+}
+
+function byteLengthParticleEmitters (model: Model): number {
+    if (!model.ParticleEmitters || Object.keys(model.ParticleEmitters).length === 0) {
+        return 0;
+    }
+
+    return 4 /* keyword */ +
+        4 /* size */ +
+        sum(Object.keys(model.ParticleEmitters).map(name =>
+            byteLengthParticleEmitter(model.ParticleEmitters[name])));
+}
+
+function generateParticleEmitters (model: Model, stream: Stream): void {
+    if (!model.ParticleEmitters || Object.keys(model.ParticleEmitters).length === 0) {
+        return;
+    }
+
+    stream.keyword('PREM');
+    stream.int32(byteLengthParticleEmitters(model) - 8);
+
+    for (let name of Object.keys(model.ParticleEmitters)) {
+        let emitter: ParticleEmitter = model.ParticleEmitters[name];
+
+        stream.int32(byteLengthParticleEmitter(emitter));
+        generateNode(emitter, stream);
+
+        stream.float32(emitter.EmissionRate);
+        stream.float32(emitter.Gravity);
+        stream.float32(emitter.Longitude);
+        stream.float32(emitter.Latitude);
+        stream.str(emitter.Path, MODEL_PARTICLE_EMITTER_PATH_LENGTH);
+        stream.int32(0);
+        stream.float32(emitter.LifeSpan);
+        stream.float32(emitter.InitVelocity);
+
+        if (typeof emitter.Visibility !== 'number') {
+            stream.keyword('KPEV');
+            stream.animVector(emitter.Visibility, AnimVectorType.FLOAT1);
+        }
+    }
+}
+
+
 function byteLengthParticleEmitter2 (emitter: ParticleEmitter2): number {
     return 4 /* size */ +
         byteLengthNode(emitter) +
@@ -1210,6 +1270,7 @@ const byteLength: [(model: Model) => number] = [
     byteLengthHelpers,
     byteLengthAttachments,
     byteLengthPivotPoints,
+    byteLengthParticleEmitters,
     byteLengthParticleEmitters2,
     byteLengthRibbonEmitters,
     byteLengthCameras,
@@ -1232,6 +1293,7 @@ const generators: [(model: Model, stream: Stream) => void] = [
     generateHelpers,
     generateAttachments,
     generatePivotPoints,
+    generateParticleEmitters,
     generateParticleEmitters2,
     generateRibbonEmitters,
     generateCameras,
