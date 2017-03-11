@@ -145,7 +145,6 @@ export enum NodeType {
 }
 
 export interface Node {
-    Type: string;
     Name: string;
     ObjectId: number;
     Parent?: number;
