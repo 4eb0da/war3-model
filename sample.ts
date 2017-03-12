@@ -4,8 +4,6 @@ import {vec3, mat4, quat} from 'gl-matrix';
 import {Model, TextureFlags} from './model';
 import {ModelRenderer} from './renderer/modelRenderer';
 
-// todo Join filter modes
-
 let model: Model;
 let modelRenderer: ModelRenderer;
 let canvas: HTMLCanvasElement;
@@ -15,9 +13,14 @@ let mvMatrix = mat4.create();
 let loadedTextures = 0;
 let totalTextures = 0;
 
-let cameraBasePos: vec3 = vec3.fromValues(300, 0, 300);
-let cameraPos: vec3 = vec3.clone(cameraBasePos);
-let cameraTarget: vec3 = vec3.fromValues(0, 0, 50);
+let cameraTheta = Math.PI / 4;
+let cameraPhi = 0;
+let cameraDistance = 500;
+let cameraTargetZ = 50;
+
+let cameraBasePos: vec3 = vec3.create();
+let cameraPos: vec3 = vec3.create();
+let cameraTarget: vec3 = vec3.create();
 let cameraUp: vec3 = vec3.fromValues(0, 0, 1);
 let cameraQuat: quat = quat.create();
 
@@ -36,8 +39,6 @@ function updateModel (timestamp: number) {
 }
 
 function initGL () {
-    canvas = document.getElementById('canvas') as HTMLCanvasElement;
-
     try {
         gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
 
@@ -68,7 +69,15 @@ function drawScene () {
     gl.depthMask(true);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
-    mat4.perspective(pMatrix, Math.PI / 4 , canvas.width / canvas.height, 0.1, 1000.0);
+    mat4.perspective(pMatrix, Math.PI / 4 , canvas.width / canvas.height, 0.1, 10000.0);
+
+    vec3.set(
+        cameraBasePos,
+        Math.cos(cameraTheta) * Math.cos(cameraPhi) * cameraDistance,
+        Math.cos(cameraTheta) * Math.sin(cameraPhi) * cameraDistance,
+        Math.sin(cameraTheta) * cameraDistance
+    );
+    cameraTarget[2] = cameraTargetZ;
 
     // tslint:disable-next-line
     vec3.rotateZ(cameraPos, cameraBasePos, rotateCenter, window['angle'] || 0);
@@ -121,11 +130,13 @@ function processModelLoading() {
             loadTexture(texture.Image, texture.Flags);
         }
     }
+
+    setAnimationList();
 }
 
 function loadModel () {
     const xhr = new XMLHttpRequest();
-    const file = 'WaterElemental.mdl';
+    const file = 'HeroBladeMaster.mdl';
     const isBinary = file.indexOf('.mdx') > -1;
 
     if (isBinary) {
@@ -143,7 +154,127 @@ function loadModel () {
 }
 
 function init() {
+    canvas = document.getElementById('canvas') as HTMLCanvasElement;
+    initControls();
+    initCameraMove();
     loadModel();
+    updateCanvasSize();
+    window.addEventListener('resize', updateCanvasSize);
+}
+
+function initControls () {
+    let inputColor = document.getElementById('color') as HTMLInputElement;
+    inputColor.addEventListener('input', () => {
+        let val = inputColor.value.slice(1);
+        let arr = vec3.fromValues(
+            parseInt(val.slice(0, 2), 16) / 255,
+            parseInt(val.slice(2, 4), 16) / 255,
+            parseInt(val.slice(4, 6), 16) / 255
+        );
+        modelRenderer.setTeamColor(arr);
+    });
+
+    let select = document.getElementById('select') as HTMLSelectElement;
+    select.addEventListener('input', () => {
+        modelRenderer.setSequence(select.value);
+    });
+
+    let inputZ = document.getElementById('targetZ') as HTMLInputElement;
+    inputZ.addEventListener('input', () => {
+        cameraTargetZ = parseInt(inputZ.value, 10);
+    });
+
+    let inputDistance = document.getElementById('distance') as HTMLInputElement;
+    inputDistance.addEventListener('input', () => {
+        cameraDistance = parseInt(inputDistance.value, 10);
+    });
+}
+
+function initCameraMove () {
+    let down = false;
+    let downX, downY;
+
+    function coords (event) {
+        let list = (event.changedTouches && event.changedTouches.length ?
+            event.changedTouches :
+            event.touches) || [event];
+
+        return [list[0].pageX, list[0].pageY];
+    }
+
+    function pointerDown (event) {
+        if (event.target !== canvas) {
+            return;
+        }
+
+        down = true;
+
+        [downX, downY] = coords(event);
+    }
+
+    function pointerMove (event) {
+        if (!down) {
+            return;
+        }
+
+        let [x, y] = coords(event);
+
+        cameraPhi += -1 * (x - downX) * 0.01;
+        cameraTheta += (y - downY) * 0.01;
+
+        if (cameraTheta > Math.PI / 2 * 0.98) {
+            cameraTheta = Math.PI / 2 * 0.98;
+        }
+        if (cameraTheta < 0) {
+            cameraTheta = 0;
+        }
+
+        downX = x;
+        downY = y;
+    }
+
+    function pointerUp () {
+        down = false;
+    }
+
+    function wheel (event) {
+        cameraDistance *= (1 - event.wheelDelta / 300);
+        if (cameraDistance > 1000) {
+            cameraDistance = 1000;
+        }
+        if (cameraDistance < 100) {
+            cameraDistance = 100;
+        }
+    }
+
+    document.addEventListener('mousedown', pointerDown);
+    document.addEventListener('touchstart', pointerDown);
+    document.addEventListener('mousemove', pointerMove);
+    document.addEventListener('touchmove', pointerMove);
+    document.addEventListener('mouseup', pointerUp);
+    document.addEventListener('touchend', pointerUp);
+    document.addEventListener('touchcancel', pointerUp);
+    document.addEventListener('wheel', wheel);
+}
+
+function updateCanvasSize () {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+}
+
+function encode (html) {
+    return html.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function setAnimationList () {
+    let list = Object.keys(model.Sequences);
+
+    if (list.length === 0) {
+        list = ['None'];
+    }
+
+    let select = document.getElementById('select') as HTMLSelectElement;
+    select.innerHTML = list.map(item => `<option>${encode(item)}</option>`).join('');
 }
 
 document.addEventListener('DOMContentLoaded', init);

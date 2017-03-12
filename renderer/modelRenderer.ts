@@ -183,9 +183,7 @@ export class ModelRenderer {
         this.rendererData.cameraPos = vec3.create();
         this.rendererData.cameraQuat = quat.create();
 
-        this.rendererData.animation = Object.keys(model.Sequences)[0];
-        this.rendererData.animationInfo = model.Sequences[this.rendererData.animation];
-        this.rendererData.frame = this.rendererData.animationInfo.Interval[0];
+        this.setSequence(Object.keys(model.Sequences)[0]);
 
         this.rendererData.rootNode = {
             // todo
@@ -268,6 +266,16 @@ export class ModelRenderer {
     public setCamera (cameraPos: vec3, cameraQuat: quat): void {
         vec3.copy(this.rendererData.cameraPos, cameraPos);
         quat.copy(this.rendererData.cameraQuat, cameraQuat);
+    }
+
+    public setSequence (name: string): void {
+        this.rendererData.animation = name;
+        this.rendererData.animationInfo = this.model.Sequences[this.rendererData.animation];
+        this.rendererData.frame = this.rendererData.animationInfo.Interval[0];
+    }
+
+    public setTeamColor (color: vec3): void {
+        vec3.copy(this.rendererData.teamColor, color);
     }
 
     public update (delta: number): void {
