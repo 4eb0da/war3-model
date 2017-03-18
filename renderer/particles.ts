@@ -335,7 +335,9 @@ export class ParticlesController {
                     this.createParticle(emitter, this.rendererData.nodes[emitter.props.ObjectId].matrix)
                 );
             }
+        }
 
+        if (emitter.particles.length) {
             let updatedParticles = [];
             for (let particle of emitter.particles) {
                 ParticlesController.updateParticle(particle, delta);

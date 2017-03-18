@@ -105,6 +105,12 @@ let defaultScaling = vec3.fromValues(1, 1, 1);
 let tempParentRotationQuat: quat = quat.create();
 let tempParentRotationMat: mat4 = mat4.create();
 let tempCameraMat: mat4 = mat4.create();
+let tempTransformedPivotPoint: vec3 = vec3.create();
+let tempAxis: vec3 = vec3.create();
+let tempAxisBinded: vec3 = vec3.create();
+let tempAxisBillboarded: vec3 = vec3.create();
+let tempLockQuat: quat = quat.create();
+let tempLockMat: mat4 = mat4.create();
 
 let identifyMat3: mat3 = mat3.create();
 let texCoordMat4: mat4 = mat4.create();
@@ -282,10 +288,8 @@ export class ModelRenderer {
         this.rendererData.frame += delta;
         if (this.rendererData.frame > this.rendererData.animationInfo.Interval[1]) {
             this.rendererData.frame = this.rendererData.animationInfo.Interval[0];
-            this.resetGlobalSequences();
-        } else {
-            this.updateGlobalSequences(delta);
         }
+        this.updateGlobalSequences(delta);
 
         this.particlesController.update(delta);
 
@@ -429,16 +433,56 @@ export class ModelRenderer {
             mat4.mul(node.matrix, this.rendererData.nodes[node.node.Parent].matrix, node.matrix);
         }
 
-        if (node.node.Flags & NodeFlags.Billboarded) {
+        // todo fix lock with some angles
+        let billboardedLock = node.node.Flags & NodeFlags.BillboardedLockX ||
+            node.node.Flags & NodeFlags.BillboardedLockY ||
+            node.node.Flags & NodeFlags.BillboardedLockZ;
+
+        if (node.node.Flags & NodeFlags.Billboarded || billboardedLock) {
+            vec3.transformMat4(tempTransformedPivotPoint, node.node.PivotPoint as vec3, node.matrix);
+
+            if (billboardedLock) {
+                vec3.copy(tempAxis, node.node.PivotPoint as vec3);
+                if (node.node.Flags & NodeFlags.BillboardedLockX) {
+                    tempAxis[0] += 1;
+                } else if (node.node.Flags & NodeFlags.BillboardedLockY) {
+                    tempAxis[1] += 1;
+                } else if (node.node.Flags & NodeFlags.BillboardedLockZ) {
+                    tempAxis[2] += 1;
+                }
+
+                vec3.transformMat4(tempAxisBinded, tempAxis, node.matrix);
+            }
+
             if (node.node.Parent) {
                 // cancel parent rotation from PivotPoint
                 mat4.getRotation(tempParentRotationQuat, this.rendererData.nodes[node.node.Parent].matrix);
-                mat4fromRotationOrigin(tempParentRotationMat, tempParentRotationQuat, node.node.PivotPoint as vec3);
-                mat4.mul(node.matrix, node.matrix, tempParentRotationMat);
+                quat.invert(tempParentRotationQuat, tempParentRotationQuat);
+                mat4fromRotationOrigin(tempParentRotationMat, tempParentRotationQuat,
+                    tempTransformedPivotPoint);
+                mat4.mul(node.matrix, tempParentRotationMat, node.matrix);
             }
+
             // rotate to camera
-            mat4fromRotationOrigin(tempCameraMat, this.rendererData.cameraQuat, node.node.PivotPoint as vec3);
-            mat4.mul(node.matrix, node.matrix, tempCameraMat);
+            mat4fromRotationOrigin(tempCameraMat, this.rendererData.cameraQuat,
+                tempTransformedPivotPoint);
+            mat4.mul(node.matrix, tempCameraMat, node.matrix);
+
+            if (billboardedLock) {
+                vec3.transformMat4(tempAxisBillboarded, tempAxis, node.matrix);
+                vec3.sub(tempAxisBinded, tempAxisBinded, tempTransformedPivotPoint);
+                vec3.sub(tempAxisBillboarded, tempAxisBillboarded, tempTransformedPivotPoint);
+
+                let inverseLock = vec3.angle(tempAxisBinded, tempAxisBillboarded) > Math.PI / 2;
+                if (inverseLock) {
+                    vec3.negate(tempAxisBillboarded, tempAxisBillboarded);
+                }
+
+                quat.rotationTo(tempLockQuat, tempAxisBillboarded, tempAxisBinded);
+                mat4fromRotationOrigin(tempLockMat, tempLockQuat,
+                    tempTransformedPivotPoint);
+                mat4.mul(node.matrix, tempLockMat, node.matrix);
+            }
         }
 
         for (let child of node.childs) {

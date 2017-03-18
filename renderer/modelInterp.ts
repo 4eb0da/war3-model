@@ -116,14 +116,26 @@ export class ModelInterp {
             return null;
         }
         if (first === array.length || array[first].Frame > to) {
-            return {
-                frame,
-                left: array[first - 1],
-                right: array[first - 1]
-            };
+            if (array[first - 1].Frame >= from) {
+                return {
+                    frame,
+                    left: array[first - 1],
+                    right: array[first - 1]
+                };
+            } else {
+                return null;
+            }
         }
         if (array[first - 1].Frame < from) {
-            return null;
+            if (array[first].Frame <= to) {
+                return {
+                    frame,
+                    left: array[first],
+                    right: array[first]
+                };
+            } else {
+                return null;
+            }
         }
 
         return {
