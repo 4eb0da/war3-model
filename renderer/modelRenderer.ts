@@ -295,10 +295,10 @@ export class ModelRenderer {
         }
         this.updateGlobalSequences(delta);
 
+        this.updateNode(this.rendererData.rootNode);
+
         this.particlesController.update(delta);
         this.ribbonsController.update(delta);
-
-        this.updateNode(this.rendererData.rootNode);
 
         for (let i = 0; i < this.model.Geosets.length; ++i) {
             this.rendererData.geosetAlpha[i] = this.findAlpha(i);
