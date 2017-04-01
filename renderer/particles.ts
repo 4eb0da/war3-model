@@ -94,6 +94,7 @@ interface Particle {
 
 interface ParticleEmitterWrapper {
     emission: number;
+    squirtFrame: number;
     particles: Particle[];
     props: ParticleEmitter2;
     capacity: number;
@@ -108,8 +109,11 @@ interface ParticleEmitterWrapper {
     headVertices: Float32Array;
     headVertexBuffer: WebGLBuffer;
     // xy
-    texCoords: Float32Array;
-    texCoordBuffer: WebGLBuffer;
+    tailTexCoords: Float32Array;
+    tailTexCoordBuffer: WebGLBuffer;
+    // xy
+    headTexCoords: Float32Array;
+    headTexCoordBuffer: WebGLBuffer;
     // rgba
     colors: Float32Array;
     colorBuffer: WebGLBuffer;
@@ -180,19 +184,22 @@ export class ParticlesController {
             return;
         }
 
-        size = Math.min(size, emitter.baseCapacity);
+        size = Math.max(size, emitter.baseCapacity);
 
         let tailVertices;
         let headVertices;
+        let tailTexCoords;
+        let headTexCoords;
 
         if (emitter.type & ParticleEmitter2FramesFlags.Tail) {
-            tailVertices = new Float32Array(size * 4 * 3); // 4 vertices * xyz
+            tailVertices = new Float32Array(size * 4 * 3);  // 4 vertices * xyz
+            tailTexCoords = new Float32Array(size * 4 * 2); // 4 vertices * xy
         }
         if (emitter.type & ParticleEmitter2FramesFlags.Head) {
-            headVertices = new Float32Array(size * 4 * 3); // 4 vertices * xyz
+            headVertices = new Float32Array(size * 4 * 3);  // 4 vertices * xyz
+            headTexCoords = new Float32Array(size * 4 * 2); // 4 vertices * xy
         }
 
-        let texCoords = new Float32Array(size * 4 * 2); // 4 vertices * xy
         let colors = new Float32Array(size * 4 * 4);    // 4 vertices * rgba
         let indices = new Uint16Array(size * 6);        // 4 vertices * 2 triangles
 
@@ -211,11 +218,12 @@ export class ParticlesController {
 
         if (tailVertices) {
             emitter.tailVertices = tailVertices;
+            emitter.tailTexCoords = tailTexCoords;
         }
         if (headVertices) {
             emitter.headVertices = headVertices;
+            emitter.headTexCoords = headTexCoords;
         }
-        emitter.texCoords = texCoords;
         emitter.colors = colors;
         emitter.indices = indices;
 
@@ -224,11 +232,12 @@ export class ParticlesController {
         if (!emitter.indexBuffer) {
             if (emitter.type & ParticleEmitter2FramesFlags.Tail) {
                 emitter.tailVertexBuffer = gl.createBuffer();
+                emitter.tailTexCoordBuffer = gl.createBuffer();
             }
             if (emitter.type & ParticleEmitter2FramesFlags.Head) {
                 emitter.headVertexBuffer = gl.createBuffer();
+                emitter.headTexCoordBuffer = gl.createBuffer();
             }
-            emitter.texCoordBuffer = gl.createBuffer();
             emitter.colorBuffer = gl.createBuffer();
             emitter.indexBuffer = gl.createBuffer();
         }
@@ -257,6 +266,7 @@ export class ParticlesController {
                 if (rendererData.model.ParticleEmitters2.hasOwnProperty(i)) {
                     let emitter: ParticleEmitterWrapper = {
                         emission: 0,
+                        squirtFrame: 0,
                         particles: [],
                         props: rendererData.model.ParticleEmitters2[i],
                         capacity: 0,
@@ -266,8 +276,10 @@ export class ParticlesController {
                         tailVertexBuffer: null,
                         headVertices: null,
                         headVertexBuffer: null,
-                        texCoords: null,
-                        texCoordBuffer: null,
+                        tailTexCoords: null,
+                        tailTexCoordBuffer: null,
+                        headTexCoords: null,
+                        headTexCoordBuffer: null,
                         colors: null,
                         colorBuffer: null,
                         indices: null,
@@ -302,7 +314,7 @@ export class ParticlesController {
         gl.enableVertexAttribArray(shaderProgramLocations.colorAttribute);
 
         for (let emitter of this.emitters) {
-            if (!emitter.capacity) {
+            if (!emitter.particles.length) {
                 continue;
             }
 
@@ -323,11 +335,23 @@ export class ParticlesController {
     }
 
     private updateEmitter (emitter: ParticleEmitterWrapper, delta: number): void {
-        let emissionRate = this.interp.animVectorVal(emitter.props.EmissionRate, 0);
         let visibility = this.interp.animVectorVal(emitter.props.Visibility, 1);
 
         if (visibility > 0) {
-            emitter.emission += emissionRate * delta;
+            if (emitter.props.Squirt && typeof emitter.props.EmissionRate !== 'number') {
+                let interp = this.interp.findKeyframes(emitter.props.EmissionRate);
+
+                if (interp && interp.left && interp.left.Frame !== emitter.squirtFrame) {
+                    emitter.squirtFrame = interp.left.Frame;
+                    if (interp.left.Vector[0] > 0) {
+                        emitter.emission += interp.left.Vector[0] * 1000;
+                    }
+                }
+            } else {
+                let emissionRate = this.interp.animVectorVal(emitter.props.EmissionRate, 0);
+
+                emitter.emission += emissionRate * delta;
+            }
 
             while (emitter.emission >= 1000) {
                 emitter.emission -= 1000;
@@ -517,7 +541,25 @@ export class ParticlesController {
     }
 
     private updateParticleTexCoords (index: number, emitter: ParticleEmitterWrapper, firstHalf: boolean, t: number) {
-        let uvAnim = firstHalf ? emitter.props.LifeSpanUVAnim : emitter.props.DecayUVAnim;
+        if (emitter.type & ParticleEmitter2FramesFlags.Head) {
+            this.updateParticleTexCoordsByType(index, emitter, firstHalf, t, ParticleEmitter2FramesFlags.Head);
+        }
+        if (emitter.type & ParticleEmitter2FramesFlags.Tail) {
+            this.updateParticleTexCoordsByType(index, emitter, firstHalf, t, ParticleEmitter2FramesFlags.Tail);
+        }
+    }
+
+    private updateParticleTexCoordsByType (index: number, emitter: ParticleEmitterWrapper, firstHalf: boolean,
+                                           t: number, type: ParticleEmitter2FramesFlags) {
+        let uvAnim;
+        let texCoords;
+        if (type === ParticleEmitter2FramesFlags.Tail) {
+            uvAnim = firstHalf ? emitter.props.TailUVAnim : emitter.props.TailDecayUVAnim;
+            texCoords = emitter.tailTexCoords;
+        } else {
+            uvAnim = firstHalf ? emitter.props.LifeSpanUVAnim : emitter.props.DecayUVAnim;
+            texCoords = emitter.headTexCoords;
+        }
         let firstFrame = uvAnim[0];
         let secondFrame = uvAnim[1];
         let frame = Math.round(lerp(firstFrame, secondFrame, t));
@@ -526,17 +568,17 @@ export class ParticlesController {
         let cellWidth = 1 / emitter.props.Columns;
         let cellHeight = 1 / emitter.props.Rows;
 
-        emitter.texCoords[index * 8] = texCoordX * cellWidth;
-        emitter.texCoords[index * 8 + 1] = texCoordY * cellHeight;
+        texCoords[index * 8] = texCoordX * cellWidth;
+        texCoords[index * 8 + 1] = texCoordY * cellHeight;
 
-        emitter.texCoords[index * 8 + 2] = texCoordX * cellWidth;
-        emitter.texCoords[index * 8 + 3] = (1 + texCoordY) * cellHeight;
+        texCoords[index * 8 + 2] = texCoordX * cellWidth;
+        texCoords[index * 8 + 3] = (1 + texCoordY) * cellHeight;
 
-        emitter.texCoords[index * 8 + 4] = (1 + texCoordX) * cellWidth;
-        emitter.texCoords[index * 8 + 5] = texCoordY * cellHeight;
+        texCoords[index * 8 + 4] = (1 + texCoordX) * cellWidth;
+        texCoords[index * 8 + 5] = texCoordY * cellHeight;
 
-        emitter.texCoords[index * 8 + 6] = (1 + texCoordX) * cellWidth;
-        emitter.texCoords[index * 8 + 7] = (1 + texCoordY) * cellHeight;
+        texCoords[index * 8 + 6] = (1 + texCoordX) * cellWidth;
+        texCoords[index * 8 + 7] = (1 + texCoordY) * cellHeight;
     }
 
     private updateParticleColor(index: number, emitter: ParticleEmitterWrapper, firstHalf: boolean, t: number) {
@@ -622,10 +664,6 @@ export class ParticlesController {
     }
 
     private setGeneralBuffers (emitter: ParticleEmitterWrapper): void {
-        gl.bindBuffer(gl.ARRAY_BUFFER, emitter.texCoordBuffer);
-        gl.bufferData(gl.ARRAY_BUFFER, emitter.texCoords, gl.DYNAMIC_DRAW);
-        gl.vertexAttribPointer(shaderProgramLocations.textureCoordAttribute, 2, gl.FLOAT, false, 0, 0);
-
         gl.bindBuffer(gl.ARRAY_BUFFER, emitter.colorBuffer);
         gl.bufferData(gl.ARRAY_BUFFER, emitter.colors, gl.DYNAMIC_DRAW);
         gl.vertexAttribPointer(shaderProgramLocations.colorAttribute, 4, gl.FLOAT, false, 0, 0);
@@ -635,6 +673,15 @@ export class ParticlesController {
     }
 
     private renderEmitterType (emitter: ParticleEmitterWrapper, type: ParticleEmitter2FramesFlags): void {
+        if (type === ParticleEmitter2FramesFlags.Tail) {
+            gl.bindBuffer(gl.ARRAY_BUFFER, emitter.tailTexCoordBuffer);
+            gl.bufferData(gl.ARRAY_BUFFER, emitter.tailTexCoords, gl.DYNAMIC_DRAW);
+        } else {
+            gl.bindBuffer(gl.ARRAY_BUFFER, emitter.headTexCoordBuffer);
+            gl.bufferData(gl.ARRAY_BUFFER, emitter.headTexCoords, gl.DYNAMIC_DRAW);
+        }
+        gl.vertexAttribPointer(shaderProgramLocations.textureCoordAttribute, 2, gl.FLOAT, false, 0, 0);
+
         if (type === ParticleEmitter2FramesFlags.Tail) {
             gl.bindBuffer(gl.ARRAY_BUFFER, emitter.tailVertexBuffer);
             gl.bufferData(gl.ARRAY_BUFFER, emitter.tailVertices, gl.DYNAMIC_DRAW);

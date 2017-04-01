@@ -65,23 +65,7 @@ export class ModelInterp {
         return res;
     }
 
-    private findLocalFrame (animVector: AnimVector) {
-        if (typeof animVector.GlobalSeqId === 'number') {
-            return {
-                frame: this.rendererData.globalSequencesFrames[animVector.GlobalSeqId],
-                from: 0,
-                to: this.rendererData.model.GlobalSequences[animVector.GlobalSeqId]
-            };
-        } else {
-            return {
-                frame: this.rendererData.frame,
-                from: this.rendererData.animationInfo.Interval[0],
-                to: this.rendererData.animationInfo.Interval[1]
-            };
-        }
-    }
-
-    private findKeyframes (animVector: AnimVector) {
+    public findKeyframes (animVector: AnimVector) {
         if (!animVector) {
             return null;
         }
@@ -143,5 +127,21 @@ export class ModelInterp {
             left: array[first - 1],
             right: array[first]
         };
+    }
+
+    private findLocalFrame (animVector: AnimVector) {
+        if (typeof animVector.GlobalSeqId === 'number') {
+            return {
+                frame: this.rendererData.globalSequencesFrames[animVector.GlobalSeqId],
+                from: 0,
+                to: this.rendererData.model.GlobalSequences[animVector.GlobalSeqId]
+            };
+        } else {
+            return {
+                frame: this.rendererData.frame,
+                from: this.rendererData.animationInfo.Interval[0],
+                to: this.rendererData.animationInfo.Interval[1]
+            };
+        }
     }
 }

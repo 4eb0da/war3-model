@@ -695,10 +695,18 @@ function parseEventObject (state: State, model: Model): void {
     while (state.char() !== '}') {
         const keyword = parseKeyword(state);
 
+        if (!keyword) {
+            throw new Error('SyntaxError, near ' + state.pos);
+        }
+
         if (keyword === 'EventTrack') {
             let count = parseNumber(state); // EventTrack count
 
             res.EventTrack = parseArray(state, new Uint32Array(count), 0) as Uint32Array;
+        } else if (keyword === 'Translation' || keyword === 'Rotation' || keyword === 'Scaling') {
+            let type: AnimVectorType = keyword === 'Rotation' ? AnimVectorType.FLOAT4 : AnimVectorType.FLOAT3;
+
+            res[keyword] = parseAnimVector(state, type);
         } else {
             res[keyword] = parseNumber(state);
         }

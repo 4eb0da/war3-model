@@ -688,9 +688,9 @@ function generateParticleEmitter2Chunk (particleEmitter2: ParticleEmitter2) {
         generateNodeProps(particleEmitter2) +
         generateBooleanProp(generateParticleEmitters2FilterMode(particleEmitter2.FilterMode)) +
         generateAnimVectorProp('Speed', particleEmitter2.Speed, null) +
-        generateFloatProp('Variation', particleEmitter2.Variation) +
+        generateFloatProp('Variation', particleEmitter2.Variation, true) +
         generateAnimVectorProp('Latitude', particleEmitter2.Latitude, null) +
-        generateFloatProp('Gravity', particleEmitter2.Gravity, null) +
+        generateFloatProp('Gravity', particleEmitter2.Gravity, true) +
         generateAnimVectorProp('EmissionRate', particleEmitter2.EmissionRate, null) +
         generateAnimVectorProp('Width', particleEmitter2.Width, null) +
         generateAnimVectorProp('Length', particleEmitter2.Length, null) +

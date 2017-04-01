@@ -7,6 +7,7 @@ import {mat4fromRotationOrigin, getShader} from './util';
 import {ModelInterp} from './modelInterp';
 import {ParticlesController} from './particles';
 import {RendererData, NodeWrapper} from './rendererData';
+import {RibbonsController} from './ribbons';
 
 const MAX_NODES = 128;
 
@@ -159,6 +160,7 @@ export class ModelRenderer {
     private interp: ModelInterp;
     private rendererData: RendererData;
     private particlesController: ParticlesController;
+    private ribbonsController: RibbonsController;
 
     private vertexBuffer: WebGLBuffer[] = [];
     private texCoordBuffer: WebGLBuffer[] = [];
@@ -228,6 +230,7 @@ export class ModelRenderer {
 
         this.interp = new ModelInterp(this.rendererData);
         this.particlesController = new ParticlesController(this.interp, this.rendererData);
+        this.ribbonsController = new RibbonsController(this.interp, this.rendererData);
     }
 
     public initGL (glContext: WebGLRenderingContext): void {
@@ -240,6 +243,7 @@ export class ModelRenderer {
         ModelRenderer.initShaders();
         this.initBuffers();
         ParticlesController.initGL(glContext);
+        RibbonsController.initGL(glContext);
     }
 
     public setTexture (path: string, img: HTMLImageElement, flags: TextureFlags): void {
@@ -292,6 +296,7 @@ export class ModelRenderer {
         this.updateGlobalSequences(delta);
 
         this.particlesController.update(delta);
+        this.ribbonsController.update(delta);
 
         this.updateNode(this.rendererData.rootNode);
 
@@ -353,6 +358,7 @@ export class ModelRenderer {
         gl.disableVertexAttribArray(shaderProgramLocations.groupAttribute);
 
         this.particlesController.render(mvMatrix, pMatrix);
+        this.ribbonsController.render(mvMatrix, pMatrix);
     }
 
     private updateLayerTextureId (materialId: number, layerId: number): void {
@@ -512,7 +518,7 @@ export class ModelRenderer {
     private setLayerProps (layer: Layer, textureID: number): void {
         let texture = this.model.Textures[textureID];
 
-        if (layer.Shading === LayerShading.TwoSided) {
+        if (layer.Shading & LayerShading.TwoSided) {
             gl.disable(gl.CULL_FACE);
         } else {
             gl.enable(gl.CULL_FACE);
@@ -571,10 +577,10 @@ export class ModelRenderer {
             gl.uniform1f(shaderProgramLocations.replaceableTypeUniform, texture.ReplaceableId);
         }
 
-        if (layer.Shading === LayerShading.NoDepthTest) {
+        if (layer.Shading & LayerShading.NoDepthTest) {
             gl.disable(gl.DEPTH_TEST);
         }
-        if (layer.Shading === LayerShading.NoDepthSet) {
+        if (layer.Shading & LayerShading.NoDepthSet) {
             gl.depthMask(false);
         }
 
