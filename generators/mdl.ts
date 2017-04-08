@@ -205,8 +205,7 @@ function generateModel (model: Model): string {
         (model.Lights ? generateIntPropIfNotEmpty('NumLights', Object.keys(model.Lights).length) : '') +
         generateIntPropIfNotEmpty('NumAttachments', Object.keys(model.Attachments).length) +
         generateIntPropIfNotEmpty('NumEvents', Object.keys(model.EventObjects).length) +
-        // todo
-        // generateIntPropIfNotEmpty('NumParticleEmitters', Object.keys(model.ParticleEmitters).length) +
+        generateIntPropIfNotEmpty('NumParticleEmitters', Object.keys(model.ParticleEmitters).length) +
         (model.ParticleEmitters2 ?
             generateIntPropIfNotEmpty('NumParticleEmitters2', Object.keys(model.ParticleEmitters2).length) :
             '') +
@@ -520,11 +519,7 @@ function generateNodeDontInherit (flags: NodeFlags) {
         return '';
     }
 
-    middle = generateTab(2) + flagsStrs.join(',\n' + generateTab(2));
-
-    return generateBlockStart('DontInherit', null, 2) +
-        middle +
-        generateBlockEnd(2);
+    return generateTab(1) + 'DontInherit { ' + flagsStrs.join(', ') + ' },\n';
 }
 
 function generateBones (model: Model): string {
@@ -563,8 +558,8 @@ function generateLightChunk (light: Light): string {
     return generateBlockStart('Light', light.Name) +
         generateNodeProps(light) +
         generateBooleanProp(generateLightType(light.LightType)) +
-        generateIntProp('AttenuationStart', light.AttenuationStart, true) +
-        generateIntProp('AttenuationEnd', light.AttenuationEnd, true) +
+        generateAnimVectorProp('AttenuationStart', light.AttenuationStart) +
+        generateAnimVectorProp('AttenuationEnd', light.AttenuationEnd) +
         generateColorProp('Color', light.Color, true) +
         generateAnimVectorProp('Intensity', light.Intensity, null) +
         generateColorProp('AmbColor', light.AmbColor, true) +
@@ -630,14 +625,14 @@ function generateParticleEmitterChunk (emitter: ParticleEmitter): string {
         generateNodeProps(emitter) +
         (emitter.Flags & ParticleEmitterFlags.EmitterUsesMDL ? generateBooleanProp('EmitterUsesMDL') : '') +
         (emitter.Flags & ParticleEmitterFlags.EmitterUsesTGA ? generateBooleanProp('EmitterUsesTGA') : '') +
-        generateFloatProp('EmissionRate', emitter.EmissionRate) +
-        generateFloatProp('Gravity', emitter.Gravity) +
-        generateFloatProp('Longitude', emitter.Longitude) +
-        generateFloatProp('Latitude', emitter.Latitude) +
+        generateAnimVectorProp('EmissionRate', emitter.EmissionRate) +
+        generateAnimVectorProp('Gravity', emitter.Gravity) +
+        generateAnimVectorProp('Longitude', emitter.Longitude) +
+        generateAnimVectorProp('Latitude', emitter.Latitude) +
         generateAnimVectorProp('Visibility', emitter.Visibility) +
         generateBlockStart('Particle', null, 1) +
-        generateFloatProp('LifeSpan', emitter.LifeSpan, false, 2) +
-        generateFloatProp('InitVelocity', emitter.InitVelocity, false, 2) +
+        generateAnimVectorProp('LifeSpan', emitter.LifeSpan, null, 2) +
+        generateAnimVectorProp('InitVelocity', emitter.InitVelocity, null, 2) +
         generateWrappedStringProp('Path', emitter.Path, false, 2) +
         generateBlockEnd(1) +
         generateBlockEnd();
@@ -688,9 +683,9 @@ function generateParticleEmitter2Chunk (particleEmitter2: ParticleEmitter2) {
         generateNodeProps(particleEmitter2) +
         generateBooleanProp(generateParticleEmitters2FilterMode(particleEmitter2.FilterMode)) +
         generateAnimVectorProp('Speed', particleEmitter2.Speed, null) +
-        generateFloatProp('Variation', particleEmitter2.Variation, true) +
+        generateAnimVectorProp('Variation', particleEmitter2.Variation, null) +
         generateAnimVectorProp('Latitude', particleEmitter2.Latitude, null) +
-        generateFloatProp('Gravity', particleEmitter2.Gravity, true) +
+        generateAnimVectorProp('Gravity', particleEmitter2.Gravity, null) +
         generateAnimVectorProp('EmissionRate', particleEmitter2.EmissionRate, null) +
         generateAnimVectorProp('Width', particleEmitter2.Width, null) +
         generateAnimVectorProp('Length', particleEmitter2.Length, null) +
@@ -732,7 +727,7 @@ function generateRibbonEmitterChunk (ribbonEmitter: RibbonEmitter): string {
         generateAnimVectorProp('HeightBelow', ribbonEmitter.HeightBelow, null) +
         generateAnimVectorProp('Alpha', ribbonEmitter.Alpha, null) +
         generateColorProp('Color', ribbonEmitter.Color, true) +
-        generateIntProp('TextureSlot', ribbonEmitter.TextureSlot, true) +
+        generateAnimVectorProp('TextureSlot', ribbonEmitter.TextureSlot, null) +
         generateAnimVectorProp('Visibility', ribbonEmitter.Visibility, 1) +
         generateIntProp('EmissionRate', ribbonEmitter.EmissionRate) +
         generateIntProp('LifeSpan', ribbonEmitter.LifeSpan) +

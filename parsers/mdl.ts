@@ -882,15 +882,16 @@ function parseParticleEmitter (state: State, model: Model): void {
             keyword = parseKeyword(state);
         }
 
-        if (keyword === 'EmissionRate' || keyword === 'Gravity' || keyword === 'Longitude' || keyword === 'Latitude' ||
-            keyword === 'ObjectId' || keyword === 'Parent') {
+        if (keyword === 'ObjectId' || keyword === 'Parent') {
             res[keyword] = parseNumber(state);
         } else if (keyword === 'EmitterUsesMDL' || keyword === 'EmitterUsesTGA') {
             res.Flags |= ParticleEmitterFlags[keyword];
-        } else if (keyword === 'Visibility' || keyword === 'Translation' || keyword === 'Rotation' ||
-            keyword === 'Scaling') {
+        } else if (!isStatic && (keyword === 'Visibility' || keyword === 'Translation' || keyword === 'Rotation' ||
+            keyword === 'Scaling' || keyword === 'EmissionRate' || keyword === 'Gravity' || keyword === 'Longitude' ||
+            keyword === 'Latitude')) {
             let type: AnimVectorType = AnimVectorType.FLOAT3;
-            if (keyword === 'Visibility') {
+            if (keyword === 'Visibility' || keyword === 'EmissionRate' || keyword === 'Gravity' ||
+                keyword === 'Longitude' || keyword === 'Latitude') {
                 type = AnimVectorType.FLOAT1;
             } else if (keyword === 'Rotation') {
                 type = AnimVectorType.FLOAT4;
@@ -908,7 +909,9 @@ function parseParticleEmitter (state: State, model: Model): void {
                     keyword2 = parseKeyword(state);
                 }
 
-                if (keyword2 === 'LifeSpan' || keyword2 === 'InitVelocity') {
+                if (!isStatic2 && (keyword2 === 'LifeSpan' || keyword2 === 'InitVelocity')) {
+                    res[keyword2] = parseAnimVector(state, AnimVectorType.FLOAT1);
+                } else if (keyword2 === 'LifeSpan' || keyword2 === 'InitVelocity') {
                     res[keyword2] = parseNumber(state);
                 } else if (keyword2 === 'Path') {
                     res.Path = parseString(state);
@@ -956,7 +959,7 @@ function parseParticleEmitter2 (state: State, model: Model): void {
 
         if (!isStatic && (keyword === 'Speed' || keyword === 'Latitude' || keyword === 'Visibility' ||
             keyword === 'EmissionRate' || keyword === 'Width' || keyword === 'Length' || keyword === 'Translation' ||
-            keyword === 'Rotation' || keyword === 'Scaling')) {
+            keyword === 'Rotation' || keyword === 'Scaling' || keyword === 'Gravity' || keyword === 'Variation')) {
             let type: AnimVectorType = AnimVectorType.FLOAT3;
             switch (keyword) {
                 case 'Rotation':
@@ -968,6 +971,8 @@ function parseParticleEmitter2 (state: State, model: Model): void {
                 case 'EmissionRate':
                 case 'Width':
                 case 'Length':
+                case 'Gravity':
+                case 'Variation':
                     type = AnimVectorType.FLOAT1;
                     break;
             }
@@ -1116,7 +1121,8 @@ function parseLight (state: State, model: Model): void {
 
         if (!isStatic && (keyword === 'Visibility' || keyword === 'Color' || keyword === 'Intensity' ||
             keyword === 'AmbIntensity' || keyword === 'AmbColor' || keyword === 'Translation' ||
-            keyword === 'Rotation' || keyword === 'Scaling')) {
+            keyword === 'Rotation' || keyword === 'Scaling' || keyword === 'AttenuationStart' ||
+            keyword === 'AttenuationEnd')) {
             let type: AnimVectorType = AnimVectorType.FLOAT3;
             switch (keyword) {
                 case 'Rotation':
@@ -1125,6 +1131,8 @@ function parseLight (state: State, model: Model): void {
                 case 'Visibility':
                 case 'Intensity':
                 case 'AmbIntensity':
+                case 'AttenuationStart':
+                case 'AttenuationEnd':
                     type = AnimVectorType.FLOAT1;
                     break;
             }
@@ -1221,7 +1229,8 @@ function parseRibbonEmitter (state: State, model: Model): void {
         }
 
         if (!isStatic && (keyword === 'Visibility' || keyword === 'HeightAbove' || keyword === 'HeightBelow' ||
-            keyword === 'Translation' || keyword === 'Rotation' || keyword === 'Scaling')) {
+            keyword === 'Translation' || keyword === 'Rotation' || keyword === 'Scaling' || keyword === 'Alpha' ||
+            keyword === 'TextureSlot')) {
             let type: AnimVectorType = AnimVectorType.FLOAT3;
             switch (keyword) {
                 case 'Rotation':
@@ -1230,7 +1239,11 @@ function parseRibbonEmitter (state: State, model: Model): void {
                 case 'Visibility':
                 case 'HeightAbove':
                 case 'HeightBelow':
+                case 'Alpha':
                     type = AnimVectorType.FLOAT1;
+                    break;
+                case 'TextureSlot':
+                    type = AnimVectorType.INT1;
                     break;
             }
             res[keyword] = parseAnimVector(state, type);

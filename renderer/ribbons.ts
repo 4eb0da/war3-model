@@ -199,7 +199,9 @@ export class RibbonsController {
             }
 
             gl.uniform4f(shaderProgramLocations.colorUniform,
-                emitter.props.Color[0], emitter.props.Color[1], emitter.props.Color[2], emitter.props.Alpha);
+                emitter.props.Color[0], emitter.props.Color[1], emitter.props.Color[2],
+                this.interp.animVectorVal(emitter.props.Alpha, 1)
+            );
 
             this.setGeneralBuffers(emitter);
             let materialID: number = emitter.props.MaterialID;
@@ -280,9 +282,10 @@ export class RibbonsController {
     private updateEmitterTexCoords (emitter: RibbonEmitterWrapper, now: number): void {
         for (let i = 0; i < emitter.creationTimes.length; ++i) {
             let relativePos = (now - emitter.creationTimes[i]) / (emitter.props.LifeSpan * 1000);
+            let textureSlot = this.interp.animVectorVal(emitter.props.TextureSlot, 0);
 
-            let texCoordX = emitter.props.TextureSlot % emitter.props.Columns;
-            let texCoordY = Math.floor(emitter.props.TextureSlot / emitter.props.Rows);
+            let texCoordX = textureSlot % emitter.props.Columns;
+            let texCoordY = Math.floor(textureSlot / emitter.props.Rows);
             let cellWidth = 1 / emitter.props.Columns;
             let cellHeight = 1 / emitter.props.Rows;
 

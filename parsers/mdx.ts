@@ -208,7 +208,7 @@ function parseSequences (model: Model, state: State, size: number): void {
         sequence.MoveSpeed = state.float32();
         sequence.NonLooping = state.int32() > 0;
         sequence.Rarity = state.float32();
-        state.int32(); // unknown 4-byte sequence
+        state.int32(); // unknown 4-byte sequence (syncPoint?)
 
         parseExtent(sequence, state);
 
@@ -608,6 +608,18 @@ function parseParticleEmitters (model: Model, state: State, size: number): void 
 
             if (keyword === 'KPEV') {
                 emitter.Visibility = state.animVector(AnimVectorType.FLOAT1);
+            } else if (keyword === 'KPEE') {
+                emitter.EmissionRate = state.animVector(AnimVectorType.FLOAT1);
+            } else if (keyword === 'KPEG') {
+                emitter.Gravity = state.animVector(AnimVectorType.FLOAT1);
+            } else if (keyword === 'KPLN') {
+                emitter.Longitude = state.animVector(AnimVectorType.FLOAT1);
+            } else if (keyword === 'KPLT') {
+                emitter.Latitude = state.animVector(AnimVectorType.FLOAT1);
+            } else if (keyword === 'KPEL') {
+                emitter.LifeSpan = state.animVector(AnimVectorType.FLOAT1);
+            } else if (keyword === 'KPES') {
+                emitter.InitVelocity = state.animVector(AnimVectorType.FLOAT1);
             } else {
                 throw new Error('Incorrect particle emitter chunk data ' + keyword);
             }
@@ -633,8 +645,8 @@ function parseParticleEmitters2 (model: Model, state: State, size: number): void
         emitter.Gravity = state.float32();
         emitter.LifeSpan = state.float32();
         emitter.EmissionRate = state.float32();
-        emitter.Length = state.float32();
         emitter.Width = state.float32();
+        emitter.Length = state.float32();
 
         emitter.FilterMode = state.int32();
         emitter.Rows = state.int32();
@@ -702,6 +714,10 @@ function parseParticleEmitters2 (model: Model, state: State, size: number): void
                 emitter.Speed = state.animVector(AnimVectorType.FLOAT1);
             } else if (keyword === 'KP2L') {
                 emitter.Latitude = state.animVector(AnimVectorType.FLOAT1);
+            } else if (keyword === 'KP2G') {
+                emitter.Gravity = state.animVector(AnimVectorType.FLOAT1);
+            } else if (keyword === 'KP2R') {
+                emitter.Variation = state.animVector(AnimVectorType.FLOAT1);
             } else {
                 throw new Error('Incorrect particle emitter2 chunk data ' + keyword);
             }
@@ -799,6 +815,10 @@ function parseLights (model: Model, state: State, size: number): void {
                 light.AmbColor = state.animVector(AnimVectorType.FLOAT3);
             } else if (keyword === 'KLBI') {
                 light.AmbIntensity = state.animVector(AnimVectorType.FLOAT1);
+            } else if (keyword === 'KLAS') {
+                light.AttenuationStart = state.animVector(AnimVectorType.INT1);
+            } else if (keyword === 'KLAE') {
+                light.AttenuationEnd = state.animVector(AnimVectorType.INT1);
             } else {
                 throw new Error('Incorrect light chunk data ' + keyword);
             }
@@ -874,6 +894,10 @@ function parseRibbonEmitters (model: Model, state: State, size: number): void {
                 emitter.HeightAbove = state.animVector(AnimVectorType.FLOAT1);
             } else if (keyword === 'KRHB') {
                 emitter.HeightBelow = state.animVector(AnimVectorType.FLOAT1);
+            } else if (keyword === 'KRAL') {
+                emitter.Alpha = state.animVector(AnimVectorType.FLOAT1);
+            } else if (keyword === 'KRTX') {
+                emitter.TextureSlot = state.animVector(AnimVectorType.INT1);
             } else {
                 throw new Error('Incorrect ribbon emitter chunk data ' + keyword);
             }

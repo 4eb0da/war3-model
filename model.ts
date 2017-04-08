@@ -124,8 +124,8 @@ export interface GeosetAnim {
 
 export enum NodeFlags {
     DontInheritTranslation = 1,
-    DontInheritScaling = 2,
-    DontInheritRotation = 4,
+    DontInheritRotation = 2,
+    DontInheritScaling = 4,
     Billboarded = 8,
     BillboardedLockX = 16,
     BillboardedLockY = 32,
@@ -191,13 +191,13 @@ export enum ParticleEmitterFlags {
 }
 
 export interface ParticleEmitter extends Node {
-    EmissionRate: number;
-    Gravity: number;
-    Longitude: number;
-    Latitude: number;
+    EmissionRate: AnimVector|number;
+    Gravity: AnimVector|number;
+    Longitude: AnimVector|number;
+    Latitude: AnimVector|number;
     Path: string;
-    LifeSpan: number;
-    InitVelocity: number;
+    LifeSpan: AnimVector|number;
+    InitVelocity: AnimVector|number;
     Visibility: AnimVector;
 }
 
@@ -226,9 +226,9 @@ export enum ParticleEmitter2FramesFlags {
 
 export interface ParticleEmitter2 extends Node {
     Speed?: AnimVector|number;
-    Variation?: number;
+    Variation?: AnimVector|number;
     Latitude?: AnimVector|number;
-    Gravity?: number;
+    Gravity?: AnimVector|number;
     Visibility?: AnimVector|number;
     Squirt?: boolean;
     LifeSpan?: number;
@@ -274,8 +274,8 @@ export enum LightType {
 export interface Light extends Node {
     LightType: LightType;
 
-    AttenuationStart?: number;
-    AttenuationEnd?: number;
+    AttenuationStart?: AnimVector|number;
+    AttenuationEnd?: AnimVector|number;
 
     Color?: AnimVector|Float32Array;
     Intensity?: AnimVector|number;
@@ -288,10 +288,11 @@ export interface Light extends Node {
 export interface RibbonEmitter extends Node {
     HeightAbove?: AnimVector|number;
     HeightBelow?: AnimVector|number;
-    Alpha?: number;
+    Alpha?: AnimVector|number;
+    // todo support KRCO
     Color?: Float32Array;
     LifeSpan?: number;
-    TextureSlot?: number;
+    TextureSlot?: AnimVector|number;
     EmissionRate?: number;
     Rows?: number;
     Columns?: number;

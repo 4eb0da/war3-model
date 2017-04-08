@@ -418,7 +418,7 @@ export class ParticlesController {
         let width: number = this.interp.animVectorVal(emitter.props.Width, 0);
         let length: number = this.interp.animVectorVal(emitter.props.Length, 0);
         let speedScale: number = this.interp.animVectorVal(emitter.props.Speed, 0);
-        let variation: number = emitter.props.Variation || 0;
+        let variation: number = this.interp.animVectorVal(emitter.props.Variation, 0);
         let latitude: number = degToRad(this.interp.animVectorVal(emitter.props.Latitude, 0));
 
         particle.emitter = emitter;
@@ -445,7 +445,7 @@ export class ParticlesController {
         particle.speed[1] -= emitterMatrix[13];
         particle.speed[2] -= emitterMatrix[14];
 
-        particle.gravity = emitter.props.Gravity || 0;
+        particle.gravity = this.interp.animVectorVal(emitter.props.Gravity, 0);
 
         particle.lifeSpan = emitter.props.LifeSpan;
 

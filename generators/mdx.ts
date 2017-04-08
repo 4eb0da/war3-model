@@ -646,6 +646,14 @@ function byteLengthLight (light: Light): number {
             4 /* keyword */ + byteLengthAnimVector(light.Intensity, AnimVectorType.FLOAT1) :
             0
         ) +
+        (typeof light.AttenuationStart !== 'number' ?
+            4 /* keyword */ + byteLengthAnimVector(light.AttenuationStart, AnimVectorType.FLOAT1) :
+            0
+        ) +
+        (typeof light.AttenuationEnd !== 'number' ?
+            4 /* keyword */ + byteLengthAnimVector(light.AttenuationEnd, AnimVectorType.FLOAT1) :
+            0
+        ) +
         (!(light.AmbColor instanceof Float32Array) ?
             4 /* keyword */ + byteLengthAnimVector(light.AmbColor as AnimVector, AnimVectorType.FLOAT3) :
             0
@@ -680,8 +688,8 @@ function generateLights (model: Model, stream: Stream): void {
         stream.int32(byteLengthLight(light));
         generateNode(light, stream);
         stream.int32(light.LightType);
-        stream.float32(light.AttenuationStart);
-        stream.float32(light.AttenuationEnd);
+        stream.float32(typeof light.AttenuationStart === 'number' ? light.AttenuationStart : 0);
+        stream.float32(typeof light.AttenuationEnd === 'number' ? light.AttenuationEnd : 0);
 
         if (light.Color instanceof Float32Array) {
             stream.float32(light.Color[0]);
@@ -726,6 +734,14 @@ function generateLights (model: Model, stream: Stream): void {
         if (typeof light.AmbIntensity !== 'number') {
             stream.keyword('KLBI');
             stream.animVector(light.AmbIntensity, AnimVectorType.FLOAT1);
+        }
+        if (typeof light.AttenuationStart !== 'number') {
+            stream.keyword('KLAS');
+            stream.animVector(light.AttenuationStart, AnimVectorType.INT1);
+        }
+        if (typeof light.AttenuationEnd !== 'number') {
+            stream.keyword('KLAE');
+            stream.animVector(light.AttenuationEnd, AnimVectorType.INT1);
         }
     }
 }
@@ -837,6 +853,30 @@ function byteLengthParticleEmitter (emitter: ParticleEmitter): number {
         (typeof emitter.Visibility !== 'number' ?
             4 /* keyword */ + byteLengthAnimVector(emitter.Visibility, AnimVectorType.FLOAT1) :
             0
+        ) +
+        (typeof emitter.EmissionRate !== 'number' ?
+            4 /* keyword */ + byteLengthAnimVector(emitter.EmissionRate, AnimVectorType.FLOAT1) :
+            0
+        ) +
+        (typeof emitter.Gravity !== 'number' ?
+            4 /* keyword */ + byteLengthAnimVector(emitter.Gravity, AnimVectorType.FLOAT1) :
+            0
+        ) +
+        (typeof emitter.Longitude !== 'number' ?
+            4 /* keyword */ + byteLengthAnimVector(emitter.Longitude, AnimVectorType.FLOAT1) :
+            0
+        ) +
+        (typeof emitter.Latitude !== 'number' ?
+            4 /* keyword */ + byteLengthAnimVector(emitter.Latitude, AnimVectorType.FLOAT1) :
+            0
+        ) +
+        (typeof emitter.LifeSpan !== 'number' ?
+            4 /* keyword */ + byteLengthAnimVector(emitter.LifeSpan, AnimVectorType.FLOAT1) :
+            0
+        ) +
+        (typeof emitter.InitVelocity !== 'number' ?
+            4 /* keyword */ + byteLengthAnimVector(emitter.InitVelocity, AnimVectorType.FLOAT1) :
+            0
         );
 }
 
@@ -865,18 +905,42 @@ function generateParticleEmitters (model: Model, stream: Stream): void {
         stream.int32(byteLengthParticleEmitter(emitter));
         generateNode(emitter, stream);
 
-        stream.float32(emitter.EmissionRate);
-        stream.float32(emitter.Gravity);
-        stream.float32(emitter.Longitude);
-        stream.float32(emitter.Latitude);
+        stream.float32(typeof emitter.EmissionRate === 'number' ? emitter.EmissionRate : 0);
+        stream.float32(typeof emitter.Gravity === 'number' ? emitter.Gravity : 0);
+        stream.float32(typeof emitter.Longitude === 'number' ? emitter.Longitude : 0);
+        stream.float32(typeof emitter.Latitude === 'number' ? emitter.Latitude : 0);
         stream.str(emitter.Path, MODEL_PARTICLE_EMITTER_PATH_LENGTH);
         stream.int32(0);
-        stream.float32(emitter.LifeSpan);
-        stream.float32(emitter.InitVelocity);
+        stream.float32(typeof emitter.LifeSpan === 'number' ? emitter.LifeSpan : 0);
+        stream.float32(typeof emitter.InitVelocity === 'number' ? emitter.InitVelocity : 0);
 
         if (typeof emitter.Visibility !== 'number') {
             stream.keyword('KPEV');
             stream.animVector(emitter.Visibility, AnimVectorType.FLOAT1);
+        }
+        if (typeof emitter.EmissionRate !== 'number') {
+            stream.keyword('KPEE');
+            stream.animVector(emitter.EmissionRate, AnimVectorType.FLOAT1);
+        }
+        if (typeof emitter.Gravity !== 'number') {
+            stream.keyword('KPEG');
+            stream.animVector(emitter.Gravity, AnimVectorType.FLOAT1);
+        }
+        if (typeof emitter.Longitude !== 'number') {
+            stream.keyword('KPLN');
+            stream.animVector(emitter.Longitude, AnimVectorType.FLOAT1);
+        }
+        if (typeof emitter.Latitude !== 'number') {
+            stream.keyword('KPLT');
+            stream.animVector(emitter.Latitude, AnimVectorType.FLOAT1);
+        }
+        if (typeof emitter.LifeSpan !== 'number') {
+            stream.keyword('KPEL');
+            stream.animVector(emitter.LifeSpan, AnimVectorType.FLOAT1);
+        }
+        if (typeof emitter.InitVelocity !== 'number') {
+            stream.keyword('KPES');
+            stream.animVector(emitter.InitVelocity, AnimVectorType.FLOAT1);
         }
     }
 }
@@ -933,6 +997,14 @@ function byteLengthParticleEmitter2 (emitter: ParticleEmitter2): number {
         (typeof emitter.Latitude !== 'number' ?
             4 /* keyword */ + byteLengthAnimVector(emitter.Latitude, AnimVectorType.FLOAT1) :
             0
+        ) +
+        (typeof emitter.Gravity !== 'number' ?
+            4 /* keyword */ + byteLengthAnimVector(emitter.Gravity, AnimVectorType.FLOAT1) :
+            0
+        ) +
+        (typeof emitter.Variation !== 'number' ?
+            4 /* keyword */ + byteLengthAnimVector(emitter.Variation, AnimVectorType.FLOAT1) :
+            0
         );
 }
 
@@ -962,13 +1034,13 @@ function generateParticleEmitters2 (model: Model, stream: Stream): void {
         generateNode(emitter, stream);
 
         stream.float32(typeof emitter.Speed === 'number' ? emitter.Speed : 0);
-        stream.float32(emitter.Variation);
+        stream.float32(typeof emitter.Variation === 'number' ? emitter.Variation : 0);
         stream.float32(typeof emitter.Latitude === 'number' ? emitter.Latitude : 0);
-        stream.float32(emitter.Gravity);
+        stream.float32(typeof emitter.Gravity === 'number' ? emitter.Gravity : 0);
         stream.float32(emitter.LifeSpan);
         stream.float32(typeof emitter.EmissionRate === 'number' ? emitter.EmissionRate : 0);
-        stream.float32(typeof emitter.Length === 'number' ? emitter.Length : 0);
         stream.float32(typeof emitter.Width === 'number' ? emitter.Width : 0);
+        stream.float32(typeof emitter.Length === 'number' ? emitter.Length : 0);
 
         stream.int32(emitter.FilterMode);
         stream.int32(emitter.Rows);
@@ -1035,6 +1107,14 @@ function generateParticleEmitters2 (model: Model, stream: Stream): void {
             stream.keyword('KP2L');
             stream.animVector(emitter.Latitude, AnimVectorType.FLOAT1);
         }
+        if (typeof emitter.Gravity !== 'number') {
+            stream.keyword('KP2G');
+            stream.animVector(emitter.Gravity, AnimVectorType.FLOAT1);
+        }
+        if (typeof emitter.Variation !== 'number') {
+            stream.keyword('KP2R');
+            stream.animVector(emitter.Variation, AnimVectorType.FLOAT1);
+        }
     }
 }
 
@@ -1060,6 +1140,14 @@ function byteLengthRibbonEmitter (emitter: RibbonEmitter): number {
         ) +
         (typeof emitter.HeightBelow !== 'number' ?
             4 /* keyword */ + byteLengthAnimVector(emitter.HeightBelow, AnimVectorType.FLOAT1) :
+            0
+        ) +
+        (typeof emitter.Alpha !== 'number' ?
+            4 /* keyword */ + byteLengthAnimVector(emitter.Alpha, AnimVectorType.FLOAT1) :
+            0
+        ) +
+        (typeof emitter.TextureSlot !== 'number' ?
+            4 /* keyword */ + byteLengthAnimVector(emitter.TextureSlot, AnimVectorType.FLOAT1) :
             0
         );
 }
@@ -1090,10 +1178,10 @@ function generateRibbonEmitters (model: Model, stream: Stream): void {
 
         stream.float32(typeof emitter.HeightAbove === 'number' ? emitter.HeightAbove : 0);
         stream.float32(typeof emitter.HeightBelow === 'number' ? emitter.HeightBelow : 0);
-        stream.float32(emitter.Alpha);
+        stream.float32(typeof emitter.Alpha === 'number' ? emitter.Alpha : 0);
         stream.float32Array(emitter.Color);
         stream.float32(emitter.LifeSpan);
-        stream.int32(emitter.TextureSlot);
+        stream.int32(typeof emitter.TextureSlot === 'number' ? emitter.TextureSlot : 0);
         stream.int32(emitter.EmissionRate);
         stream.int32(emitter.Rows);
         stream.int32(emitter.Columns);
@@ -1111,6 +1199,14 @@ function generateRibbonEmitters (model: Model, stream: Stream): void {
         if (typeof emitter.HeightBelow !== 'number') {
             stream.keyword('KRHB');
             stream.animVector(emitter.HeightBelow, AnimVectorType.FLOAT1);
+        }
+        if (typeof emitter.Alpha !== 'number') {
+            stream.keyword('KRAL');
+            stream.animVector(emitter.Alpha, AnimVectorType.FLOAT1);
+        }
+        if (typeof emitter.TextureSlot !== 'number') {
+            stream.keyword('KRTX');
+            stream.animVector(emitter.TextureSlot, AnimVectorType.INT1);
         }
     }
 }
