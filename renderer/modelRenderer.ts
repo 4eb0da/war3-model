@@ -1,6 +1,6 @@
 import {
     Model, Node, AnimVector, NodeFlags, Layer, LayerShading, FilterMode,
-    TextureFlags, TVertexAnim
+    TextureFlags, TVertexAnim, Geoset
 } from '../model';
 import {vec3, quat, mat3, mat4} from 'gl-matrix';
 import {mat4fromRotationOrigin, getShader} from './util';
@@ -16,7 +16,7 @@ let shaderProgram: WebGLProgram;
 let shaderProgramLocations: any = {};
 let anisotropicExt: any;
 
-const vertexShader = `
+const vertexShaderHardwareSkinning = `
     attribute vec3 aVertexPosition;
     attribute vec2 aTextureCoord;
     attribute vec4 aGroup;
@@ -48,6 +48,22 @@ const vertexShader = `
         sum.w = 1.;
         position = sum;
 
+        gl_Position = uPMatrix * uMVMatrix * position;
+        vTextureCoord = aTextureCoord;
+    }
+`;
+
+const vertexShaderSoftwareSkinning = `
+    attribute vec3 aVertexPosition;
+    attribute vec2 aTextureCoord;
+
+    uniform mat4 uMVMatrix;
+    uniform mat4 uPMatrix;
+
+    varying vec2 vTextureCoord;
+
+    void main(void) {
+        vec4 position = vec4(aVertexPosition, 1.0);
         gl_Position = uPMatrix * uMVMatrix * position;
         vTextureCoord = aTextureCoord;
     }
@@ -113,56 +129,24 @@ let tempAxisBillboarded: vec3 = vec3.create();
 let tempLockQuat: quat = quat.create();
 let tempLockMat: mat4 = mat4.create();
 
+let tempPos: vec3 = vec3.create();
+let tempSum: vec3 = vec3.create();
+let tempVec3: vec3 = vec3.create();
+
 let identifyMat3: mat3 = mat3.create();
 let texCoordMat4: mat4 = mat4.create();
 let texCoordMat3: mat3 = mat3.create();
 
 export class ModelRenderer {
-    private static initShaders (): void {
-        if (shaderProgram) {
-            return;
-        }
-
-        let vertex = getShader(gl, vertexShader, gl.VERTEX_SHADER);
-        let fragment = getShader(gl, fragmentShader, gl.FRAGMENT_SHADER);
-
-        shaderProgram = gl.createProgram();
-        gl.attachShader(shaderProgram, vertex);
-        gl.attachShader(shaderProgram, fragment);
-        gl.linkProgram(shaderProgram);
-
-        if (!gl.getProgramParameter(shaderProgram, gl.LINK_STATUS)) {
-            alert('Could not initialise shaders');
-        }
-
-        gl.useProgram(shaderProgram);
-
-        shaderProgramLocations.vertexPositionAttribute = gl.getAttribLocation(shaderProgram, 'aVertexPosition');
-        shaderProgramLocations.textureCoordAttribute = gl.getAttribLocation(shaderProgram, 'aTextureCoord');
-        shaderProgramLocations.groupAttribute = gl.getAttribLocation(shaderProgram, 'aGroup');
-
-        shaderProgramLocations.pMatrixUniform = gl.getUniformLocation(shaderProgram, 'uPMatrix');
-        shaderProgramLocations.mvMatrixUniform = gl.getUniformLocation(shaderProgram, 'uMVMatrix');
-        shaderProgramLocations.samplerUniform = gl.getUniformLocation(shaderProgram, 'uSampler');
-        shaderProgramLocations.replaceableColorUniform = gl.getUniformLocation(shaderProgram, 'uReplaceableColor');
-        shaderProgramLocations.replaceableTypeUniform = gl.getUniformLocation(shaderProgram, 'uReplaceableType');
-        shaderProgramLocations.discardAlphaLevelUniform = gl.getUniformLocation(shaderProgram, 'uDiscardAlphaLevel');
-        shaderProgramLocations.tVertexAnimUniform = gl.getUniformLocation(shaderProgram, 'uTVextexAnim');
-
-        shaderProgramLocations.nodesMatricesAttributes = [];
-        for (let i = 0; i < MAX_NODES; ++i) {
-            shaderProgramLocations.nodesMatricesAttributes[i] =
-                gl.getUniformLocation(shaderProgram, `uNodesMatrices[${i}]`);
-        }
-    }
-
     private model: Model;
     private interp: ModelInterp;
     private rendererData: RendererData;
     private particlesController: ParticlesController;
     private ribbonsController: RibbonsController;
 
+    private softwareSkinning: boolean;
     private vertexBuffer: WebGLBuffer[] = [];
+    private vertices: Float32Array[] = []; // Array per geoset for software skinning
     private texCoordBuffer: WebGLBuffer[] = [];
     private indexBuffer: WebGLBuffer[] = [];
     private groupBuffer: WebGLBuffer[] = [];
@@ -235,12 +219,14 @@ export class ModelRenderer {
 
     public initGL (glContext: WebGLRenderingContext): void {
         gl = glContext;
+        // Max bones + MV + P
+        this.softwareSkinning = gl.getParameter(gl.MAX_VERTEX_UNIFORM_VECTORS) < 4 * (MAX_NODES + 2);
         anisotropicExt = (
             gl.getExtension('EXT_texture_filter_anisotropic') ||
             gl.getExtension('MOZ_EXT_texture_filter_anisotropic') ||
             gl.getExtension('WEBKIT_EXT_texture_filter_anisotropic')
         );
-        ModelRenderer.initShaders();
+        this.initShaders();
         this.initBuffers();
         ParticlesController.initGL(glContext);
         RibbonsController.initGL(glContext);
@@ -319,18 +305,26 @@ export class ModelRenderer {
 
         gl.enableVertexAttribArray(shaderProgramLocations.vertexPositionAttribute);
         gl.enableVertexAttribArray(shaderProgramLocations.textureCoordAttribute);
-        gl.enableVertexAttribArray(shaderProgramLocations.groupAttribute);
+        if (!this.softwareSkinning) {
+            gl.enableVertexAttribArray(shaderProgramLocations.groupAttribute);
+        }
 
-        for (let j = 0; j < MAX_NODES; ++j) {
-            if (this.rendererData.nodes[j]) {
-                gl.uniformMatrix4fv(shaderProgramLocations.nodesMatricesAttributes[j], false,
-                    this.rendererData.nodes[j].matrix);
+        if (!this.softwareSkinning) {
+            for (let j = 0; j < MAX_NODES; ++j) {
+                if (this.rendererData.nodes[j]) {
+                    gl.uniformMatrix4fv(shaderProgramLocations.nodesMatricesAttributes[j], false,
+                        this.rendererData.nodes[j].matrix);
+                }
             }
         }
 
         for (let i = 0; i < this.model.Geosets.length; ++i) {
             if (this.rendererData.geosetAlpha[i] < 1e-6) {
                 continue;
+            }
+
+            if (this.softwareSkinning) {
+                this.generateGeosetVertices(i);
             }
 
             let materialID = this.model.Geosets[i].MaterialID;
@@ -345,8 +339,10 @@ export class ModelRenderer {
                 gl.bindBuffer(gl.ARRAY_BUFFER, this.texCoordBuffer[i]);
                 gl.vertexAttribPointer(shaderProgramLocations.textureCoordAttribute, 2, gl.FLOAT, false, 0, 0);
 
-                gl.bindBuffer(gl.ARRAY_BUFFER, this.groupBuffer[i]);
-                gl.vertexAttribPointer(shaderProgramLocations.groupAttribute, 4, gl.UNSIGNED_BYTE, false, 0, 0);
+                if (!this.softwareSkinning) {
+                    gl.bindBuffer(gl.ARRAY_BUFFER, this.groupBuffer[i]);
+                    gl.vertexAttribPointer(shaderProgramLocations.groupAttribute, 4, gl.UNSIGNED_BYTE, false, 0, 0);
+                }
 
                 gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.indexBuffer[i]);
                 gl.drawElements(gl.TRIANGLES, this.model.Geosets[i].Faces.length, gl.UNSIGNED_SHORT, 0);
@@ -355,10 +351,37 @@ export class ModelRenderer {
 
         gl.disableVertexAttribArray(shaderProgramLocations.vertexPositionAttribute);
         gl.disableVertexAttribArray(shaderProgramLocations.textureCoordAttribute);
-        gl.disableVertexAttribArray(shaderProgramLocations.groupAttribute);
+        if (!this.softwareSkinning) {
+            gl.disableVertexAttribArray(shaderProgramLocations.groupAttribute);
+        }
 
         this.particlesController.render(mvMatrix, pMatrix);
         this.ribbonsController.render(mvMatrix, pMatrix);
+    }
+
+    private generateGeosetVertices (geosetIndex: number): void {
+        let geoset: Geoset = this.model.Geosets[geosetIndex];
+        let buffer = this.vertices[geosetIndex];
+
+        for (let i = 0; i < buffer.length; i += 3) {
+            let index = i / 3;
+            let group = geoset.Groups[geoset.VertexGroup[index]];
+
+            vec3.set(tempPos, geoset.Vertices[i], geoset.Vertices[i + 1], geoset.Vertices[i + 2]);
+            vec3.set(tempSum, 0, 0, 0);
+            for (let j = 0; j < group.length; ++j) {
+                vec3.add(
+                    tempSum, tempSum,
+                    vec3.transformMat4(tempVec3, tempPos, this.rendererData.nodes[group[j]].matrix)
+                );
+            }
+            vec3.scale(tempPos, tempSum, 1 / group.length);
+            buffer[i]     = tempPos[0];
+            buffer[i + 1] = tempPos[1];
+            buffer[i + 2] = tempPos[2];
+        }
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.vertexBuffer[geosetIndex]);
+        gl.bufferData(gl.ARRAY_BUFFER, buffer, gl.DYNAMIC_DRAW);
     }
 
     private updateLayerTextureId (materialId: number, layerId: number): void {
@@ -371,28 +394,77 @@ export class ModelRenderer {
         }
     }
 
+    private initShaders (): void {
+        if (shaderProgram) {
+            return;
+        }
+
+        let vertex = getShader(gl, this.softwareSkinning ? vertexShaderSoftwareSkinning : vertexShaderHardwareSkinning,
+            gl.VERTEX_SHADER);
+        let fragment = getShader(gl, fragmentShader, gl.FRAGMENT_SHADER);
+
+        shaderProgram = gl.createProgram();
+        gl.attachShader(shaderProgram, vertex);
+        gl.attachShader(shaderProgram, fragment);
+        gl.linkProgram(shaderProgram);
+
+        if (!gl.getProgramParameter(shaderProgram, gl.LINK_STATUS)) {
+            alert('Could not initialise shaders');
+        }
+
+        gl.useProgram(shaderProgram);
+
+        shaderProgramLocations.vertexPositionAttribute = gl.getAttribLocation(shaderProgram, 'aVertexPosition');
+        shaderProgramLocations.textureCoordAttribute = gl.getAttribLocation(shaderProgram, 'aTextureCoord');
+        if (!this.softwareSkinning) {
+            shaderProgramLocations.groupAttribute = gl.getAttribLocation(shaderProgram, 'aGroup');
+        }
+
+        shaderProgramLocations.pMatrixUniform = gl.getUniformLocation(shaderProgram, 'uPMatrix');
+        shaderProgramLocations.mvMatrixUniform = gl.getUniformLocation(shaderProgram, 'uMVMatrix');
+        shaderProgramLocations.samplerUniform = gl.getUniformLocation(shaderProgram, 'uSampler');
+        shaderProgramLocations.replaceableColorUniform = gl.getUniformLocation(shaderProgram, 'uReplaceableColor');
+        shaderProgramLocations.replaceableTypeUniform = gl.getUniformLocation(shaderProgram, 'uReplaceableType');
+        shaderProgramLocations.discardAlphaLevelUniform = gl.getUniformLocation(shaderProgram, 'uDiscardAlphaLevel');
+        shaderProgramLocations.tVertexAnimUniform = gl.getUniformLocation(shaderProgram, 'uTVextexAnim');
+
+        if (!this.softwareSkinning) {
+            shaderProgramLocations.nodesMatricesAttributes = [];
+            for (let i = 0; i < MAX_NODES; ++i) {
+                shaderProgramLocations.nodesMatricesAttributes[i] =
+                    gl.getUniformLocation(shaderProgram, `uNodesMatrices[${i}]`);
+            }
+        }
+    }
+
     private initBuffers (): void {
         for (let i = 0; i < this.model.Geosets.length; ++i) {
             this.vertexBuffer[i] = gl.createBuffer();
-            gl.bindBuffer(gl.ARRAY_BUFFER, this.vertexBuffer[i]);
-            gl.bufferData(gl.ARRAY_BUFFER, this.model.Geosets[i].Vertices, gl.STATIC_DRAW);
+            if (this.softwareSkinning) {
+                this.vertices[i] = new Float32Array(this.model.Geosets[i].Vertices.length);
+            } else {
+                gl.bindBuffer(gl.ARRAY_BUFFER, this.vertexBuffer[i]);
+                gl.bufferData(gl.ARRAY_BUFFER, this.model.Geosets[i].Vertices, gl.STATIC_DRAW);
+            }
 
             this.texCoordBuffer[i] = gl.createBuffer();
             gl.bindBuffer(gl.ARRAY_BUFFER, this.texCoordBuffer[i]);
             gl.bufferData(gl.ARRAY_BUFFER, this.model.Geosets[i].TVertices, gl.STATIC_DRAW);
 
-            this.groupBuffer[i] = gl.createBuffer();
-            gl.bindBuffer(gl.ARRAY_BUFFER, this.groupBuffer[i]);
-            let buffer = new Uint8Array(this.model.Geosets[i].VertexGroup.length * 4);
-            for (let j = 0; j < buffer.length; j += 4) {
-                let index = j / 4;
-                let group = this.model.Geosets[i].Groups[this.model.Geosets[i].VertexGroup[index]];
-                buffer[j] = group[0];
-                buffer[j + 1] = group.length > 1 ? group[1] : MAX_NODES;
-                buffer[j + 2] = group.length > 2 ? group[2] : MAX_NODES;
-                buffer[j + 3] = group.length > 3 ? group[3] : MAX_NODES;
+            if (!this.softwareSkinning) {
+                this.groupBuffer[i] = gl.createBuffer();
+                gl.bindBuffer(gl.ARRAY_BUFFER, this.groupBuffer[i]);
+                let buffer = new Uint8Array(this.model.Geosets[i].VertexGroup.length * 4);
+                for (let j = 0; j < buffer.length; j += 4) {
+                    let index = j / 4;
+                    let group = this.model.Geosets[i].Groups[this.model.Geosets[i].VertexGroup[index]];
+                    buffer[j] = group[0];
+                    buffer[j + 1] = group.length > 1 ? group[1] : MAX_NODES;
+                    buffer[j + 2] = group.length > 2 ? group[2] : MAX_NODES;
+                    buffer[j + 3] = group.length > 3 ? group[3] : MAX_NODES;
+                }
+                gl.bufferData(gl.ARRAY_BUFFER, buffer, gl.STATIC_DRAW);
             }
-            gl.bufferData(gl.ARRAY_BUFFER, buffer, gl.STATIC_DRAW);
 
             this.indexBuffer[i] = gl.createBuffer();
             gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.indexBuffer[i]);
@@ -400,11 +472,11 @@ export class ModelRenderer {
         }
     }
 
-    private resetGlobalSequences (): void {
+    /*private resetGlobalSequences (): void {
         for (let i = 0; i < this.rendererData.globalSequencesFrames.length; ++i) {
             this.rendererData.globalSequencesFrames[i] = 0;
         }
-    }
+    }*/
 
     private updateGlobalSequences (delta: number): void {
         for (let i = 0; i < this.rendererData.globalSequencesFrames.length; ++i) {

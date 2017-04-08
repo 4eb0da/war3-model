@@ -202,6 +202,17 @@ function initCameraMove () {
         return [list[0].pageX, list[0].pageY];
     }
 
+    function updateCameraDistance (distance: number): void {
+        cameraDistance = distance;
+        if (cameraDistance > 1000) {
+            cameraDistance = 1000;
+        }
+        if (cameraDistance < 100) {
+            cameraDistance = 100;
+        }
+        (document.getElementById('distance') as HTMLInputElement).value = String(cameraDistance);
+    }
+
     function pointerDown (event) {
         if (event.target !== canvas) {
             return;
@@ -214,6 +225,15 @@ function initCameraMove () {
 
     function pointerMove (event) {
         if (!down) {
+            return;
+        }
+
+        if (event.type === 'touchmove') {
+            event.preventDefault();
+        }
+
+        if (event.changedTouches && event.changedTouches.length > 1 ||
+            event.touches && event.touches.length > 1) {
             return;
         }
 
@@ -238,13 +258,16 @@ function initCameraMove () {
     }
 
     function wheel (event) {
-        cameraDistance *= (1 - event.wheelDelta / 300);
-        if (cameraDistance > 1000) {
-            cameraDistance = 1000;
-        }
-        if (cameraDistance < 100) {
-            cameraDistance = 100;
-        }
+        updateCameraDistance(cameraDistance * (1 - event.wheelDelta / 300));
+    }
+
+    let startCameraDistance: number;
+    function gestureStart () {
+        startCameraDistance = cameraDistance;
+    }
+
+    function gestureChange (event) {
+        updateCameraDistance(startCameraDistance * (1 / event.scale));
     }
 
     document.addEventListener('mousedown', pointerDown);
@@ -255,11 +278,19 @@ function initCameraMove () {
     document.addEventListener('touchend', pointerUp);
     document.addEventListener('touchcancel', pointerUp);
     document.addEventListener('wheel', wheel);
+    document.addEventListener('gesturestart', gestureStart);
+    document.addEventListener('gesturechange', gestureChange);
 }
 
 function updateCanvasSize () {
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
+    let width = window.innerWidth;
+    let height = window.innerHeight;
+    let dpr = window.devicePixelRatio || 1;
+
+    canvas.width = width * dpr;
+    canvas.height = height * dpr;
+    canvas.style.width = width + 'px';
+    canvas.style.height = height + 'px';
 }
 
 function encode (html) {
