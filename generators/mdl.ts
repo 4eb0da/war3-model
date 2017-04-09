@@ -53,19 +53,33 @@ function generateBlockEnd (tabSize: number = 0) {
 
 let trailingZeroRegExp = /(\..+?)0+$/;
 let trailingZeroRegExp2 = /\.0+$/;
+let negativeZeroRegExp = /^-0$/;
 function generateFloat (val: number): string {
-    return val.toFixed(FLOAT_PRESICION).replace(trailingZeroRegExp, '$1').replace(trailingZeroRegExp2, '');
+    return val.toFixed(FLOAT_PRESICION)
+        .replace(trailingZeroRegExp, '$1')
+        .replace(trailingZeroRegExp2, '')
+        .replace(negativeZeroRegExp, '0');
 }
 
-function generateFloatArray (arr: Float32Array): string {
+function generateFloatArray (arr: Float32Array, reverse: boolean = false): string {
     let middle: string = '';
 
-    for (let i = 0; i < arr.length; ++i) {
-        if (i > 0) {
-            middle += ', ';
-        }
+    if (reverse) {
+        for (let i = arr.length - 1; i >= 0; --i) {
+            if (i < arr.length - 1) {
+                middle += ', ';
+            }
 
-        middle += generateFloat(arr[i]);
+            middle += generateFloat(arr[i]);
+        }
+    } else {
+        for (let i = 0; i < arr.length; ++i) {
+            if (i > 0) {
+                middle += ', ';
+            }
+
+            middle += generateFloat(arr[i]);
+        }
     }
 
     return '{ ' + middle + ' }';
@@ -155,22 +169,22 @@ function generateLineType (lineType: LineType): string {
     return '';
 }
 
-function generateAnimKeyFrame (key: AnimKeyframe, tabSize: number = 2) {
+function generateAnimKeyFrame (key: AnimKeyframe, tabSize: number = 2, reverse: boolean = false) {
     let res = generateTab(tabSize) + key.Frame + ': ' +
-        (key.Vector.length === 1 ? generateFloat(key.Vector[0]) : generateFloatArray(key.Vector)) + ',\n';
+        (key.Vector.length === 1 ? generateFloat(key.Vector[0]) : generateFloatArray(key.Vector, reverse)) + ',\n';
 
     if (key.InTan/* or OutTan */) {
         res += generateTab(tabSize + 1) + 'InTan ' +
-            (key.InTan.length === 1 ? generateFloat(key.InTan[0]) : generateFloatArray(key.InTan)) + ',\n';
+            (key.InTan.length === 1 ? generateFloat(key.InTan[0]) : generateFloatArray(key.InTan, reverse)) + ',\n';
         res += generateTab(tabSize + 1) + 'OutTan ' +
-            (key.OutTan.length === 1 ? generateFloat(key.OutTan[0]) : generateFloatArray(key.OutTan)) + ',\n';
+            (key.OutTan.length === 1 ? generateFloat(key.OutTan[0]) : generateFloatArray(key.OutTan, reverse)) + ',\n';
     }
 
     return res;
 }
 
 function generateAnimVectorProp (name, val: AnimVector|number, defaultVal: number|null = 0,
-                                 tabSize: number = 1): string {
+                                 tabSize: number = 1, reverse: boolean = false): string {
     if (val === null || val === undefined) {
         return '';
     }
@@ -185,7 +199,7 @@ function generateAnimVectorProp (name, val: AnimVector|number, defaultVal: numbe
         return generateBlockStart(name, val.Keys.length, tabSize) +
             generateBooleanProp(generateLineType(val.LineType), tabSize + 1) +
             (val.GlobalSeqId !== null ? generateIntProp('GlobalSeqId', val.GlobalSeqId, null, tabSize + 1) : '') +
-            val.Keys.map(key => generateAnimKeyFrame(key, tabSize + 1)).join('') +
+            val.Keys.map(key => generateAnimKeyFrame(key, tabSize + 1, reverse)).join('') +
             generateBlockEnd(tabSize);
     }
 }
@@ -213,12 +227,8 @@ function generateModel (model: Model): string {
             generateIntPropIfNotEmpty('NumRibbonEmitters', Object.keys(model.RibbonEmitters).length) :
             '') +
         generateIntProp('BlendTime', model.Info.BlendTime) +
-        (isNotEmptyVec3(model.Info.MinimumExtent) ?
-            generateFloatArrayProp('MinimumExtent', model.Info.MinimumExtent) :
-            '') +
-        (isNotEmptyVec3(model.Info.MaximumExtent) ?
-            generateFloatArrayProp('MaximumExtent', model.Info.MaximumExtent) :
-            '') +
+        generateFloatArrayProp('MinimumExtent', model.Info.MinimumExtent) +
+        generateFloatArrayProp('MaximumExtent', model.Info.MaximumExtent) +
         generateFloatPropIfNotEmpty('BoundsRadius', model.Info.BoundsRadius) +
         generateBlockEnd();
 }
@@ -237,12 +247,8 @@ function generateSequenceChunk (sequence: Sequence): string {
         generateFloatPropIfNotEmpty('Rarity', sequence.Rarity, 0, null, 2) +
         generateFloatPropIfNotEmpty('MoveSpeed', sequence.MoveSpeed, 0, null, 2) +
         (sequence.NonLooping ? generateBooleanProp('NonLooping', 2) : '') +
-        (isNotEmptyVec3(sequence.MinimumExtent) ?
-            generateFloatArrayProp('MinimumExtent', sequence.MinimumExtent, null, 2) :
-            '') +
-        (isNotEmptyVec3(sequence.MaximumExtent) ?
-            generateFloatArrayProp('MaximumExtent', sequence.MaximumExtent, null, 2) :
-            '') +
+        generateFloatArrayProp('MinimumExtent', sequence.MinimumExtent, null, 2) +
+        generateFloatArrayProp('MaximumExtent', sequence.MaximumExtent, null, 2) +
         generateFloatPropIfNotEmpty('BoundsRadius', sequence.BoundsRadius, 0, null, 2) +
         generateBlockEnd(1);
 }
@@ -365,12 +371,8 @@ function generateGeosetChunk (geoset: Geoset): string {
         generateGeosetVertexGroup(geoset.VertexGroup) +
         generateGeosetFaces(geoset.Faces) +
         generateGeosetGroups(geoset.Groups) +
-        (isNotEmptyVec3(geoset.MinimumExtent) ?
-            generateFloatArrayProp('MinimumExtent', geoset.MinimumExtent) :
-            '') +
-        (isNotEmptyVec3(geoset.MaximumExtent) ?
-            generateFloatArrayProp('MaximumExtent', geoset.MaximumExtent) :
-            '') +
+        generateFloatArrayProp('MinimumExtent', geoset.MinimumExtent) +
+        generateFloatArrayProp('MaximumExtent', geoset.MaximumExtent) +
         generateFloatPropIfNotEmpty('BoundsRadius', geoset.BoundsRadius) +
         generateGeosetAnimInfos(geoset.Anims) +
         generateIntProp('MaterialID', geoset.MaterialID) +
@@ -436,12 +438,8 @@ function generateGeosetAnimInfos (anims: GeosetAnimInfo[]): string {
 
 function generateGeosetAnimInfoChunk (anim: GeosetAnimInfo): string {
     return generateBlockStart('Anim', null, 1) +
-        (isNotEmptyVec3(anim.MinimumExtent) ?
-            generateFloatArrayProp('MinimumExtent', anim.MinimumExtent, null, 2) :
-            '') +
-        (isNotEmptyVec3(anim.MaximumExtent) ?
-            generateFloatArrayProp('MaximumExtent', anim.MaximumExtent, null, 2) :
-            '') +
+        generateFloatArrayProp('MinimumExtent', anim.MinimumExtent, null, 2) +
+        generateFloatArrayProp('MaximumExtent', anim.MaximumExtent, null, 2) +
         generateFloatPropIfNotEmpty('BoundsRadius', anim.BoundsRadius, 0, null, 2) +
         generateBlockEnd(1);
 }
@@ -471,7 +469,7 @@ function generateColorProp (name: string, color: AnimVector|Float32Array, isStat
                 return `${generateTab(tabSize)}${isStatic ? 'static ' : ''}${name} \{ ${middle} },\n`;
             }
         } else {
-            return generateAnimVectorProp(name, color, null, tabSize);
+            return generateAnimVectorProp(name, color, null, tabSize, true);
         }
     }
 
@@ -503,7 +501,6 @@ function generateNodeProps (node: Node): string {
 
 function generateNodeDontInherit (flags: NodeFlags) {
     let flagsStrs: string[] = [];
-    let middle;
 
     if (flags & NodeFlags.DontInheritTranslation) {
         flagsStrs.push('Translation');

@@ -372,13 +372,22 @@ function parseGeosets (model: Model, state: State, size: number) {
         }
 
         state.expectKeyword('UVAS', 'Incorrect geosets format');
-        state.int32(); // unknown 4-byte
+        let textureChunkCount = state.int32();
 
         state.expectKeyword('UVBS', 'Incorrect geosets format');
         let textureCoordsCount = state.int32();
         geoset.TVertices = new Float32Array(textureCoordsCount * 2);
         for (let i = 0; i < textureCoordsCount * 2; ++i) {
             geoset.TVertices[i] = state.float32();
+        }
+
+        // todo support multiple texture chunks
+        if (textureChunkCount > 1) {
+            state.expectKeyword('UVBS', 'Incorrect geosets format');
+            let textureCoordsCount2 = state.int32();
+            for (let i = 0; i < textureCoordsCount2 * 2; ++i) {
+                state.float32();
+            }
         }
 
         model.Geosets.push(geoset);
@@ -398,7 +407,7 @@ function parseGeosetAnims (model: Model, state: State, size: number): void {
         geosetAnim.Flags = state.int32();
         geosetAnim.Color = new Float32Array(3);
         for (let i = 0; i < 3; ++i) {
-            geosetAnim.Color[i] = state.float32() || 1;
+            geosetAnim.Color[i] = state.float32();
         }
         geosetAnim.GeosetId = state.int32();
         if (geosetAnim.GeosetId === NONE) {
@@ -979,7 +988,8 @@ export function parse (arrayBuffer: ArrayBuffer): Model {
     }
 
     for (let i = 0; i < model.Nodes.length; ++i) {
-        if (model.PivotPoints[i]) {
+        // todo fix CollisionShapes with same names
+        if (model.Nodes[i] && model.PivotPoints[i]) {
             model.Nodes[i].PivotPoint = model.PivotPoints[i];
         }
     }

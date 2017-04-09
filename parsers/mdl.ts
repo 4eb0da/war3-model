@@ -180,8 +180,11 @@ function parseObject (state: State): [string|number|null, any] {
     let obj = {};
 
     if (state.char() !== '{') {
-        prefix = parseString(state) || parseNumber(state);
-        if (!prefix) {
+        prefix = parseString(state);
+        if (prefix === null) {
+            prefix = parseNumber(state);
+        }
+        if (prefix === null) {
             throwError(state, 'expected string or number');
         }
     }
@@ -366,6 +369,8 @@ function parseAnimVector (state: State, type: AnimVectorType): AnimVector {
 
 function parseLayer (state: State): Layer {
     let res: Layer = {
+        Alpha: null,
+        TVertexAnimId: null,
         Shading: 0
     };
 
@@ -384,8 +389,10 @@ function parseLayer (state: State): Layer {
             keyword = parseKeyword(state);
         }
 
-        if (!isStatic && (keyword === 'Alpha' || keyword === 'TextureID')) {
+        if (!isStatic && keyword === 'TextureID') {
             res[keyword] = parseAnimVector(state, AnimVectorType.INT1);
+        } else if (!isStatic && keyword === 'Alpha') {
+            res[keyword] = parseAnimVector(state, AnimVectorType.FLOAT1);
         } else if (keyword === 'Unshaded' || keyword === 'SphereEnvMap' || keyword === 'TwoSided' ||
             keyword === 'Unfogged' || keyword === 'NoDepthTest' || keyword === 'NoDepthSet') {
             res.Shading |= LayerShading[keyword];
@@ -475,7 +482,7 @@ function parseGeoset (state: State, model: Model): void {
         MinimumExtent: null,
         MaximumExtent: null,
         BoundsRadius: null,
-        Anims: null,
+        Anims: [],
         MaterialID: null,
         SelectionGroup: null,
         Unselectable: false
@@ -555,7 +562,10 @@ function parseGeoset (state: State, model: Model): void {
         } else if (keyword === 'Anim') {
             let [unused, obj] = parseObject(state);
 
-            res.Anims = res.Anims || [];
+            if (obj.Alpha === undefined) {
+                obj.Alpha = 1;
+            }
+
             res.Anims.push(obj);
         } else if (keyword === 'Unselectable') {
             res.Unselectable = true;
@@ -571,7 +581,7 @@ function parseGeoset (state: State, model: Model): void {
 function parseGeosetAnim (state: State, model: Model): void {
     let res: GeosetAnim = {
         GeosetId: -1,
-        Alpha: null,
+        Alpha: 1,
         Color: null,
         Flags: 0
     };
@@ -632,6 +642,7 @@ function parseNode (state: State, type: string, model: Model): Node {
     let node: Node = {
         Name: name,
         ObjectId: null,
+        Parent: null,
         PivotPoint: null,
         Flags: NodeType[type]
     };
@@ -670,6 +681,8 @@ function parseNode (state: State, type: string, model: Model): Node {
             }
 
             strictParseSymbol(state, '}');
+        } else if (keyword === 'Path') {
+            node[keyword] = parseString(state);
         } else {
             let val = parseKeyword(state) || parseNumber(state);
 
@@ -732,6 +745,7 @@ function parseEventObject (state: State, model: Model): void {
     let res: EventObject = {
         Name: name,
         ObjectId: null,
+        Parent: null,
         PivotPoint: null,
         EventTrack: null,
         Flags: NodeType.EventObject
@@ -773,6 +787,7 @@ function parseCollisionShape (state: State, model: Model): void {
     let res: CollisionShape = {
         Name: name,
         ObjectId: null,
+        Parent: null,
         PivotPoint: null,
         Shape: CollisionShapeType.Box,
         Vertices: null,
@@ -806,6 +821,9 @@ function parseCollisionShape (state: State, model: Model): void {
             strictParseSymbol(state, '}');
 
             res.Vertices = vertices;
+        } else if (keyword === 'Translation' || keyword === 'Rotation' || keyword === 'Scaling') {
+            let type: AnimVectorType = keyword === 'Rotation' ? AnimVectorType.FLOAT4 : AnimVectorType.FLOAT3;
+            res[keyword] = parseAnimVector(state, type);
         } else {
             res[keyword] = parseNumber(state);
         }
@@ -861,6 +879,8 @@ function parseUnknownBlock (state: State): void {
 
 function parseParticleEmitter (state: State, model: Model): void {
     let res: ParticleEmitter = {
+        ObjectId: null,
+        Parent: null,
         Name: null,
         Flags: 0
     } as ParticleEmitter;
@@ -921,6 +941,8 @@ function parseParticleEmitter (state: State, model: Model): void {
             }
 
             strictParseSymbol(state, '}');
+        } else {
+            res[keyword] = parseNumber(state);
         }
 
         parseSymbol(state, ',');
@@ -937,6 +959,7 @@ function parseParticleEmitter2 (state: State, model: Model): void {
     let res: ParticleEmitter2 = {
         Name: name,
         ObjectId: null,
+        Parent: null,
         PivotPoint: null,
         Flags: NodeType.ParticleEmitter,
         FrameFlags: 0
@@ -988,6 +1011,20 @@ function parseParticleEmitter2 (state: State, model: Model): void {
             res.FrameFlags |= ParticleEmitter2FramesFlags[keyword];
         } else if (keyword === 'Squirt') {
             res[keyword] = true;
+        } else if (keyword === 'DontInherit') {
+            strictParseSymbol(state, '{');
+
+            let val = parseKeyword(state);
+
+            if (val === 'Translation') {
+                res.Flags |= NodeFlags.DontInheritTranslation;
+            } else if (val === 'Rotation') {
+                res.Flags |= NodeFlags.DontInheritRotation;
+            } else if (val === 'Scaling') {
+                res.Flags |= NodeFlags.DontInheritScaling;
+            }
+
+            strictParseSymbol(state, '}');
         } else if (keyword === 'SegmentColor') {
             let colors = [];
 
@@ -1099,6 +1136,7 @@ function parseLight (state: State, model: Model): void {
     let res: Light = {
         Name: name,
         ObjectId: null,
+        Parent: null,
         PivotPoint: null,
         Flags: NodeType.Light,
         LightType: 0
@@ -1137,6 +1175,15 @@ function parseLight (state: State, model: Model): void {
                     break;
             }
             res[keyword] = parseAnimVector(state, type);
+            if (keyword === 'Color' || keyword === 'AmbColor') {
+                for (let key of (res[keyword] as AnimVector).Keys) {
+                    key.Vector.reverse();
+                    if (key.InTan) {
+                        key.InTan.reverse();
+                        key.OutTan.reverse();
+                    }
+                }
+            }
         } else if (keyword === 'Omnidirectional' || keyword === 'Directional' || keyword === 'Ambient') {
             res.LightType = LightType[keyword];
         } else if (keyword === 'Color' || keyword === 'AmbColor') {
@@ -1209,8 +1256,21 @@ function parseRibbonEmitter (state: State, model: Model): void {
     let res: RibbonEmitter = {
         Name: name,
         ObjectId: null,
+        Parent: null,
         PivotPoint: null,
-        Flags: NodeType.RibbonEmitter
+        Flags: NodeType.RibbonEmitter,
+        HeightAbove: null,
+        HeightBelow: null,
+        Alpha: null,
+        Color: null,
+        LifeSpan: null,
+        TextureSlot: null,
+        EmissionRate: null,
+        Rows: null,
+        Columns: null,
+        MaterialID: null,
+        Gravity: null,
+        Visibility: null
     };
 
     strictParseSymbol(state, '{');
