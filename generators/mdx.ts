@@ -210,12 +210,20 @@ function byteLengthSequence (): number {
 }
 
 function byteLengthSequences (model: Model): number {
+    if (!Object.keys(model.Sequences).length) {
+        return 0;
+    }
+
     return 4 /* keyword */ +
         4 /* size */ +
         sum(Object.keys(model.Sequences).map(name => byteLengthSequence()));
 }
 
 function generateSequences (model: Model, stream: Stream): void {
+    if (!Object.keys(model.Sequences).length) {
+        return;
+    }
+
     stream.keyword('SEQS');
     stream.int32(byteLengthSequences(model) - 8);
 
@@ -285,12 +293,20 @@ function byteLengthMaterial (material: Material): number {
 }
 
 function byteLengthMaterials (model: Model): number {
+    if (!model.Materials.length) {
+        return 0;
+    }
+
     return 4 /* keyword */ +
         4 /* size */ +
         sum(model.Materials.map(material => byteLengthMaterial(material)));
 }
 
 function generateMaterials (model: Model, stream: Stream): void {
+    if (!model.Materials.length) {
+        return;
+    }
+
     stream.keyword('MTLS');
     stream.int32(byteLengthMaterials(model) - 8);
 
@@ -332,12 +348,20 @@ function byteLengthTexture (): number {
 }
 
 function byteLengthTextures (model: Model): number {
+    if (!model.Textures.length) {
+        return 0;
+    }
+
     return 4 /* keyword */ +
         4 /* size */ +
         sum(model.Textures.map(texture => byteLengthTexture()));
 }
 
 function generateTextures (model: Model, stream: Stream): void {
+    if (!model.Textures.length) {
+        return;
+    }
+
     stream.keyword('TEXS');
     stream.int32(byteLengthTextures(model) - 8);
 
@@ -434,12 +458,20 @@ function byteLengthGeoset (geoset: Geoset): number {
 }
 
 function byteLengthGeosets (model: Model): number {
+    if (!model.Geosets.length) {
+        return 0;
+    }
+
     return 4 /* keyword */ +
         4 /* size */ +
         sum(model.Geosets.map(geoset => byteLengthGeoset(geoset)));
 }
 
 function generateGeosets (model: Model, stream: Stream): void {
+    if (!model.Geosets.length) {
+        return;
+    }
+
     stream.keyword('GEOS');
     stream.int32(byteLengthGeosets(model) - 8);
 
@@ -585,6 +617,10 @@ function byteLengthBone (bone: Bone): number {
 }
 
 function byteLengthBones (model: Model): number {
+    if (!Object.keys(model.Bones).length) {
+        return 0;
+    }
+
     return 4 /* keyword */ +
         4 /* size */ +
         sum(Object.keys(model.Bones).map(name => byteLengthBone(model.Bones[name])));
@@ -614,6 +650,10 @@ function generateNode (node: Node, stream: Stream): void {
 }
 
 function generateBones (model: Model, stream: Stream): void {
+    if (!Object.keys(model.Bones).length) {
+        return;
+    }
+
     stream.keyword('BONE');
     stream.int32(byteLengthBones(model) - 8);
 
@@ -701,7 +741,7 @@ function generateLights (model: Model, stream: Stream): void {
             stream.float32(1);
         }
 
-        stream.float32(typeof light.Intensity === 'number' ? light.Intensity : 1);
+        stream.float32(typeof light.Intensity === 'number' ? light.Intensity : 0);
 
         if (light.AmbColor instanceof Float32Array) {
             stream.float32(light.AmbColor[0]);
@@ -713,8 +753,12 @@ function generateLights (model: Model, stream: Stream): void {
             stream.float32(1);
         }
 
-        stream.float32(typeof light.AmbIntensity === 'number' ? light.AmbIntensity : 1);
+        stream.float32(typeof light.AmbIntensity === 'number' ? light.AmbIntensity : 0);
 
+        if (light.Intensity && typeof light.Intensity !== 'number') {
+            stream.keyword('KLAI');
+            stream.animVector(light.Intensity, AnimVectorType.FLOAT1);
+        }
         if (light.Visibility) {
             stream.keyword('KLAV');
             stream.animVector(light.Visibility, AnimVectorType.FLOAT1);
@@ -722,10 +766,6 @@ function generateLights (model: Model, stream: Stream): void {
         if (light.Color && !(light.Color instanceof Float32Array)) {
             stream.keyword('KLAC');
             stream.animVector(light.Color, AnimVectorType.FLOAT3);
-        }
-        if (light.Intensity && typeof light.Intensity !== 'number') {
-            stream.keyword('KLAI');
-            stream.animVector(light.Intensity, AnimVectorType.FLOAT1);
         }
         if (light.AmbColor && !(light.AmbColor instanceof Float32Array)) {
             stream.keyword('KLBC');
@@ -823,12 +863,20 @@ function generateAttachments (model: Model, stream: Stream): void {
 
 
 function byteLengthPivotPoints (model: Model): number {
+    if (!model.PivotPoints.length) {
+        return 0;
+    }
+
     return 4 /* keyword */ +
         4 /* size */ +
         4 * 3 * model.PivotPoints.length;
 }
 
 function generatePivotPoints (model: Model, stream: Stream): void {
+    if (!model.PivotPoints.length) {
+        return;
+    }
+
     stream.keyword('PIVT');
     stream.int32(model.PivotPoints.length * 4 * 3);
 
@@ -1083,6 +1131,14 @@ function generateParticleEmitters2 (model: Model, stream: Stream): void {
         stream.int32(emitter.PriorityPlane);
         stream.int32(emitter.ReplaceableId);
 
+        if (emitter.Speed && typeof emitter.Speed !== 'number') {
+            stream.keyword('KP2S');
+            stream.animVector(emitter.Speed, AnimVectorType.FLOAT1);
+        }
+        if (emitter.Latitude && typeof emitter.Latitude !== 'number') {
+            stream.keyword('KP2L');
+            stream.animVector(emitter.Latitude, AnimVectorType.FLOAT1);
+        }
         if (emitter.EmissionRate && typeof emitter.EmissionRate !== 'number') {
             stream.keyword('KP2E');
             stream.animVector(emitter.EmissionRate, AnimVectorType.FLOAT1);
@@ -1091,21 +1147,13 @@ function generateParticleEmitters2 (model: Model, stream: Stream): void {
             stream.keyword('KP2V');
             stream.animVector(emitter.Visibility, AnimVectorType.FLOAT1);
         }
-        if (emitter.Width && typeof emitter.Width !== 'number') {
-            stream.keyword('KP2W');
-            stream.animVector(emitter.Width, AnimVectorType.FLOAT1);
-        }
         if (emitter.Length && typeof emitter.Length !== 'number') {
             stream.keyword('KP2N');
             stream.animVector(emitter.Length, AnimVectorType.FLOAT1);
         }
-        if (emitter.Speed && typeof emitter.Speed !== 'number') {
-            stream.keyword('KP2S');
-            stream.animVector(emitter.Speed, AnimVectorType.FLOAT1);
-        }
-        if (emitter.Latitude && typeof emitter.Latitude !== 'number') {
-            stream.keyword('KP2L');
-            stream.animVector(emitter.Latitude, AnimVectorType.FLOAT1);
+        if (emitter.Width && typeof emitter.Width !== 'number') {
+            stream.keyword('KP2W');
+            stream.animVector(emitter.Width, AnimVectorType.FLOAT1);
         }
         if (emitter.Gravity && typeof emitter.Gravity !== 'number') {
             stream.keyword('KP2G');
