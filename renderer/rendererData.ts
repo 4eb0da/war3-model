@@ -10,7 +10,7 @@ export interface NodeWrapper {
 export interface RendererData {
     model: Model;
     frame: number;
-    animation: string;
+    animation: number;
     animationInfo: Sequence;
     globalSequencesFrames: number[];
 

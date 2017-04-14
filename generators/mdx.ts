@@ -210,27 +210,25 @@ function byteLengthSequence (): number {
 }
 
 function byteLengthSequences (model: Model): number {
-    if (!Object.keys(model.Sequences).length) {
+    if (!model.Sequences.length) {
         return 0;
     }
 
     return 4 /* keyword */ +
         4 /* size */ +
-        sum(Object.keys(model.Sequences).map(name => byteLengthSequence()));
+        sum(model.Sequences.map(byteLengthSequence));
 }
 
 function generateSequences (model: Model, stream: Stream): void {
-    if (!Object.keys(model.Sequences).length) {
+    if (!model.Sequences.length) {
         return;
     }
 
     stream.keyword('SEQS');
     stream.int32(byteLengthSequences(model) - 8);
 
-    for (let name of Object.keys(model.Sequences)) {
-        let sequence: Sequence = model.Sequences[name];
-
-        stream.str(name, MODEL_SEQUENCE_NAME_LENGTH);
+    for (let sequence of model.Sequences) {
+        stream.str(sequence.Name, MODEL_SEQUENCE_NAME_LENGTH);
         stream.int32(sequence.Interval[0]);
         stream.int32(sequence.Interval[1]);
         stream.float32(sequence.MoveSpeed);

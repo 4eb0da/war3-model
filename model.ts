@@ -311,7 +311,7 @@ export interface TVertexAnim {
 export interface Model {
     Version: number;
     Info: ModelInfo;
-    Sequences: {[key: string]: Sequence};
+    Sequences: Sequence[];
     Textures: Texture[];
     Materials: Material[];
     Geosets: Geoset[];

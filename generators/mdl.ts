@@ -234,10 +234,8 @@ function generateModel (model: Model): string {
 }
 
 function generateSequences (model: Model): string {
-    let keys: string[] = Object.keys(model.Sequences);
-
-    return generateBlockStart('Sequences', keys.length) +
-            keys.map(key => generateSequenceChunk(model.Sequences[key])).join('') +
+    return generateBlockStart('Sequences', model.Sequences.length) +
+            model.Sequences.map(generateSequenceChunk).join('') +
             generateBlockEnd();
 }
 

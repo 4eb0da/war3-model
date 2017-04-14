@@ -3,7 +3,7 @@ import {
     CollisionShape, ParticleEmitter2, Camera, MaterialRenderMode, FilterMode, LayerShading, TextureFlags,
     GeosetAnimFlags, NodeFlags, CollisionShapeType, ParticleEmitter2Flags, ParticleEmitter2FramesFlags, Light,
     LightType, TVertexAnim, RibbonEmitter, ParticleEmitter2FilterMode, ParticleEmitter, ParticleEmitterFlags, NodeType,
-    EventObject
+    EventObject, Sequence
 } from '../model';
 
 class State {
@@ -239,7 +239,7 @@ function parseSequences (state: State, model: Model): void {
 
     strictParseSymbol(state, '{');
 
-    let res = {};
+    let res: Sequence[] = [];
 
     while (state.char() !== '}') {
         parseKeyword(state); // Anim
@@ -248,7 +248,7 @@ function parseSequences (state: State, model: Model): void {
         obj.Name = name;
         obj.NonLooping = 'NonLooping' in obj;
 
-        res[name] = obj;
+        res.push(obj);
     }
 
     strictParseSymbol(state, '}');
@@ -1363,7 +1363,7 @@ export function parse (str: string): Model {
             BoundsRadius: 0,
             BlendTime: 150
         },
-        Sequences: {},
+        Sequences: [],
         Textures: [],
         Materials: [],
         Geosets: [],

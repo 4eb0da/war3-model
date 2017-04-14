@@ -124,10 +124,12 @@ let tempParentRotationMat: mat4 = mat4.create();
 let tempCameraMat: mat4 = mat4.create();
 let tempTransformedPivotPoint: vec3 = vec3.create();
 let tempAxis: vec3 = vec3.create();
-let tempAxisBinded: vec3 = vec3.create();
-let tempAxisBillboarded: vec3 = vec3.create();
 let tempLockQuat: quat = quat.create();
 let tempLockMat: mat4 = mat4.create();
+let tempXAxis: vec3 = vec3.create();
+let tempCameraVec: vec3 = vec3.create();
+let tempCross0: vec3 = vec3.create();
+let tempCross1: vec3 = vec3.create();
 
 let tempPos: vec3 = vec3.create();
 let tempSum: vec3 = vec3.create();
@@ -175,7 +177,7 @@ export class ModelRenderer {
         this.rendererData.cameraPos = vec3.create();
         this.rendererData.cameraQuat = quat.create();
 
-        this.setSequence(Object.keys(model.Sequences)[0]);
+        this.setSequence(0);
 
         this.rendererData.rootNode = {
             // todo
@@ -264,8 +266,8 @@ export class ModelRenderer {
         quat.copy(this.rendererData.cameraQuat, cameraQuat);
     }
 
-    public setSequence (name: string): void {
-        this.rendererData.animation = name;
+    public setSequence (index: number): void {
+        this.rendererData.animation = index;
         this.rendererData.animationInfo = this.model.Sequences[this.rendererData.animation];
         this.rendererData.frame = this.rendererData.animationInfo.Interval[0];
     }
@@ -511,26 +513,12 @@ export class ModelRenderer {
             mat4.mul(node.matrix, this.rendererData.nodes[node.node.Parent].matrix, node.matrix);
         }
 
-        // todo fix lock with some angles
         let billboardedLock = node.node.Flags & NodeFlags.BillboardedLockX ||
             node.node.Flags & NodeFlags.BillboardedLockY ||
             node.node.Flags & NodeFlags.BillboardedLockZ;
 
-        if (node.node.Flags & NodeFlags.Billboarded || billboardedLock) {
+        if (node.node.Flags & NodeFlags.Billboarded) {
             vec3.transformMat4(tempTransformedPivotPoint, node.node.PivotPoint as vec3, node.matrix);
-
-            if (billboardedLock) {
-                vec3.copy(tempAxis, node.node.PivotPoint as vec3);
-                if (node.node.Flags & NodeFlags.BillboardedLockX) {
-                    tempAxis[0] += 1;
-                } else if (node.node.Flags & NodeFlags.BillboardedLockY) {
-                    tempAxis[1] += 1;
-                } else if (node.node.Flags & NodeFlags.BillboardedLockZ) {
-                    tempAxis[2] += 1;
-                }
-
-                vec3.transformMat4(tempAxisBinded, tempAxis, node.matrix);
-            }
 
             if (node.node.Parent) {
                 // cancel parent rotation from PivotPoint
@@ -545,22 +533,38 @@ export class ModelRenderer {
             mat4fromRotationOrigin(tempCameraMat, this.rendererData.cameraQuat,
                 tempTransformedPivotPoint);
             mat4.mul(node.matrix, tempCameraMat, node.matrix);
+        } else if (billboardedLock) {
+            vec3.transformMat4(tempTransformedPivotPoint, node.node.PivotPoint as vec3, node.matrix);
+            vec3.copy(tempAxis, node.node.PivotPoint as vec3);
 
-            if (billboardedLock) {
-                vec3.transformMat4(tempAxisBillboarded, tempAxis, node.matrix);
-                vec3.sub(tempAxisBinded, tempAxisBinded, tempTransformedPivotPoint);
-                vec3.sub(tempAxisBillboarded, tempAxisBillboarded, tempTransformedPivotPoint);
-
-                let inverseLock = vec3.angle(tempAxisBinded, tempAxisBillboarded) > Math.PI / 2;
-                if (inverseLock) {
-                    vec3.negate(tempAxisBillboarded, tempAxisBillboarded);
-                }
-
-                quat.rotationTo(tempLockQuat, tempAxisBillboarded, tempAxisBinded);
-                mat4fromRotationOrigin(tempLockMat, tempLockQuat,
-                    tempTransformedPivotPoint);
-                mat4.mul(node.matrix, tempLockMat, node.matrix);
+            // todo BillboardedLockX ?
+            if (node.node.Flags & NodeFlags.BillboardedLockX) {
+                tempAxis[0] += 1;
+            } else if (node.node.Flags & NodeFlags.BillboardedLockY) {
+                tempAxis[1] += 1;
+            } else if (node.node.Flags & NodeFlags.BillboardedLockZ) {
+                tempAxis[2] += 1;
             }
+
+            vec3.transformMat4(tempAxis, tempAxis, node.matrix);
+            vec3.sub(tempAxis, tempAxis, tempTransformedPivotPoint);
+
+            vec3.set(tempXAxis, 1, 0, 0);
+            vec3.add(tempXAxis, tempXAxis, node.node.PivotPoint as vec3);
+            vec3.transformMat4(tempXAxis, tempXAxis, node.matrix);
+            vec3.sub(tempXAxis, tempXAxis, tempTransformedPivotPoint);
+
+            vec3.set(tempCameraVec, -1, 0, 0);
+            vec3.transformQuat(tempCameraVec, tempCameraVec, this.rendererData.cameraQuat);
+
+            vec3.cross(tempCross0, tempAxis, tempCameraVec);
+            vec3.cross(tempCross1, tempAxis, tempCross0);
+
+            vec3.normalize(tempCross1, tempCross1);
+
+            quat.rotationTo(tempLockQuat, tempXAxis, tempCross1);
+            mat4fromRotationOrigin(tempLockMat, tempLockQuat, tempTransformedPivotPoint);
+            mat4.mul(node.matrix, tempLockMat, node.matrix);
         }
 
         for (let child of node.childs) {

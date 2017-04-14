@@ -212,7 +212,7 @@ function parseSequences (model: Model, state: State, size: number): void {
 
         parseExtent(sequence, state);
 
-        model.Sequences[name] = sequence;
+        model.Sequences.push(sequence);
     }
 }
 
@@ -954,7 +954,7 @@ export function parse (arrayBuffer: ArrayBuffer): Model {
             BoundsRadius: 0,
             BlendTime: 150
         },
-        Sequences: {},
+        Sequences: [],
         Textures: [],
         Materials: [],
         Geosets: [],

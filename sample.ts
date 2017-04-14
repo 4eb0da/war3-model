@@ -176,7 +176,7 @@ function initControls () {
 
     let select = document.getElementById('select') as HTMLSelectElement;
     select.addEventListener('input', () => {
-        modelRenderer.setSequence(select.value);
+        modelRenderer.setSequence(parseInt(select.value, 10));
     });
 
     let inputZ = document.getElementById('targetZ') as HTMLInputElement;
@@ -298,14 +298,14 @@ function encode (html) {
 }
 
 function setAnimationList () {
-    let list = Object.keys(model.Sequences);
+    let list: any[] = model.Sequences.map(seq => seq.Name);
 
     if (list.length === 0) {
         list = ['None'];
     }
 
     let select = document.getElementById('select') as HTMLSelectElement;
-    select.innerHTML = list.map(item => `<option>${encode(item)}</option>`).join('');
+    select.innerHTML = list.map((item, index) => `<option value="${index}">${encode(item)}</option>`).join('');
 }
 
 document.addEventListener('DOMContentLoaded', init);
