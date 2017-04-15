@@ -451,7 +451,7 @@ export class ModelRenderer {
 
             this.texCoordBuffer[i] = gl.createBuffer();
             gl.bindBuffer(gl.ARRAY_BUFFER, this.texCoordBuffer[i]);
-            gl.bufferData(gl.ARRAY_BUFFER, this.model.Geosets[i].TVertices, gl.STATIC_DRAW);
+            gl.bufferData(gl.ARRAY_BUFFER, this.model.Geosets[i].TVertices[0], gl.STATIC_DRAW);
 
             if (!this.softwareSkinning) {
                 this.groupBuffer[i] = gl.createBuffer();

@@ -371,7 +371,8 @@ function parseLayer (state: State): Layer {
     let res: Layer = {
         Alpha: null,
         TVertexAnimId: null,
-        Shading: 0
+        Shading: 0,
+        CoordId: 0
     };
 
     strictParseSymbol(state, '{');
@@ -474,7 +475,7 @@ function parseGeoset (state: State, model: Model): void {
     let res = {
         Vertices: null,
         Normals: null,
-        TVertices: null,
+        TVertices: [],
         VertexGroup: null,
         Faces: null,
         Groups: null,
@@ -505,16 +506,22 @@ function parseGeoset (state: State, model: Model): void {
             }
 
             const count = parseNumber(state);
-            res[keyword] = new Float32Array(count * countPerObj);
+            let arr = new Float32Array(count * countPerObj);
 
             strictParseSymbol(state, '{');
 
             for (let index = 0; index < count; ++index) {
-                parseArray(state, res[keyword], index * countPerObj);
+                parseArray(state, arr, index * countPerObj);
                 strictParseSymbol(state, ',');
             }
 
             strictParseSymbol(state, '}');
+
+            if (keyword === 'TVertices') {
+                res.TVertices.push(arr);
+            } else {
+                res[keyword] = arr;
+            }
         } else if (keyword === 'VertexGroup') {
             res[keyword] = new Uint8Array(res.Vertices.length / 3);
 

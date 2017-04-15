@@ -331,6 +331,7 @@ function generateLayerChunk (layer: Layer) {
         (layer.Shading & LayerShading.SphereEnvMap ? generateBooleanProp('SphereEnvMap', 3) : '') +
         (layer.Shading & LayerShading.NoDepthTest ? generateBooleanProp('NoDepthTest', 3) : '') +
         (layer.Shading & LayerShading.NoDepthSet ? generateBooleanProp('NoDepthSet', 3) : '') +
+        generateIntPropIfNotEmpty('CoordId', layer.CoordId, null, null, 3) +
         generateIntPropIfNotEmpty('TVertexAnimId', layer.TVertexAnimId, null, null, 3) +
         generateBlockEnd(2);
 }
@@ -365,7 +366,7 @@ function generateGeosetChunk (geoset: Geoset): string {
     return generateBlockStart('Geoset') +
         generateGeosetArray('Vertices', geoset.Vertices, 3) +
         generateGeosetArray('Normals', geoset.Normals, 3) +
-        generateGeosetArray('TVertices', geoset.TVertices, 2) +
+        generateGeosetArray('TVertices', geoset.TVertices[0], 2) +
         generateGeosetVertexGroup(geoset.VertexGroup) +
         generateGeosetFaces(geoset.Faces) +
         generateGeosetGroups(geoset.Groups) +

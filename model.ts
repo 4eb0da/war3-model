@@ -72,6 +72,7 @@ export interface Layer {
     Shading?: number;
     TextureID?: AnimVector|number;
     TVertexAnimId?: number;
+    CoordId: number;
     Alpha?: AnimVector|number;
 }
 
@@ -96,7 +97,7 @@ export interface GeosetAnimInfo {
 export interface Geoset {
     Vertices: Float32Array;
     Normals: Float32Array;
-    TVertices: Float32Array;
+    TVertices: Float32Array[];
     VertexGroup: Uint8Array;
     Faces: Uint16Array;
     Groups: number[][];

@@ -246,7 +246,7 @@ function parseMaterials (model: Model, state: State, size: number): void {
             if (layer.TVertexAnimId === NONE) {
                 layer.TVertexAnimId = null;
             }
-            state.int32(); // CoordId ?
+            layer.CoordId = state.int32();
             layer.Alpha = state.float32();
 
             while (state.pos < startPos2 + size2) {
@@ -373,21 +373,18 @@ function parseGeosets (model: Model, state: State, size: number) {
 
         state.expectKeyword('UVAS', 'Incorrect geosets format');
         let textureChunkCount = state.int32();
+        geoset.TVertices = [];
 
-        state.expectKeyword('UVBS', 'Incorrect geosets format');
-        let textureCoordsCount = state.int32();
-        geoset.TVertices = new Float32Array(textureCoordsCount * 2);
-        for (let i = 0; i < textureCoordsCount * 2; ++i) {
-            geoset.TVertices[i] = state.float32();
-        }
-
-        // todo support multiple texture chunks
-        if (textureChunkCount > 1) {
+        for (let i = 0; i < textureChunkCount; ++i) {
             state.expectKeyword('UVBS', 'Incorrect geosets format');
-            let textureCoordsCount2 = state.int32();
-            for (let i = 0; i < textureCoordsCount2 * 2; ++i) {
-                state.float32();
+            let textureCoordsCount = state.int32();
+
+            let tvertices = new Float32Array(textureCoordsCount * 2);
+            for (let i = 0; i < textureCoordsCount * 2; ++i) {
+                tvertices[i] = state.float32();
             }
+
+            geoset.TVertices.push(tvertices);
         }
 
         model.Geosets.push(geoset);

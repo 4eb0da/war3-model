@@ -321,7 +321,7 @@ function generateMaterials (model: Model, stream: Stream): void {
             stream.int32(layer.Shading);
             stream.int32(typeof layer.TextureID === 'number' ? layer.TextureID : 0);
             stream.int32(layer.TVertexAnimId !== null ? layer.TVertexAnimId : NONE);
-            stream.int32(0); // CoordId ?
+            stream.int32(layer.CoordId);
             stream.float32(typeof layer.Alpha === 'number' ? layer.Alpha : 1);
 
             if (layer.Alpha && typeof layer.Alpha !== 'number') {
@@ -449,10 +449,12 @@ function byteLengthGeoset (geoset: Geoset): number {
         4 /* geoset anim count */ +
         4 * 7 * geoset.Anims.length /* geoset anim data */ +
         4 /* UVAS keyword */ +
-        4 +
-        4 /* UVBS keyword */ +
-        4 /* texture coord count */ +
-        4 * geoset.TVertices.length; /* texture coord data */
+        4 /* TVertices count */ +
+        sum(geoset.TVertices.map(tvertices =>
+            4 /* UVBS keyword */ +
+            4 /* texture coord count */ +
+            4 * tvertices.length /* texture coord data */
+        ));
 }
 
 function byteLengthGeosets (model: Model): number {
@@ -526,11 +528,13 @@ function generateGeosets (model: Model, stream: Stream): void {
         }
 
         stream.keyword('UVAS');
-        stream.int32(1); // unknown
+        stream.int32(geoset.TVertices.length);
 
-        stream.keyword('UVBS');
-        stream.int32(geoset.TVertices.length / 2);
-        stream.float32Array(geoset.TVertices);
+        for (let tvertices of geoset.TVertices) {
+            stream.keyword('UVBS');
+            stream.int32(tvertices.length / 2);
+            stream.float32Array(tvertices);
+        }
     }
 }
 
