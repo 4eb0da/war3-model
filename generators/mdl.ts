@@ -214,17 +214,17 @@ function generateModel (model: Model): string {
     return generateBlockStart('Model', model.Info.Name) +
         generateIntPropIfNotEmpty('NumGeosets', model.Geosets.length) +
         generateIntPropIfNotEmpty('NumGeosetAnims', model.GeosetAnims.length) +
-        generateIntPropIfNotEmpty('NumHelpers', Object.keys(model.Helpers).length) +
-        generateIntPropIfNotEmpty('NumBones', Object.keys(model.Bones).length) +
-        (model.Lights ? generateIntPropIfNotEmpty('NumLights', Object.keys(model.Lights).length) : '') +
-        generateIntPropIfNotEmpty('NumAttachments', Object.keys(model.Attachments).length) +
-        generateIntPropIfNotEmpty('NumEvents', Object.keys(model.EventObjects).length) +
-        generateIntPropIfNotEmpty('NumParticleEmitters', Object.keys(model.ParticleEmitters).length) +
-        (model.ParticleEmitters2 ?
-            generateIntPropIfNotEmpty('NumParticleEmitters2', Object.keys(model.ParticleEmitters2).length) :
+        generateIntPropIfNotEmpty('NumHelpers', model.Helpers.length) +
+        generateIntPropIfNotEmpty('NumBones', model.Bones.length) +
+        (model.Lights.length ? generateIntPropIfNotEmpty('NumLights', model.Lights.length) : '') +
+        generateIntPropIfNotEmpty('NumAttachments', model.Attachments.length) +
+        generateIntPropIfNotEmpty('NumEvents', model.EventObjects.length) +
+        generateIntPropIfNotEmpty('NumParticleEmitters', model.ParticleEmitters.length) +
+        (model.ParticleEmitters2.length ?
+            generateIntPropIfNotEmpty('NumParticleEmitters2', model.ParticleEmitters2.length) :
             '') +
-        (model.RibbonEmitters ?
-            generateIntPropIfNotEmpty('NumRibbonEmitters', Object.keys(model.RibbonEmitters).length) :
+        (model.RibbonEmitters.length ?
+            generateIntPropIfNotEmpty('NumRibbonEmitters', model.RibbonEmitters.length) :
             '') +
         generateIntProp('BlendTime', model.Info.BlendTime) +
         generateFloatArrayProp('MinimumExtent', model.Info.MinimumExtent) +
@@ -336,7 +336,7 @@ function generateLayerChunk (layer: Layer) {
 }
 
 function generateTextureAnims (model: Model): string {
-    if (!model.TextureAnims || !model.TextureAnims.length) {
+    if (!model.TextureAnims.length) {
         return '';
     }
 
@@ -518,13 +518,11 @@ function generateNodeDontInherit (flags: NodeFlags) {
 }
 
 function generateBones (model: Model): string {
-    let keys: string[] = Object.keys(model.Bones);
-
-    if (!keys.length) {
+    if (!model.Bones.length) {
         return '';
     }
 
-    return keys.map(key => generateBoneChunk(model.Bones[key])).join('');
+    return model.Bones.map(generateBoneChunk).join('');
 }
 
 function generateBoneChunk (bone: Bone): string {
@@ -540,13 +538,11 @@ function generateBoneChunk (bone: Bone): string {
 }
 
 function generateLights (model: Model): string {
-    let keys: string[] = Object.keys(model.Lights || {});
-
-    if (!keys.length) {
+    if (!model.Lights.length) {
         return '';
     }
 
-    return keys.map(key => generateLightChunk(model.Lights[key])).join('');
+    return model.Lights.map(generateLightChunk).join('');
 }
 
 function generateLightChunk (light: Light): string {
@@ -577,9 +573,7 @@ function generateLightType (lightType: LightType): string {
 }
 
 function generateHelpers (model: Model): string {
-    let keys = Object.keys(model.Helpers);
-
-    return keys.map(key => generateHelperChunk(model.Helpers[key])).join('');
+    return model.Helpers.map(generateHelperChunk).join('');
 }
 
 function generateHelperChunk (helper: Helper): string {
@@ -589,9 +583,7 @@ function generateHelperChunk (helper: Helper): string {
 }
 
 function generateAttachments (model: Model): string {
-    let keys = Object.keys(model.Attachments);
-
-    return keys.map(key => generateAttachmentChunk(model.Attachments[key])).join('');
+    return model.Attachments.map(generateAttachmentChunk).join('');
 }
 
 function generateAttachmentChunk (attachment: Attachment): string {
@@ -610,9 +602,7 @@ function generatePivotPoints (model: Model): string {
 }
 
 function generateParticleEmitters (model: Model): string {
-    let keys = Object.keys(model.ParticleEmitters || {});
-
-    return keys.map(key => generateParticleEmitterChunk(model.ParticleEmitters[key])).join('');
+    return model.ParticleEmitters.map(generateParticleEmitterChunk).join('');
 }
 
 function generateParticleEmitterChunk (emitter: ParticleEmitter): string {
@@ -634,9 +624,7 @@ function generateParticleEmitterChunk (emitter: ParticleEmitter): string {
 }
 
 function generateParticleEmitters2 (model: Model): string {
-    let keys = Object.keys(model.ParticleEmitters2 || {});
-
-    return keys.map(key => generateParticleEmitter2Chunk(model.ParticleEmitters2[key])).join('');
+    return model.ParticleEmitters2.map(generateParticleEmitter2Chunk).join('');
 }
 
 function generateParticleEmitters2FilterMode (filterMode: ParticleEmitter2FilterMode): string {
@@ -710,9 +698,7 @@ function generateParticleEmitter2Chunk (particleEmitter2: ParticleEmitter2) {
 }
 
 function generateRibbonEmitters (model: Model): string {
-    let keys = Object.keys(model.RibbonEmitters || {});
-
-    return keys.map(key => generateRibbonEmitterChunk(model.RibbonEmitters[key])).join('');
+    return model.RibbonEmitters.map(generateRibbonEmitterChunk).join('');
 }
 
 function generateRibbonEmitterChunk (ribbonEmitter: RibbonEmitter): string {
@@ -734,9 +720,7 @@ function generateRibbonEmitterChunk (ribbonEmitter: RibbonEmitter): string {
 }
 
 function generateEventObjects (model: Model): string {
-    let keys = Object.keys(model.EventObjects || {});
-
-    return keys.map(key => generateEventObjectChunk(model.EventObjects[key])).join('');
+    return model.EventObjects.map(generateEventObjectChunk).join('');
 }
 
 function generateEventTrack (eventTrack: Uint32Array): string {
@@ -759,9 +743,7 @@ function generateEventObjectChunk (eventObject: EventObject): string {
 }
 
 function generateCameras (model: Model): string {
-    let keys = Object.keys(model.Cameras || {});
-
-    return keys.map(key => generateCameraChunk(model.Cameras[key])).join('');
+    return model.Cameras.map(generateCameraChunk).join('');
 }
 
 function generateCameraChunk (camera: Camera): string {
@@ -780,9 +762,7 @@ function generateCameraChunk (camera: Camera): string {
 }
 
 function generateCollisionShapes (model: Model): string {
-    let keys = Object.keys(model.CollisionShapes || {});
-
-    return keys.map(key => generateCollisionShapeChunk(model.CollisionShapes[key])).join('');
+    return model.CollisionShapes.map(generateCollisionShapeChunk).join('');
 }
 
 function generateCollisionShapeChunk (collisionShape: CollisionShape): string {

@@ -153,27 +153,25 @@ export class RibbonsController {
         this.rendererData = rendererData;
         this.emitters = [];
 
-        if (rendererData.model.RibbonEmitters) {
-            for (let i in rendererData.model.RibbonEmitters) {
-                if (rendererData.model.RibbonEmitters.hasOwnProperty(i)) {
-                    let emitter: RibbonEmitterWrapper = {
-                        emission: 0,
-                        props: rendererData.model.RibbonEmitters[i],
-                        capacity: 0,
-                        baseCapacity: 0,
-                        creationTimes: [],
-                        vertices: null,
-                        vertexBuffer: null,
-                        texCoords: null,
-                        texCoordBuffer: null
-                    };
+        if (rendererData.model.RibbonEmitters.length) {
+            for (let ribbonEmitter of rendererData.model.RibbonEmitters) {
+                let emitter: RibbonEmitterWrapper = {
+                    emission: 0,
+                    props: ribbonEmitter,
+                    capacity: 0,
+                    baseCapacity: 0,
+                    creationTimes: [],
+                    vertices: null,
+                    vertexBuffer: null,
+                    texCoords: null,
+                    texCoordBuffer: null
+                };
 
-                    emitter.baseCapacity = Math.ceil(
-                        ModelInterp.maxAnimVectorVal(emitter.props.EmissionRate) * emitter.props.LifeSpan
-                    ) + 1; // extra points
+                emitter.baseCapacity = Math.ceil(
+                    ModelInterp.maxAnimVectorVal(emitter.props.EmissionRate) * emitter.props.LifeSpan
+                ) + 1; // extra points
 
-                    this.emitters.push(emitter);
-                }
+                this.emitters.push(emitter);
             }
         }
     }

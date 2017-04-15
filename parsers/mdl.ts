@@ -707,19 +707,19 @@ function parseNode (state: State, type: string, model: Model): Node {
 function parseBone (state: State, model: Model): void {
     const node = parseNode(state, 'Bone', model);
 
-    model.Bones[node.Name] = node;
+    model.Bones.push(node);
 }
 
 function parseHelper (state: State, model: Model): void {
     const node = parseNode(state, 'Helper', model);
 
-    model.Helpers[node.Name] = node;
+    model.Helpers.push(node);
 }
 
 function parseAttachment (state: State, model: Model): void {
     const node = parseNode(state, 'Attachment', model);
 
-    model.Attachments[node.Name] = node;
+    model.Attachments.push(node);
 }
 
 function parsePivotPoints (state: State, model: Model): void {
@@ -777,7 +777,7 @@ function parseEventObject (state: State, model: Model): void {
 
     strictParseSymbol(state, '}');
 
-    model.EventObjects[res.Name] = res;
+    model.EventObjects.push(res);
     model.Nodes.push(res);
 }
 
@@ -833,7 +833,7 @@ function parseCollisionShape (state: State, model: Model): void {
 
     strictParseSymbol(state, '}');
 
-    model.CollisionShapes[res.Name] = res;
+    model.CollisionShapes.push(res);
     model.Nodes.push(res);
 }
 
@@ -950,7 +950,7 @@ function parseParticleEmitter (state: State, model: Model): void {
 
     strictParseSymbol(state, '}');
 
-    model.ParticleEmitters[res.Name] = res;
+    model.ParticleEmitters.push(res);
 }
 
 function parseParticleEmitter2 (state: State, model: Model): void {
@@ -1068,7 +1068,7 @@ function parseParticleEmitter2 (state: State, model: Model): void {
 
     strictParseSymbol(state, '}');
 
-    model.ParticleEmitters2[res.Name] = res;
+    model.ParticleEmitters2.push(res);
     model.Nodes.push(res);
 }
 
@@ -1127,7 +1127,7 @@ function parseCamera (state: State, model: Model): void {
 
     strictParseSymbol(state, '}');
 
-    model.Cameras[res.Name] = res;
+    model.Cameras.push(res);
 }
 
 function parseLight (state: State, model: Model): void {
@@ -1205,7 +1205,7 @@ function parseLight (state: State, model: Model): void {
 
     strictParseSymbol(state, '}');
 
-    model.Lights[res.Name] = res;
+    model.Lights.push(res);
     model.Nodes.push(res);
 }
 
@@ -1326,7 +1326,7 @@ function parseRibbonEmitter (state: State, model: Model): void {
 
     strictParseSymbol(state, '}');
 
-    model.RibbonEmitters[res.Name] = res;
+    model.RibbonEmitters.push(res);
     model.Nodes.push(res);
 }
 
@@ -1355,7 +1355,7 @@ const parsers = {
 
 export function parse (str: string): Model {
     const state = new State(str);
-    let model = {
+    let model: Model = {
         Info: {
             Name: '',
             MinimumExtent: null,
@@ -1368,18 +1368,20 @@ export function parse (str: string): Model {
         Materials: [],
         Geosets: [],
         GeosetAnims: [],
-        Bones: {},
-        Helpers: {},
-        Attachments: {},
+        Bones: [],
+        Helpers: [],
+        Attachments: [],
         Nodes: [],
         PivotPoints: [],
-        EventObjects: {},
-        CollisionShapes: {},
-        ParticleEmitters: {},
-        ParticleEmitters2: {},
-        Cameras: {},
-        Lights: {},
-        RibbonEmitters: {},
+        EventObjects: [],
+        CollisionShapes: [],
+        ParticleEmitters: [],
+        ParticleEmitters2: [],
+        Cameras: [],
+        Lights: [],
+        RibbonEmitters: [],
+        TextureAnims: [],
+        GlobalSequences: [],
         // default
         Version: 800
     };

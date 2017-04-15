@@ -480,7 +480,7 @@ function parseBones (model: Model, state: State, size: number): void {
             bone.GeosetAnimId = null;
         }
 
-        model.Bones[bone.Name] = bone;
+        model.Bones.push(bone);
     }
 }
 
@@ -492,7 +492,7 @@ function parseHelpers (model: Model, state: State, size: number): void {
 
         parseNode(model, helper, state);
 
-        model.Helpers[helper.Name] = helper;
+        model.Helpers.push(helper);
     }
 }
 
@@ -517,7 +517,7 @@ function parseAttachments (model: Model, state: State, size: number): void {
             attachment.Visibility = state.animVector(AnimVectorType.FLOAT1);
         }
 
-        model.Attachments[attachment.Name] = attachment;
+        model.Attachments.push(attachment);
     }
 }
 
@@ -548,7 +548,7 @@ function parseEventObjects (model: Model, state: State, size: number): void {
             eventObject.EventTrack[i] = state.int32();
         }
 
-        model.EventObjects[eventObject.Name] = eventObject;
+        model.EventObjects.push(eventObject);
     }
 }
 
@@ -576,7 +576,7 @@ function parseCollisionShapes (model: Model, state: State, size: number): void {
             collisionShape.BoundsRadius = state.float32();
         }
 
-        model.CollisionShapes[collisionShape.Name] = collisionShape;
+        model.CollisionShapes.push(collisionShape);
     }
 }
 
@@ -634,7 +634,7 @@ function parseParticleEmitters (model: Model, state: State, size: number): void 
             }
         }
 
-        model.ParticleEmitters[emitter.Name] = emitter;
+        model.ParticleEmitters.push(emitter);
     }
 }
 
@@ -732,7 +732,7 @@ function parseParticleEmitters2 (model: Model, state: State, size: number): void
             }
         }
 
-        model.ParticleEmitters2[emitter.Name] = emitter;
+        model.ParticleEmitters2.push(emitter);
     }
 }
 
@@ -776,7 +776,7 @@ function parseCameras (model: Model, state: State, size: number): void {
             }
         }
 
-        model.Cameras[camera.Name] = camera;
+        model.Cameras.push(camera);
     }
 }
 
@@ -833,7 +833,7 @@ function parseLights (model: Model, state: State, size: number): void {
             }
         }
 
-        model.Lights[light.Name] = light;
+        model.Lights.push(light);
     }
 }
 
@@ -912,7 +912,7 @@ function parseRibbonEmitters (model: Model, state: State, size: number): void {
             }
         }
 
-        model.RibbonEmitters[emitter.Name] = emitter;
+        model.RibbonEmitters.push(emitter);
     }
 }
 
@@ -946,7 +946,7 @@ export function parse (arrayBuffer: ArrayBuffer): Model {
         throw new Error('Not a mdx model');
     }
 
-    let model = {
+    let model: Model = {
         Info: {
             Name: '',
             MinimumExtent: null,
@@ -959,19 +959,20 @@ export function parse (arrayBuffer: ArrayBuffer): Model {
         Materials: [],
         Geosets: [],
         GeosetAnims: [],
-        Bones: {},
-        Helpers: {},
-        Attachments: {},
+        Bones: [],
+        Helpers: [],
+        Attachments: [],
         Nodes: [],
         PivotPoints: [],
-        EventObjects: {},
-        CollisionShapes: {},
-        ParticleEmitters: {},
-        ParticleEmitters2: {},
-        Cameras: {},
-        Lights: {},
-        RibbonEmitters: {},
+        EventObjects: [],
+        CollisionShapes: [],
+        ParticleEmitters: [],
+        ParticleEmitters2: [],
+        Cameras: [],
+        Lights: [],
+        RibbonEmitters: [],
         TextureAnims: [],
+        GlobalSequences: [],
         // default
         Version: 800
     };
@@ -988,7 +989,6 @@ export function parse (arrayBuffer: ArrayBuffer): Model {
     }
 
     for (let i = 0; i < model.Nodes.length; ++i) {
-        // todo fix CollisionShapes with same names
         if (model.Nodes[i] && model.PivotPoints[i]) {
             model.Nodes[i].PivotPoint = model.PivotPoints[i];
         }

@@ -615,13 +615,13 @@ function byteLengthBone (bone: Bone): number {
 }
 
 function byteLengthBones (model: Model): number {
-    if (!Object.keys(model.Bones).length) {
+    if (!model.Bones.length) {
         return 0;
     }
 
     return 4 /* keyword */ +
         4 /* size */ +
-        sum(Object.keys(model.Bones).map(name => byteLengthBone(model.Bones[name])));
+        sum(model.Bones.map(byteLengthBone));
 }
 
 function generateNode (node: Node, stream: Stream): void {
@@ -648,16 +648,14 @@ function generateNode (node: Node, stream: Stream): void {
 }
 
 function generateBones (model: Model, stream: Stream): void {
-    if (!Object.keys(model.Bones).length) {
+    if (!model.Bones.length) {
         return;
     }
 
     stream.keyword('BONE');
     stream.int32(byteLengthBones(model) - 8);
 
-    for (let name of Object.keys(model.Bones)) {
-        let bone = model.Bones[name];
-
+    for (let bone of model.Bones) {
         generateNode(bone, stream);
         stream.int32(bone.GeosetId !== null ? bone.GeosetId : NONE);
         stream.int32(bone.GeosetAnimId !== null ? bone.GeosetAnimId : NONE);
@@ -703,26 +701,24 @@ function byteLengthLight (light: Light): number {
 }
 
 function byteLengthLights (model: Model): number {
-    if (!model.Lights || Object.keys(model.Lights).length === 0) {
+    if (!model.Lights.length) {
         return 0;
     }
 
     return 4 /* keyword */ +
         4 /* size */ +
-        sum(Object.keys(model.Lights).map(name => byteLengthLight(model.Lights[name])));
+        sum(model.Lights.map(byteLengthLight));
 }
 
 function generateLights (model: Model, stream: Stream): void {
-    if (!model.Lights || Object.keys(model.Lights).length === 0) {
+    if (!model.Lights.length) {
         return;
     }
 
     stream.keyword('LITE');
     stream.int32(byteLengthLights(model) - 8);
 
-    for (let name of Object.keys(model.Lights)) {
-        let light: Light = model.Lights[name];
-
+    for (let light of model.Lights) {
         stream.int32(byteLengthLight(light));
         generateNode(light, stream);
         stream.int32(light.LightType);
@@ -786,26 +782,24 @@ function generateLights (model: Model, stream: Stream): void {
 
 
 function byteLengthHelpers (model: Model): number {
-    if (Object.keys(model.Helpers).length === 0) {
+    if (model.Helpers.length === 0) {
         return 0;
     }
 
     return 4 /* keyword */ +
         4 /* size */ +
-        sum(Object.keys(model.Helpers).map(name => byteLengthNode(model.Helpers[name])));
+        sum(model.Helpers.map(byteLengthNode));
 }
 
 function generateHelpers (model: Model, stream: Stream): void {
-    if (Object.keys(model.Helpers).length === 0) {
+    if (model.Helpers.length === 0) {
         return;
     }
 
     stream.keyword('HELP');
     stream.int32(byteLengthHelpers(model) - 8);
 
-    for (let name of Object.keys(model.Helpers)) {
-        let helper = model.Helpers[name];
-
+    for (let helper of model.Helpers) {
         generateNode(helper, stream);
     }
 }
@@ -825,26 +819,24 @@ function byteLengthAttachment (attachment: Attachment): number {
 }
 
 function byteLengthAttachments (model: Model): number {
-    if (Object.keys(model.Attachments).length === 0) {
+    if (model.Attachments.length === 0) {
         return 0;
     }
 
     return 4 /* keyword */ +
         4 /* size */ +
-        sum(Object.keys(model.Attachments).map(name => byteLengthAttachment(model.Attachments[name])));
+        sum(model.Attachments.map(byteLengthAttachment));
 }
 
 function generateAttachments (model: Model, stream: Stream): void {
-    if (Object.keys(model.Attachments).length === 0) {
+    if (model.Attachments.length === 0) {
         return;
     }
 
     stream.keyword('ATCH');
     stream.int32(byteLengthAttachments(model) - 8);
 
-    for (let name of Object.keys(model.Attachments)) {
-        let attachment: Attachment = model.Attachments[name];
-
+    for (let attachment of model.Attachments) {
         stream.int32(byteLengthAttachment(attachment));
         generateNode(attachment, stream);
 
@@ -927,27 +919,24 @@ function byteLengthParticleEmitter (emitter: ParticleEmitter): number {
 }
 
 function byteLengthParticleEmitters (model: Model): number {
-    if (!model.ParticleEmitters || Object.keys(model.ParticleEmitters).length === 0) {
+    if (!model.ParticleEmitters.length) {
         return 0;
     }
 
     return 4 /* keyword */ +
         4 /* size */ +
-        sum(Object.keys(model.ParticleEmitters).map(name =>
-            byteLengthParticleEmitter(model.ParticleEmitters[name])));
+        sum(model.ParticleEmitters.map(byteLengthParticleEmitter));
 }
 
 function generateParticleEmitters (model: Model, stream: Stream): void {
-    if (!model.ParticleEmitters || Object.keys(model.ParticleEmitters).length === 0) {
+    if (!model.ParticleEmitters.length) {
         return;
     }
 
     stream.keyword('PREM');
     stream.int32(byteLengthParticleEmitters(model) - 8);
 
-    for (let name of Object.keys(model.ParticleEmitters)) {
-        let emitter: ParticleEmitter = model.ParticleEmitters[name];
-
+    for (let emitter of model.ParticleEmitters) {
         stream.int32(byteLengthParticleEmitter(emitter));
         generateNode(emitter, stream);
 
@@ -1055,27 +1044,24 @@ function byteLengthParticleEmitter2 (emitter: ParticleEmitter2): number {
 }
 
 function byteLengthParticleEmitters2 (model: Model): number {
-    if (!model.ParticleEmitters2 || Object.keys(model.ParticleEmitters2).length === 0) {
+    if (!model.ParticleEmitters2.length) {
         return 0;
     }
 
     return 4 /* keyword */ +
         4 /* size */ +
-        sum(Object.keys(model.ParticleEmitters2).map(name =>
-            byteLengthParticleEmitter2(model.ParticleEmitters2[name])));
+        sum(model.ParticleEmitters2.map(byteLengthParticleEmitter2));
 }
 
 function generateParticleEmitters2 (model: Model, stream: Stream): void {
-    if (!model.ParticleEmitters2 || Object.keys(model.ParticleEmitters2).length === 0) {
+    if (!model.ParticleEmitters2.length) {
         return;
     }
 
     stream.keyword('PRE2');
     stream.int32(byteLengthParticleEmitters2(model) - 8);
 
-    for (let name of Object.keys(model.ParticleEmitters2)) {
-        let emitter: ParticleEmitter2 = model.ParticleEmitters2[name];
-
+    for (let emitter of model.ParticleEmitters2) {
         stream.int32(byteLengthParticleEmitter2(emitter));
         generateNode(emitter, stream);
 
@@ -1199,26 +1185,24 @@ function byteLengthRibbonEmitter (emitter: RibbonEmitter): number {
 }
 
 function byteLengthRibbonEmitters (model: Model): number {
-    if (!model.RibbonEmitters || Object.keys(model.RibbonEmitters).length === 0) {
+    if (!model.RibbonEmitters.length) {
         return 0;
     }
 
     return 4 /* keyword */ +
         4 /* size */ +
-        sum(Object.keys(model.RibbonEmitters).map(name => byteLengthRibbonEmitter(model.RibbonEmitters[name])));
+        sum(model.RibbonEmitters.map(byteLengthRibbonEmitter));
 }
 
 function generateRibbonEmitters (model: Model, stream: Stream): void {
-    if (!model.RibbonEmitters || Object.keys(model.RibbonEmitters).length === 0) {
+    if (!model.RibbonEmitters.length) {
         return;
     }
 
     stream.keyword('RIBB');
     stream.int32(byteLengthRibbonEmitters(model) - 8);
 
-    for (let name of Object.keys(model.RibbonEmitters)) {
-        let emitter: RibbonEmitter = model.RibbonEmitters[name];
-
+    for (let emitter of model.RibbonEmitters) {
         stream.int32(byteLengthRibbonEmitter(emitter));
         generateNode(emitter, stream);
 
@@ -1282,26 +1266,24 @@ function byteLengthCamera (camera: Camera): number {
 }
 
 function byteLengthCameras (model: Model): number {
-    if (!model.Cameras || Object.keys(model.Cameras).length === 0) {
+    if (!model.Cameras.length) {
         return 0;
     }
 
     return 4 /* keyword */ +
         4 /* size */ +
-        sum(Object.keys(model.Cameras).map(name => byteLengthCamera(model.Cameras[name])));
+        sum(model.Cameras.map(byteLengthCamera));
 }
 
 function generateCameras (model: Model, stream: Stream): void {
-    if (!model.Cameras || Object.keys(model.Cameras).length === 0) {
+    if (!model.Cameras.length) {
         return;
     }
 
     stream.keyword('CAMS');
     stream.int32(byteLengthCameras(model) - 8);
 
-    for (let name of Object.keys(model.Cameras)) {
-        let camera: Camera = model.Cameras[name];
-
+    for (let camera of model.Cameras) {
         stream.int32(byteLengthCamera(camera));
         stream.str(camera.Name, MODEL_CAMERA_NAME_LENGTH);
         stream.float32Array(camera.Position);
@@ -1335,26 +1317,24 @@ function byteLengthEventObject (eventObject: EventObject): number {
 }
 
 function byteLengthEventObjects (model: Model): number {
-    if (Object.keys(model.EventObjects).length === 0) {
+    if (model.EventObjects.length === 0) {
         return 0;
     }
 
     return 4 /* keyword */ +
         4 /* size */ +
-        sum(Object.keys(model.EventObjects).map(name => byteLengthEventObject(model.EventObjects[name])));
+        sum(model.EventObjects.map(byteLengthEventObject));
 }
 
 function generateEventObjects (model: Model, stream: Stream): void {
-    if (Object.keys(model.EventObjects).length === 0) {
+    if (model.EventObjects.length === 0) {
         return;
     }
 
     stream.keyword('EVTS');
     stream.int32(byteLengthEventObjects(model) - 8);
 
-    for (let name of Object.keys(model.EventObjects)) {
-        let eventObject: EventObject = model.EventObjects[name];
-
+    for (let eventObject of model.EventObjects) {
         generateNode(eventObject, stream);
         stream.keyword('KEVT');
         stream.int32(eventObject.EventTrack.length);
@@ -1373,26 +1353,24 @@ function byteLengthCollisionShape (collisionShape: CollisionShape): number {
 }
 
 function byteLengthCollisionShapes (model: Model): number {
-    if (Object.keys(model.CollisionShapes).length === 0) {
+    if (model.CollisionShapes.length === 0) {
         return 0;
     }
 
     return 4 /* keyword */ +
         4 /* size */ +
-        sum(Object.keys(model.CollisionShapes).map(name => byteLengthCollisionShape(model.CollisionShapes[name])));
+        sum(model.CollisionShapes.map(byteLengthCollisionShape));
 }
 
 function generateCollisionShapes (model: Model, stream: Stream): void {
-    if (Object.keys(model.CollisionShapes).length === 0) {
+    if (model.CollisionShapes.length === 0) {
         return;
     }
 
     stream.keyword('CLID');
     stream.int32(byteLengthCollisionShapes(model) - 8);
 
-    for (let name of Object.keys(model.CollisionShapes)) {
-        let collisionShape: CollisionShape = model.CollisionShapes[name];
-
+    for (let collisionShape of model.CollisionShapes) {
         generateNode(collisionShape, stream);
         stream.int32(collisionShape.Shape);
         stream.float32Array(collisionShape.Vertices);

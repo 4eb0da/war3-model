@@ -254,7 +254,7 @@ export class ParticlesController {
         this.rendererData = rendererData;
         this.emitters = [];
 
-        if (rendererData.model.ParticleEmitters2) {
+        if (rendererData.model.ParticleEmitters2.length) {
             this.particleBaseVectors = [
                 vec3.create(),
                 vec3.create(),
@@ -262,36 +262,34 @@ export class ParticlesController {
                 vec3.create()
             ];
 
-            for (let i in rendererData.model.ParticleEmitters2) {
-                if (rendererData.model.ParticleEmitters2.hasOwnProperty(i)) {
-                    let emitter: ParticleEmitterWrapper = {
-                        emission: 0,
-                        squirtFrame: 0,
-                        particles: [],
-                        props: rendererData.model.ParticleEmitters2[i],
-                        capacity: 0,
-                        baseCapacity: 0,
-                        type: rendererData.model.ParticleEmitters2[i].FrameFlags,
-                        tailVertices: null,
-                        tailVertexBuffer: null,
-                        headVertices: null,
-                        headVertexBuffer: null,
-                        tailTexCoords: null,
-                        tailTexCoordBuffer: null,
-                        headTexCoords: null,
-                        headTexCoordBuffer: null,
-                        colors: null,
-                        colorBuffer: null,
-                        indices: null,
-                        indexBuffer: null
-                    };
+            for (let particleEmitter of rendererData.model.ParticleEmitters2) {
+                let emitter: ParticleEmitterWrapper = {
+                    emission: 0,
+                    squirtFrame: 0,
+                    particles: [],
+                    props: particleEmitter,
+                    capacity: 0,
+                    baseCapacity: 0,
+                    type: particleEmitter.FrameFlags,
+                    tailVertices: null,
+                    tailVertexBuffer: null,
+                    headVertices: null,
+                    headVertexBuffer: null,
+                    tailTexCoords: null,
+                    tailTexCoordBuffer: null,
+                    headTexCoords: null,
+                    headTexCoordBuffer: null,
+                    colors: null,
+                    colorBuffer: null,
+                    indices: null,
+                    indexBuffer: null
+                };
 
-                    emitter.baseCapacity = Math.ceil(
-                        ModelInterp.maxAnimVectorVal(emitter.props.EmissionRate) * emitter.props.LifeSpan
-                    );
+                emitter.baseCapacity = Math.ceil(
+                    ModelInterp.maxAnimVectorVal(emitter.props.EmissionRate) * emitter.props.LifeSpan
+                );
 
-                    this.emitters.push(emitter);
-                }
+                this.emitters.push(emitter);
             }
         }
     }
