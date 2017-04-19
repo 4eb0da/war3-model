@@ -1,5 +1,5 @@
 import {
-    Model, Sequence, Material, Layer, AnimVector, LineType, TVertexAnim, Geoset, GeosetAnim, Node,
+    Model, Material, Layer, AnimVector, LineType, TVertexAnim, Geoset, GeosetAnim, Node,
     Bone, Light, Attachment, ParticleEmitter2, ParticleEmitter2FramesFlags, RibbonEmitter, Camera, EventObject,
     CollisionShape, CollisionShapeType, ParticleEmitter
 } from '../model';
@@ -124,7 +124,7 @@ interface ObjWithExtent {
 }
 
 function generateExtent (obj: ObjWithExtent, stream: Stream): void {
-    stream.float32(obj.BoundsRadius);
+    stream.float32(obj.BoundsRadius || 0);
 
     for (let key of ['MinimumExtent', 'MaximumExtent']) {
         stream.float32Array(obj[key]);

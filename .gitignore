@@ -1,2 +1,3 @@
 *.js
 *.js.map
+!docs/convert/convertOut.js

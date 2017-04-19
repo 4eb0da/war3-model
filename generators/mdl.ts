@@ -331,7 +331,7 @@ function generateLayerChunk (layer: Layer) {
         (layer.Shading & LayerShading.SphereEnvMap ? generateBooleanProp('SphereEnvMap', 3) : '') +
         (layer.Shading & LayerShading.NoDepthTest ? generateBooleanProp('NoDepthTest', 3) : '') +
         (layer.Shading & LayerShading.NoDepthSet ? generateBooleanProp('NoDepthSet', 3) : '') +
-        generateIntPropIfNotEmpty('CoordId', layer.CoordId, null, null, 3) +
+        generateIntPropIfNotEmpty('CoordId', layer.CoordId, 0, null, 3) +
         generateIntPropIfNotEmpty('TVertexAnimId', layer.TVertexAnimId, null, null, 3) +
         generateBlockEnd(2);
 }

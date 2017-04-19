@@ -2,13 +2,16 @@
   "name": "war3-model",
   "version": "0.0.1",
   "scripts": {
-    "sample": "tsc sample.ts parsers/*.ts && browserify sample.js -d -o sampleOut.js"
+    "sample": "tsc sample.ts parsers/*.ts && browserify sample.js -d -o sampleOut.js",
+    "convert": "browserify docs/convert/convert.js -d -o docs/convert/convertOut.js && cat node_modules/codemirror/lib/codemirror.css node_modules/codemirror/addon/fold/foldgutter.css docs/convert/convert.css > docs/convert/convertOut.css"
   },
   "dependencies": {
     "@types/gl-matrix": "^2.2.34",
     "gl-matrix": "^2.3.2"
   },
   "devDependencies": {
-    "@types/node": "^7.0.5"
+    "@types/codemirror": "0.0.38",
+    "@types/node": "^7.0.5",
+    "codemirror": "^5.25.0"
   }
 }

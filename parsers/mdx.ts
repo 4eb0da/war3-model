@@ -944,6 +944,8 @@ export function parse (arrayBuffer: ArrayBuffer): Model {
     }
 
     let model: Model = {
+        // default
+        Version: 800,
         Info: {
             Name: '',
             MinimumExtent: null,
@@ -952,26 +954,24 @@ export function parse (arrayBuffer: ArrayBuffer): Model {
             BlendTime: 150
         },
         Sequences: [],
+        GlobalSequences: [],
         Textures: [],
         Materials: [],
+        TextureAnims: [],
         Geosets: [],
         GeosetAnims: [],
         Bones: [],
         Helpers: [],
         Attachments: [],
-        Nodes: [],
-        PivotPoints: [],
         EventObjects: [],
-        CollisionShapes: [],
         ParticleEmitters: [],
         ParticleEmitters2: [],
         Cameras: [],
         Lights: [],
         RibbonEmitters: [],
-        TextureAnims: [],
-        GlobalSequences: [],
-        // default
-        Version: 800
+        CollisionShapes: [],
+        PivotPoints: [],
+        Nodes: []
     };
 
     while (state.pos < state.length) {
