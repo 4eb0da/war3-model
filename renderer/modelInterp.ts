@@ -3,6 +3,18 @@ import {interpNum, interpVec3, interpQuat} from './interp';
 import {vec3, quat} from 'gl-matrix';
 import {RendererData} from './rendererData';
 
+let findLocalFrameRes = {
+    frame: 0,
+    from: 0,
+    to: 0
+};
+
+let findKeyframesRes = {
+    frame: 0,
+    left: null,
+    right: null
+};
+
 export class ModelInterp {
     public static maxAnimVectorVal (vector: AnimVector|number): number {
         if (typeof vector === 'number') {
@@ -65,7 +77,7 @@ export class ModelInterp {
         return res;
     }
 
-    public findKeyframes (animVector: AnimVector) {
+    public findKeyframes (animVector: AnimVector): null|{frame: number, left: any, right: any} {
         if (!animVector) {
             return null;
         }
@@ -101,47 +113,44 @@ export class ModelInterp {
         }
         if (first === array.length || array[first].Frame > to) {
             if (array[first - 1].Frame >= from) {
-                return {
-                    frame,
-                    left: array[first - 1],
-                    right: array[first - 1]
-                };
+                findKeyframesRes.frame = frame;
+                findKeyframesRes.left = array[first - 1];
+                findKeyframesRes.right = array[first - 1];
+
+                return findKeyframesRes;
             } else {
                 return null;
             }
         }
         if (array[first - 1].Frame < from) {
             if (array[first].Frame <= to) {
-                return {
-                    frame,
-                    left: array[first],
-                    right: array[first]
-                };
+                findKeyframesRes.frame = frame;
+                findKeyframesRes.left = array[first];
+                findKeyframesRes.right = array[first];
+
+                return findKeyframesRes;
             } else {
                 return null;
             }
         }
 
-        return {
-            frame,
-            left: array[first - 1],
-            right: array[first]
-        };
+        findKeyframesRes.frame = frame;
+        findKeyframesRes.left = array[first - 1];
+        findKeyframesRes.right = array[first];
+
+        return findKeyframesRes;
     }
 
-    private findLocalFrame (animVector: AnimVector) {
+    private findLocalFrame (animVector: AnimVector): {frame: number, from: number, to: number} {
         if (typeof animVector.GlobalSeqId === 'number') {
-            return {
-                frame: this.rendererData.globalSequencesFrames[animVector.GlobalSeqId],
-                from: 0,
-                to: this.rendererData.model.GlobalSequences[animVector.GlobalSeqId]
-            };
+            findLocalFrameRes.frame = this.rendererData.globalSequencesFrames[animVector.GlobalSeqId];
+            findLocalFrameRes.from = 0;
+            findLocalFrameRes.to = this.rendererData.model.GlobalSequences[animVector.GlobalSeqId];
         } else {
-            return {
-                frame: this.rendererData.frame,
-                from: this.rendererData.animationInfo.Interval[0],
-                to: this.rendererData.animationInfo.Interval[1]
-            };
+            findLocalFrameRes.frame = this.rendererData.frame;
+            findLocalFrameRes.from = this.rendererData.animationInfo.Interval[0];
+            findLocalFrameRes.to = this.rendererData.animationInfo.Interval[1];
         }
+        return findLocalFrameRes;
     }
 }

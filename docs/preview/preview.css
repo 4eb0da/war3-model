@@ -1,0 +1,92 @@
+html, body {
+    height: 100%;
+}
+
+body {
+    margin: 0;
+    font: 16px sans-serif;
+    touch-action: none;
+    background: #000;
+}
+
+canvas {
+    display: block;
+    flex: 1 1 auto;
+}
+
+.controls {
+    background: #fff;
+    padding: 5px 10px;
+    box-sizing: border-box;
+}
+
+label {
+    display: inline-block;
+    margin: 2px 5px;
+    white-space: nowrap;
+}
+input {
+    vertical-align: middle;
+}
+
+.container {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+.inner {
+    position: relative;
+    display: flex;
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+.drag-root {
+    position: absolute;
+    display: flex;
+    flex-direction: column;
+    z-index: 2;
+    left: 20px;
+    top: 20px;
+    right: 20px;
+    bottom: 20px;
+    pointer-events: none;
+}
+
+.container_drag .drag-root {
+    pointer-events: auto;
+}
+
+.drag {
+    flex: 1 0 auto;
+    padding: 10px;
+    margin: 10px;
+    border: 3px dashed transparent;
+    border-radius: 10px;
+    text-align: center;
+    color: #fff;
+}
+
+.drag_hovered {
+    background: rgba(255, 255, 255, 0.4);
+}
+
+.container_custom .drag {
+    color: transparent;
+}
+
+.container_drag .drag {
+    border-color: #aaa;
+    color: #fff;
+}
+
+.drag-main {
+    flex: 1 1 auto;
+}
+
+.drag-textures {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+}

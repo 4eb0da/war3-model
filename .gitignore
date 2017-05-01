@@ -1,3 +1,4 @@
 *.js
 *.js.map
 !docs/convert/convertOut.js
+!docs/preview/previewOut.js

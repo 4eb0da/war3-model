@@ -40,6 +40,21 @@ export function mat4fromRotationOrigin (out: mat4, rotation: quat, origin: vec3)
     return out;
 }
 
+/**
+ * Rotate a 3D vector around the z-axis
+ * @param {vec3} out The receiving vec3
+ * @param {vec3} a The vec3 point to rotate
+ * @param {Number} c The angle of rotation
+ * @returns {vec3} out
+ */
+export function vec3RotateZ (out, a, c) {
+    out[0] = a[0] * Math.cos(c) - a[1] * Math.sin(c);
+    out[1] = a[0] * Math.sin(c) + a[1] * Math.cos(c);
+    out[2] = a[2];
+
+    return out;
+}
+
 export function rand (from: number, to: number): number {
     return from + Math.random() * (to - from);
 }

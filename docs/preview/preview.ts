@@ -1,8 +1,9 @@
-import {parse as parseMdl} from './parsers/mdl';
-import {parse as parseMdx} from './parsers/mdx';
+import {parse as parseMDL} from '../../parsers/mdl';
+import {parse as parseMDX} from '../../parsers/mdx';
 import {vec3, mat4, quat} from 'gl-matrix';
-import {Model, TextureFlags} from './model';
-import {ModelRenderer} from './renderer/modelRenderer';
+import {Model, TextureFlags} from '../../model';
+import {ModelRenderer} from '../../renderer/modelRenderer';
+import {vec3RotateZ} from '../../renderer/util';
 
 let model: Model;
 let modelRenderer: ModelRenderer;
@@ -24,8 +25,6 @@ let cameraTarget: vec3 = vec3.create();
 let cameraUp: vec3 = vec3.fromValues(0, 0, 1);
 let cameraQuat: quat = quat.create();
 
-let rotateCenter: vec3 = vec3.fromValues(0, 0, 0);
-
 let start;
 function updateModel (timestamp: number) {
     if (!start) {
@@ -39,6 +38,10 @@ function updateModel (timestamp: number) {
 }
 
 function initGL () {
+    if (gl) {
+        return;
+    }
+
     try {
         gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
 
@@ -80,7 +83,7 @@ function drawScene () {
     cameraTarget[2] = cameraTargetZ;
 
     // tslint:disable-next-line
-    vec3.rotateZ(cameraPos, cameraBasePos, rotateCenter, window['angle'] || 0);
+    vec3RotateZ(cameraPos, cameraBasePos, window['angle'] || 0);
     mat4.lookAt(mvMatrix, cameraPos, cameraTarget, cameraUp);
 
     calcCameraQuat();
@@ -95,11 +98,11 @@ function tick(timestamp: number) {
     drawScene();
 }
 
-function loadTexture (src: string, flags: TextureFlags) {
+function loadTexture (src: string, textureName: string, flags: TextureFlags) {
     let img = new Image();
 
     img.onload = () => {
-        modelRenderer.setTexture(src, img, flags);
+        modelRenderer.setTexture(textureName, img, flags);
 
         if (++loadedTextures === totalTextures) {
             requestAnimationFrame(tick);
@@ -110,33 +113,46 @@ function loadTexture (src: string, flags: TextureFlags) {
 
 function parseModel(isBinary: boolean, xhr: XMLHttpRequest): Model {
     if (isBinary) {
-        return parseMdx(xhr.response as ArrayBuffer);
+        return parseMDX(xhr.response as ArrayBuffer);
     } else {
-        return parseMdl(xhr.responseText);
+        return parseMDL(xhr.responseText);
     }
 }
 
-function processModelLoading() {
+function processModelLoading () {
     console.log(model);
+
+    loadedTextures = totalTextures = 0;
 
     modelRenderer = new ModelRenderer(model);
 
     initGL();
     modelRenderer.initGL(gl);
 
+    setAnimationList();
+}
+
+function setSampleTextures () {
     for (let texture of model.Textures) {
         if (texture.Image) {
             ++totalTextures;
-            loadTexture(texture.Image, texture.Flags);
+            loadTexture(texture.Image, texture.Image, texture.Flags);
         }
     }
+}
 
-    setAnimationList();
+function setEmptyTextures () {
+    for (let texture of model.Textures) {
+        if (texture.Image) {
+            ++totalTextures;
+            loadTexture('preview/empty.png', texture.Image, 0);
+        }
+    }
 }
 
 function loadModel () {
     const xhr = new XMLHttpRequest();
-    const file = 'HeroBladeMaster.mdl';
+    const file = 'preview/Footman.mdl';
     const isBinary = file.indexOf('.mdx') > -1;
 
     if (isBinary) {
@@ -148,6 +164,7 @@ function loadModel () {
         if (xhr.status === 200 && xhr.readyState === XMLHttpRequest.DONE) {
             model = parseModel(isBinary, xhr);
             processModelLoading();
+            setSampleTextures();
         }
     };
     xhr.send();
@@ -157,7 +174,8 @@ function init() {
     canvas = document.getElementById('canvas') as HTMLCanvasElement;
     initControls();
     initCameraMove();
-    loadModel();
+    initDragDrop();
+    // loadModel();
     updateCanvasSize();
     window.addEventListener('resize', updateCanvasSize);
 }
@@ -258,7 +276,7 @@ function initCameraMove () {
     }
 
     function wheel (event) {
-        updateCameraDistance(cameraDistance * (1 - event.wheelDelta / 300));
+        updateCameraDistance(cameraDistance * (1 - event.deltaY / 30));
     }
 
     let startCameraDistance: number;
@@ -283,14 +301,12 @@ function initCameraMove () {
 }
 
 function updateCanvasSize () {
-    let width = window.innerWidth;
-    let height = window.innerHeight;
+    let width = canvas.parentElement.offsetWidth;
+    let height = canvas.parentElement.offsetHeight;
     let dpr = window.devicePixelRatio || 1;
 
     canvas.width = width * dpr;
     canvas.height = height * dpr;
-    canvas.style.width = width + 'px';
-    canvas.style.height = height + 'px';
 }
 
 function encode (html) {
@@ -306,6 +322,122 @@ function setAnimationList () {
 
     let select = document.getElementById('select') as HTMLSelectElement;
     select.innerHTML = list.map((item, index) => `<option value="${index}">${encode(item)}</option>`).join('');
+}
+
+function setDragDropTextures () {
+    let texturesContainer = document.querySelector('.drag-textures');
+
+    texturesContainer.innerHTML = '';
+
+    for (let texture of model.Textures) {
+        if (texture.Image) {
+            let row = document.createElement('div');
+
+            row.className = 'drag';
+            row.textContent = texture.Image;
+            row.setAttribute('data-texture', texture.Image);
+            row.setAttribute('data-texture-flags', String(texture.Flags));
+            texturesContainer.appendChild(row);
+        }
+    }
+}
+
+function initDragDrop () {
+    let container = document.querySelector('.container');
+    let dropTarget;
+
+    container.addEventListener('dragenter', function onDragEnter (event) {
+        let target = event.target as HTMLElement;
+
+        if (dropTarget && dropTarget !== event.target && dropTarget.classList) {
+            dropTarget.classList.remove('drag_hovered');
+        }
+        if (!target.classList) {
+            target = target.parentElement;
+        }
+        dropTarget = target;
+        if (target && target.classList && target.classList.contains('drag')) {
+            target.classList.add('drag_hovered');
+        }
+        container.classList.add('container_drag');
+        event.preventDefault();
+    });
+    container.addEventListener('dragleave', function onDragLeave (event) {
+        if (event.target === dropTarget) {
+            container.classList.remove('container_drag');
+            if (dropTarget && dropTarget.classList) {
+                dropTarget.classList.remove('drag_hovered');
+            }
+        }
+    });
+    container.addEventListener('dragover', function onDragLeave (event: DragEvent) {
+        event.preventDefault();
+        event.dataTransfer.dropEffect = 'copy';
+    });
+    let dropModel = (file) => {
+        let reader = new FileReader();
+        let isMDX = file.name.indexOf('.mdx') > -1;
+
+        reader.onload = () => {
+            try {
+                if (isMDX) {
+                    model = parseMDX(reader.result);
+                } else {
+                    model = parseMDL(reader.result);
+                }
+            } catch (err) {
+                // showError(err);
+                return;
+            }
+
+            processModelLoading();
+            setEmptyTextures();
+            setDragDropTextures();
+        };
+
+        if (isMDX) {
+            reader.readAsArrayBuffer(file);
+        } else {
+            reader.readAsText(file);
+        }
+    };
+    let dropTexture = (file) => {
+        let reader = new FileReader();
+        let textureName = dropTarget.getAttribute('data-texture');
+        let textureFlags = Number(dropTarget.getAttribute('data-texture-flags'));
+
+        reader.onload = () => {
+            let img = new Image();
+
+            img.onload = () => {
+                modelRenderer.setTexture(textureName, img, textureFlags);
+            };
+
+            img.src = reader.result;
+        };
+
+        reader.readAsDataURL(file);
+    };
+    container.addEventListener('drop', function onDrop (event: DragEvent) {
+        event.preventDefault();
+        container.classList.remove('container_drag');
+        container.classList.add('container_custom');
+        if (!dropTarget) {
+            return;
+        }
+        dropTarget.classList.remove('drag_hovered');
+
+        let file = event.dataTransfer.files && event.dataTransfer.files[0];
+        if (!file) {
+            return;
+        }
+
+        if (dropTarget.getAttribute('data-texture')) {
+            dropTexture(file);
+        } else {
+            dropModel(file);
+        }
+    });
 }
 
 document.addEventListener('DOMContentLoaded', init);
