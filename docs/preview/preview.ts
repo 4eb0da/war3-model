@@ -15,7 +15,7 @@ let pMatrix = mat4.create();
 let mvMatrix = mat4.create();
 let loadedTextures = 0;
 let totalTextures = 0;
-let cleanupNameRegexp = /([^\\\/]+)\.\w+$/;
+let cleanupNameRegexp = /.*?([^\\\/]+)\.\w+$/;
 
 let cameraTheta = Math.PI / 4;
 let cameraPhi = 0;
