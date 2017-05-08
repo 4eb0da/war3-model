@@ -3,7 +3,7 @@ TypeScript-based mdl/mdx (Warcraft 3 model formats) converter/renderer
 
 ## Demo
 * [MDL/MDX converter (also json-like structure-previewer)](https://4eb0da.github.io/war3-model/convert.html)
-* [WebGL model previewer (png/jpg textures requires second drag&drop; blp not supported)](https://4eb0da.github.io/war3-model/preview.html)
+* [WebGL model previewer (png/jpg textures requires second drag&drop)](https://4eb0da.github.io/war3-model/preview.html)
 * [BLP previewer (BLP1 decoder only)](https://4eb0da.github.io/war3-model/decodeblp.html)
 
 ## Usage
