@@ -1,10 +1,11 @@
 'use strict';
 
-import {parse as parseMDL} from '../../parsers/mdl';
-import {parse as parseMDX} from '../../parsers/mdx';
-import {generate as generateMDL} from '../../generators/mdl';
-import {generate as generateMDX} from '../../generators/mdx';
+import {parse as parseMDL} from '../../mdl/parse';
+import {parse as parseMDX} from '../../mdx/parse';
+import {generate as generateMDL} from '../../mdl/generate';
+import {generate as generateMDX} from '../../mdx/generate';
 import {Model} from '../../model';
+import '../shim';
 
 import * as CodeMirror from 'codemirror';
 import 'codemirror/mode/javascript/javascript';

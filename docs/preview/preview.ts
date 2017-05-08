@@ -1,9 +1,11 @@
-import {parse as parseMDL} from '../../parsers/mdl';
-import {parse as parseMDX} from '../../parsers/mdx';
+import {parse as parseMDL} from '../../mdl/parse';
+import {parse as parseMDX} from '../../mdx/parse';
 import {vec3, mat4, quat} from 'gl-matrix';
 import {Model, TextureFlags} from '../../model';
 import {ModelRenderer} from '../../renderer/modelRenderer';
 import {vec3RotateZ} from '../../renderer/util';
+import {decode, getImageData} from '../../blp/decode';
+import '../shim';
 
 let model: Model;
 let modelRenderer: ModelRenderer;
@@ -13,6 +15,7 @@ let pMatrix = mat4.create();
 let mvMatrix = mat4.create();
 let loadedTextures = 0;
 let totalTextures = 0;
+let cleanupNameRegexp = /([^\\\/]+)\.\w+$/;
 
 let cameraTheta = Math.PI / 4;
 let cameraPhi = 0;
@@ -102,13 +105,17 @@ function loadTexture (src: string, textureName: string, flags: TextureFlags) {
     let img = new Image();
 
     img.onload = () => {
-        modelRenderer.setTexture(textureName, img, flags);
+        modelRenderer.setTextureImage(textureName, img, flags);
 
-        if (++loadedTextures === totalTextures) {
-            requestAnimationFrame(tick);
-        }
+        handleLoadedTexture();
     };
     img.src = src;
+}
+
+function handleLoadedTexture (): void {
+    if (++loadedTextures === totalTextures) {
+        requestAnimationFrame(tick);
+    }
 }
 
 function parseModel(isBinary: boolean, xhr: XMLHttpRequest): Model {
@@ -137,15 +144,6 @@ function setSampleTextures () {
         if (texture.Image) {
             ++totalTextures;
             loadTexture(texture.Image, texture.Image, texture.Flags);
-        }
-    }
-}
-
-function setEmptyTextures () {
-    for (let texture of model.Textures) {
-        if (texture.Image) {
-            ++totalTextures;
-            loadTexture('preview/empty.png', texture.Image, 0);
         }
     }
 }
@@ -374,7 +372,7 @@ function initDragDrop () {
         event.preventDefault();
         event.dataTransfer.dropEffect = 'copy';
     });
-    let dropModel = (file) => {
+    let dropModel = (file, textures) => {
         let reader = new FileReader();
         let isMDX = file.name.indexOf('.mdx') > -1;
 
@@ -386,12 +384,13 @@ function initDragDrop () {
                     model = parseMDL(reader.result);
                 }
             } catch (err) {
+                console.error(err);
                 // showError(err);
                 return;
             }
 
             processModelLoading();
-            setEmptyTextures();
+            setTextures(textures);
             setDragDropTextures();
         };
 
@@ -401,22 +400,36 @@ function initDragDrop () {
             reader.readAsText(file);
         }
     };
-    let dropTexture = (file) => {
+    let dropTexture = (file, textureName: string, textureFlags: TextureFlags) => {
         let reader = new FileReader();
-        let textureName = dropTarget.getAttribute('data-texture');
-        let textureFlags = Number(dropTarget.getAttribute('data-texture-flags'));
+        let isBLP = file.name.indexOf('.blp') > -1;
 
         reader.onload = () => {
-            let img = new Image();
+            if (isBLP) {
+                let blp = decode(reader.result);
 
-            img.onload = () => {
-                modelRenderer.setTexture(textureName, img, textureFlags);
-            };
+                console.log(file.name, blp);
 
-            img.src = reader.result;
+                modelRenderer.setTextureImageData(textureName, blp.mipmaps.map((mipmap, i) => getImageData(blp, i)),
+                    textureFlags);
+            } else {
+                let img = new Image();
+
+                img.onload = () => {
+                    console.log(file.name, img);
+                    modelRenderer.setTextureImage(textureName, img, textureFlags);
+                };
+
+                img.src = reader.result;
+            }
+            handleLoadedTexture();
         };
 
-        reader.readAsDataURL(file);
+        if (isBLP) {
+            reader.readAsArrayBuffer(file);
+        } else {
+            reader.readAsDataURL(file);
+        }
     };
     container.addEventListener('drop', function onDrop (event: DragEvent) {
         event.preventDefault();
@@ -427,17 +440,61 @@ function initDragDrop () {
         }
         dropTarget.classList.remove('drag_hovered');
 
-        let file = event.dataTransfer.files && event.dataTransfer.files[0];
-        if (!file) {
+        let files = event.dataTransfer.files;
+        if (!files || !files.length) {
             return;
         }
 
         if (dropTarget.getAttribute('data-texture')) {
-            dropTexture(file);
+            dropTexture(files[0], dropTarget.getAttribute('data-texture'),
+                Number(dropTarget.getAttribute('data-texture-flags')));
         } else {
-            dropModel(file);
+            let modelFile;
+
+            for (let i = 0; i < files.length; ++i) {
+                let file = files[i];
+
+                if (file.name.indexOf('.mdl') > -1 || file.name.indexOf('.mdx') > -1) {
+                    modelFile = file;
+                    break;
+                }
+            }
+
+            if (modelFile) {
+                let textures = {};
+
+                for (let i = 0; i < files.length; ++i) {
+                    let file = files[i],
+                        name = file.name.replace(cleanupNameRegexp, '$1');
+
+                    if (file.name.indexOf('.mdl') > -1 || file.name.indexOf('.mdx') > -1) {
+                        continue;
+                    }
+
+                    textures[name] = file;
+                }
+
+                dropModel(modelFile, textures);
+            }
         }
     });
+
+
+
+    function setTextures (textures) {
+        for (let texture of model.Textures) {
+            if (texture.Image) {
+                ++totalTextures;
+
+                let cleanupName = texture.Image.replace(cleanupNameRegexp, '$1');
+                if (cleanupName in textures) {
+                    dropTexture(textures[cleanupName], texture.Image, texture.Flags);
+                } else {
+                    loadTexture('preview/empty.png', texture.Image, 0);
+                }
+            }
+        }
+    }
 }
 
 document.addEventListener('DOMContentLoaded', init);

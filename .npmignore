@@ -1,0 +1,9 @@
+*.*
+!README.md
+!index.js
+!index.js.map
+!model.js
+!model.js.map
+!/{mdx,mdl,blp}/*.js
+!/{mdx,mdl,blp}/*.js.map
+!/third_party/decoder.js

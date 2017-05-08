@@ -380,8 +380,8 @@ function parseGeosets (model: Model, state: State, size: number) {
             let textureCoordsCount = state.int32();
 
             let tvertices = new Float32Array(textureCoordsCount * 2);
-            for (let i = 0; i < textureCoordsCount * 2; ++i) {
-                tvertices[i] = state.float32();
+            for (let j = 0; j < textureCoordsCount * 2; ++j) {
+                tvertices[j] = state.float32();
             }
 
             geoset.TVertices.push(tvertices);

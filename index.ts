@@ -1,6 +1,8 @@
 export * from './model';
-export {parse as parseMDL} from './parsers/mdl';
-export {parse as parseMDX} from './parsers/mdx';
-export {generate as generateMDL} from './generators/mdl';
-export {generate as generateMDX} from './generators/mdx';
+export {parse as parseMDL} from './mdl/parse';
+export {parse as parseMDX} from './mdx/parse';
+export {generate as generateMDL} from './mdl/generate';
+export {generate as generateMDX} from './mdx/generate';
+export * from './blp/blpimage';
+export {decode as decodeBLP, getImageData as getBLPImageData} from './blp/decode';
 export {ModelRenderer} from './renderer/modelRenderer';

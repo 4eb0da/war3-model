@@ -2,3 +2,5 @@
 *.js.map
 !docs/convert/convertOut.js
 !docs/preview/previewOut.js
+!docs/shim.js
+!third_party/decoder.js

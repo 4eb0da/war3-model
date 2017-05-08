@@ -234,30 +234,26 @@ export class ModelRenderer {
         RibbonsController.initGL(glContext);
     }
 
-    public setTexture (path: string, img: HTMLImageElement, flags: TextureFlags): void {
+    public setTextureImage (path: string, img: HTMLImageElement, flags: TextureFlags): void {
         this.rendererData.textures[path] = gl.createTexture();
         gl.bindTexture(gl.TEXTURE_2D, this.rendererData.textures[path]);
         // gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
-        if (flags & TextureFlags.WrapWidth) {
-            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
-        } else {
-            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-        }
-        if (flags & TextureFlags.WrapHeight) {
-            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
-        } else {
-            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-        }
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_NEAREST);
-
-        if (anisotropicExt) {
-            let max = gl.getParameter(anisotropicExt.MAX_TEXTURE_MAX_ANISOTROPY_EXT);
-            gl.texParameterf(gl.TEXTURE_2D, anisotropicExt.TEXTURE_MAX_ANISOTROPY_EXT, max);
-        }
+        this.setTextureParameters(flags);
 
         gl.generateMipmap(gl.TEXTURE_2D);
+        gl.bindTexture(gl.TEXTURE_2D, null);
+    }
+
+    public setTextureImageData (path: string, imageData: ImageData[], flags: TextureFlags): void {
+        this.rendererData.textures[path] = gl.createTexture();
+        gl.bindTexture(gl.TEXTURE_2D, this.rendererData.textures[path]);
+        // gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+        for (let i = 0; i < imageData.length; ++i) {
+            gl.texImage2D(gl.TEXTURE_2D, i, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, imageData[i]);
+        }
+        this.setTextureParameters(flags);
+
         gl.bindTexture(gl.TEXTURE_2D, null);
     }
 
@@ -384,6 +380,26 @@ export class ModelRenderer {
         }
         gl.bindBuffer(gl.ARRAY_BUFFER, this.vertexBuffer[geosetIndex]);
         gl.bufferData(gl.ARRAY_BUFFER, buffer, gl.DYNAMIC_DRAW);
+    }
+
+    private setTextureParameters (flags: TextureFlags) {
+        if (flags & TextureFlags.WrapWidth) {
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+        } else {
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        }
+        if (flags & TextureFlags.WrapHeight) {
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+        } else {
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        }
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_NEAREST);
+
+        if (anisotropicExt) {
+            let max = gl.getParameter(anisotropicExt.MAX_TEXTURE_MAX_ANISOTROPY_EXT);
+            gl.texParameterf(gl.TEXTURE_2D, anisotropicExt.TEXTURE_MAX_ANISOTROPY_EXT, max);
+        }
     }
 
     private updateLayerTextureId (materialId: number, layerId: number): void {
