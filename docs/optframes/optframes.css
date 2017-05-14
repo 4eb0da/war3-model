@@ -1,0 +1,66 @@
+body {
+    margin: 0;
+    font: 16px sans-serif;
+}
+
+.container {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    max-width: 600px;
+    min-height: 400px;
+    margin: 20px auto auto;
+    padding: 20px;
+    border: 3px dashed #aaa;
+    border-radius: 10px;
+}
+
+.container_drag {
+    border-color: #444;
+}
+
+.label {
+    position: absolute;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    font-size: 120%;
+}
+
+.buttons {
+    display: flex;
+    margin-top: auto;
+}
+
+.save {
+    display: none;
+    flex: 1 1 auto;
+    margin-top: 10px;
+    padding: 10px;
+    background: #5ec25e;
+    color: #fff;
+    font-size: 120%;
+    border: none;
+    border-radius: 3px;
+    cursor: pointer;
+}
+
+.save:first-child {
+    margin-right: 10px;
+}
+
+.save:hover {
+    background: #62cf62;
+}
+
+.container_with-data .label {
+    display: none;
+}
+
+.container_with-data .save {
+    display: block;
+}

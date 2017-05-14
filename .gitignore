@@ -3,5 +3,6 @@
 !docs/convert/convertOut.js
 !docs/preview/previewOut.js
 !docs/decodeblp/decodeblpOut.js
+!docs/optframes/optframesOut.js
 !docs/shim.js
 !third_party/decoder.js
