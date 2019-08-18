@@ -148,7 +148,7 @@ export enum NodeType {
 export interface Node {
     Name: string;
     ObjectId: number;
-    Parent?: number;
+    Parent?: number|null;
     PivotPoint: Float32Array;
     Flags: number;
 

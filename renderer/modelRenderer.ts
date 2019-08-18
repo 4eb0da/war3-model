@@ -193,7 +193,7 @@ export class ModelRenderer {
             };
         }
         for (let node of model.Nodes) {
-            if (!node.Parent) {
+            if (!node.Parent && node.Parent !== 0) {
                 this.rendererData.rootNode.childs.push(this.rendererData.nodes[node.ObjectId]);
             } else {
                 this.rendererData.nodes[node.Parent].childs.push(this.rendererData.nodes[node.ObjectId]);
@@ -525,7 +525,7 @@ export class ModelRenderer {
             );
         }
 
-        if (node.node.Parent) {
+        if (node.node.Parent || node.node.Parent === 0) {
             mat4.mul(node.matrix, this.rendererData.nodes[node.node.Parent].matrix, node.matrix);
         }
 
@@ -536,7 +536,7 @@ export class ModelRenderer {
         if (node.node.Flags & NodeFlags.Billboarded) {
             vec3.transformMat4(tempTransformedPivotPoint, node.node.PivotPoint as vec3, node.matrix);
 
-            if (node.node.Parent) {
+            if (node.node.Parent || node.node.Parent === 0) {
                 // cancel parent rotation from PivotPoint
                 mat4.getRotation(tempParentRotationQuat, this.rendererData.nodes[node.node.Parent].matrix);
                 quat.invert(tempParentRotationQuat, tempParentRotationQuat);

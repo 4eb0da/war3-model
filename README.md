@@ -3,7 +3,7 @@ TypeScript-based mdl/mdx (Warcraft 3 model formats) converter/renderer
 
 ## Demo
 * [MDL/MDX converter (also json-like structure-previewer)](https://4eb0da.github.io/war3-model/convert.html)
-* [WebGL model previewer (png/jpg textures requires second drag&drop)](https://4eb0da.github.io/war3-model/preview.html)
+* [WebGL model previewer](https://4eb0da.github.io/war3-model/preview.html)
 * [BLP previewer (BLP1 decoder only)](https://4eb0da.github.io/war3-model/decodeblp.html)
 
 ## Usage
@@ -31,10 +31,7 @@ let blp = decode(new Uint8Array(fs.readFileSync(process.argv[2])).buffer);
 let imageData = getImageData(blp, 0);
 let png = new PNG({width: blp.width, height: blp.height, inputHasAlpha: true});
 
-// I don't know how to create PNG with existing data, so...
-for (let i = 0; i < imageData.data.length; ++i) {
-    png.data[i] = imageData.data[i];
-}
+png.data = Buffer.from(imageData.data.buffer);
 
 fs.writeFileSync('out.png', PNG.sync.write(png));
 ```
@@ -73,21 +70,4 @@ fs.writeFileSync('out.png', PNG.sync.write(png));
 
 ## Licence
 
-This library uses modified version of modified version of jpgjs, JavaScript jpeg decoder.
-Original modifications was made by @flowtsohg.
-
-/*
- Copyright 2011 notmasteryet
-
- Licensed under the Apache License, Version 2.0 (the "License");
- you may not use this file except in compliance with the License.
- You may obtain a copy of the License at
-
- http://www.apache.org/licenses/LICENSE-2.0
-
- Unless required by applicable law or agreed to in writing, software
- distributed under the License is distributed on an "AS IS" BASIS,
- WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- See the License for the specific language governing permissions and
- limitations under the License.
- */
+MIT Licence
