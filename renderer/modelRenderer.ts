@@ -9,7 +9,7 @@ import {ParticlesController} from './particles';
 import {RendererData, NodeWrapper} from './rendererData';
 import {RibbonsController} from './ribbons';
 
-const MAX_NODES = 128;
+const MAX_NODES = 256;
 
 let gl: WebGLRenderingContext;
 let shaderProgram: WebGLProgram;
@@ -339,7 +339,7 @@ export class ModelRenderer {
 
                 if (!this.softwareSkinning) {
                     gl.bindBuffer(gl.ARRAY_BUFFER, this.groupBuffer[i]);
-                    gl.vertexAttribPointer(shaderProgramLocations.groupAttribute, 4, gl.UNSIGNED_BYTE, false, 0, 0);
+                    gl.vertexAttribPointer(shaderProgramLocations.groupAttribute, 4, gl.UNSIGNED_SHORT, false, 0, 0);
                 }
 
                 gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.indexBuffer[i]);
@@ -472,7 +472,7 @@ export class ModelRenderer {
             if (!this.softwareSkinning) {
                 this.groupBuffer[i] = gl.createBuffer();
                 gl.bindBuffer(gl.ARRAY_BUFFER, this.groupBuffer[i]);
-                let buffer = new Uint8Array(this.model.Geosets[i].VertexGroup.length * 4);
+                let buffer = new Uint16Array(this.model.Geosets[i].VertexGroup.length * 4);
                 for (let j = 0; j < buffer.length; j += 4) {
                     let index = j / 4;
                     let group = this.model.Geosets[i].Groups[this.model.Geosets[i].VertexGroup[index]];

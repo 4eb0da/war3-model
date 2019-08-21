@@ -1,6 +1,6 @@
 {
   "name": "war3-model",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "scripts": {
     "convert": "browserify docs/convert/convert.js -d -o docs/convert/convertOut.js && cat node_modules/codemirror/lib/codemirror.css node_modules/codemirror/addon/fold/foldgutter.css docs/convert/convert.css > docs/convert/convertOut.css",
     "preview": "browserify docs/preview/preview.js -d -o docs/preview/previewOut.js",
