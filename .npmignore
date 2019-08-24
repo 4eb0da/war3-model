@@ -1,5 +1,5 @@
 *.*
 !README.md
 !{index,model}.{ts,js,js.map}
-!/{mdx,mdl,blp}/*.{ts,js,js.map}
+!/{mdx,mdl,blp,renderer}/*.{ts,js,js.map}
 !/third_party/decoder.js
