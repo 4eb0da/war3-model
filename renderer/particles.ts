@@ -11,17 +11,17 @@ import {lerp} from './interp';
 
 let gl: WebGLRenderingContext;
 let shaderProgram: WebGLProgram;
-let shaderProgramLocations: any = {};
-let particleStorage: Particle[] = [];
+const shaderProgramLocations: any = {};
+const particleStorage: Particle[] = [];
 
-let rotateCenter: vec3 = vec3.fromValues(0, 0, 0);
-let firstColor = vec4.create();
-let secondColor = vec4.create();
-let color = vec4.create();
-let tailPos = vec3.create();
-let tailCross = vec3.create();
+const rotateCenter: vec3 = vec3.fromValues(0, 0, 0);
+const firstColor = vec4.create();
+const secondColor = vec4.create();
+const color = vec4.create();
+const tailPos = vec3.create();
+const tailCross = vec3.create();
 
-let vertexShader = `
+const vertexShader = `
     attribute vec3 aVertexPosition;
     attribute vec2 aTextureCoord;
     attribute vec4 aColor;
@@ -40,7 +40,7 @@ let vertexShader = `
     }
 `;
 
-let fragmentShader = `
+const fragmentShader = `
     precision mediump float;
 
     varying vec2 vTextureCoord;
@@ -126,15 +126,15 @@ const DISCARD_ALPHA_KEY_LEVEL = 0.83;
 const DISCARD_MODULATE_LEVEL = 0.01;
 
 export class ParticlesController {
-    public static initGL (glContext: WebGLRenderingContext) {
+    public static initGL (glContext: WebGLRenderingContext): void {
         gl = glContext;
 
         ParticlesController.initShaders();
     }
 
     private static initShaders (): void {
-        let vertex = getShader(gl, vertexShader, gl.VERTEX_SHADER);
-        let fragment = getShader(gl, fragmentShader, gl.FRAGMENT_SHADER);
+        const vertex = getShader(gl, vertexShader, gl.VERTEX_SHADER);
+        const fragment = getShader(gl, fragmentShader, gl.FRAGMENT_SHADER);
 
         shaderProgram = gl.createProgram();
         gl.attachShader(shaderProgram, vertex);
@@ -200,8 +200,8 @@ export class ParticlesController {
             headTexCoords = new Float32Array(size * 4 * 2); // 4 vertices * xy
         }
 
-        let colors = new Float32Array(size * 4 * 4);    // 4 vertices * rgba
-        let indices = new Uint16Array(size * 6);        // 4 vertices * 2 triangles
+        const colors = new Float32Array(size * 4 * 4);    // 4 vertices * rgba
+        const indices = new Uint16Array(size * 6);        // 4 vertices * 2 triangles
 
         if (emitter.capacity) {
             indices.set(emitter.indices);
@@ -262,8 +262,8 @@ export class ParticlesController {
                 vec3.create()
             ];
 
-            for (let particleEmitter of rendererData.model.ParticleEmitters2) {
-                let emitter: ParticleEmitterWrapper = {
+            for (const particleEmitter of rendererData.model.ParticleEmitters2) {
+                const emitter: ParticleEmitterWrapper = {
                     emission: 0,
                     squirtFrame: 0,
                     particles: [],
@@ -295,7 +295,7 @@ export class ParticlesController {
     }
 
     public update (delta: number): void {
-        for (let emitter of this.emitters) {
+        for (const emitter of this.emitters) {
             this.updateEmitter(emitter, delta);
         }
     }
@@ -311,7 +311,7 @@ export class ParticlesController {
         gl.enableVertexAttribArray(shaderProgramLocations.textureCoordAttribute);
         gl.enableVertexAttribArray(shaderProgramLocations.colorAttribute);
 
-        for (let emitter of this.emitters) {
+        for (const emitter of this.emitters) {
             if (!emitter.particles.length) {
                 continue;
             }
@@ -333,11 +333,11 @@ export class ParticlesController {
     }
 
     private updateEmitter (emitter: ParticleEmitterWrapper, delta: number): void {
-        let visibility = this.interp.animVectorVal(emitter.props.Visibility, 1);
+        const visibility = this.interp.animVectorVal(emitter.props.Visibility, 1);
 
         if (visibility > 0) {
             if (emitter.props.Squirt && typeof emitter.props.EmissionRate !== 'number') {
-                let interp = this.interp.findKeyframes(emitter.props.EmissionRate);
+                const interp = this.interp.findKeyframes(emitter.props.EmissionRate);
 
                 if (interp && interp.left && interp.left.Frame !== emitter.squirtFrame) {
                     emitter.squirtFrame = interp.left.Frame;
@@ -346,7 +346,7 @@ export class ParticlesController {
                     }
                 }
             } else {
-                let emissionRate = this.interp.animVectorVal(emitter.props.EmissionRate, 0);
+                const emissionRate = this.interp.animVectorVal(emitter.props.EmissionRate, 0);
 
                 emitter.emission += emissionRate * delta;
             }
@@ -360,8 +360,8 @@ export class ParticlesController {
         }
 
         if (emitter.particles.length) {
-            let updatedParticles = [];
-            for (let particle of emitter.particles) {
+            const updatedParticles = [];
+            for (const particle of emitter.particles) {
                 ParticlesController.updateParticle(particle, delta);
                 if (particle.lifeSpan > 0) {
                     updatedParticles.push(particle);
@@ -413,11 +413,11 @@ export class ParticlesController {
             };
         }
 
-        let width: number = this.interp.animVectorVal(emitter.props.Width, 0);
-        let length: number = this.interp.animVectorVal(emitter.props.Length, 0);
+        const width: number = this.interp.animVectorVal(emitter.props.Width, 0);
+        const length: number = this.interp.animVectorVal(emitter.props.Length, 0);
         let speedScale: number = this.interp.animVectorVal(emitter.props.Speed, 0);
-        let variation: number = this.interp.animVectorVal(emitter.props.Variation, 0);
-        let latitude: number = degToRad(this.interp.animVectorVal(emitter.props.Latitude, 0));
+        const variation: number = this.interp.animVectorVal(emitter.props.Variation, 0);
+        const latitude: number = degToRad(this.interp.animVectorVal(emitter.props.Latitude, 0));
 
         particle.emitter = emitter;
 
@@ -451,8 +451,8 @@ export class ParticlesController {
     }
 
     private updateParticleBuffers (particle: Particle, index: number, emitter: ParticleEmitterWrapper): void {
-        let globalT: number = 1 - particle.lifeSpan / emitter.props.LifeSpan;
-        let firstHalf: boolean = globalT < emitter.props.Time;
+        const globalT: number = 1 - particle.lifeSpan / emitter.props.LifeSpan;
+        const firstHalf: boolean = globalT < emitter.props.Time;
         let t: number;
 
         if (firstHalf) {
@@ -480,6 +480,7 @@ export class ParticlesController {
             secondScale = emitter.props.ParticleScaling[2];
         }
 
+        // eslint-disable-next-line prefer-const
         scale = lerp(firstScale, secondScale, t);
 
         if (emitter.type & ParticleEmitter2FramesFlags.Head) {
@@ -489,8 +490,8 @@ export class ParticlesController {
                 emitter.headVertices[index * 12 + i * 3 + 2] = this.particleBaseVectors[i][2] * scale;
 
                 if (emitter.props.Flags & ParticleEmitter2Flags.XYQuad) {
-                    let x = emitter.headVertices[index * 12 + i * 3];
-                    let y = emitter.headVertices[index * 12 + i * 3 + 1];
+                    const x = emitter.headVertices[index * 12 + i * 3];
+                    const y = emitter.headVertices[index * 12 + i * 3 + 1];
                     emitter.headVertices[index * 12 + i * 3]     = x * Math.cos(particle.angle) -
                         y * Math.sin(particle.angle);
                     emitter.headVertices[index * 12 + i * 3 + 1] = x * Math.sin(particle.angle) +
@@ -558,13 +559,13 @@ export class ParticlesController {
             uvAnim = firstHalf ? emitter.props.LifeSpanUVAnim : emitter.props.DecayUVAnim;
             texCoords = emitter.headTexCoords;
         }
-        let firstFrame = uvAnim[0];
-        let secondFrame = uvAnim[1];
-        let frame = Math.round(lerp(firstFrame, secondFrame, t));
-        let texCoordX = frame % emitter.props.Columns;
-        let texCoordY = Math.floor(frame / emitter.props.Rows);
-        let cellWidth = 1 / emitter.props.Columns;
-        let cellHeight = 1 / emitter.props.Rows;
+        const firstFrame = uvAnim[0];
+        const secondFrame = uvAnim[1];
+        const frame = Math.round(lerp(firstFrame, secondFrame, t));
+        const texCoordX = frame % emitter.props.Columns;
+        const texCoordY = Math.floor(frame / emitter.props.Rows);
+        const cellWidth = 1 / emitter.props.Columns;
+        const cellHeight = 1 / emitter.props.Rows;
 
         texCoords[index * 8] = texCoordX * cellWidth;
         texCoords[index * 8 + 1] = texCoordY * cellHeight;
@@ -649,7 +650,7 @@ export class ParticlesController {
             gl.depthMask(false);
         }
 
-        let texture = this.rendererData.model.Textures[emitter.props.TextureID];
+        const texture = this.rendererData.model.Textures[emitter.props.TextureID];
         if (texture.Image) {
             gl.activeTexture(gl.TEXTURE0);
             gl.bindTexture(gl.TEXTURE_2D, this.rendererData.textures[texture.Image]);

@@ -91,26 +91,26 @@ class Stream {
     }
 
     public animVector (animVector: AnimVector, type: AnimVectorType): void {
-        let isInt = type === AnimVectorType.INT1;
+        const isInt = type === AnimVectorType.INT1;
 
         this.int32(animVector.Keys.length);
         this.int32(animVector.LineType);
         this.int32(animVector.GlobalSeqId !== null ? animVector.GlobalSeqId : NONE);
 
-        for (let keyFrame of animVector.Keys) {
+        for (const keyFrame of animVector.Keys) {
             this.int32(keyFrame.Frame);
             if (isInt) {
-                this.int32Array(keyFrame.Vector);
+                this.int32Array(keyFrame.Vector as Int32Array);
             } else {
-                this.float32Array(keyFrame.Vector);
+                this.float32Array(keyFrame.Vector as Float32Array);
             }
             if (animVector.LineType === LineType.Hermite || animVector.LineType === LineType.Bezier) {
                 if (isInt) {
-                    this.int32Array(keyFrame.InTan);
-                    this.int32Array(keyFrame.OutTan);
+                    this.int32Array(keyFrame.InTan as Int32Array);
+                    this.int32Array(keyFrame.OutTan as Int32Array);
                 } else {
-                    this.float32Array(keyFrame.InTan);
-                    this.float32Array(keyFrame.OutTan);
+                    this.float32Array(keyFrame.InTan as Float32Array);
+                    this.float32Array(keyFrame.OutTan as Float32Array);
                 }
             }
         }
@@ -126,7 +126,7 @@ interface ObjWithExtent {
 function generateExtent (obj: ObjWithExtent, stream: Stream): void {
     stream.float32(obj.BoundsRadius || 0);
 
-    for (let key of ['MinimumExtent', 'MaximumExtent']) {
+    for (const key of ['MinimumExtent', 'MaximumExtent']) {
         stream.float32Array(obj[key]);
     }
 }
@@ -227,7 +227,7 @@ function generateSequences (model: Model, stream: Stream): void {
     stream.keyword('SEQS');
     stream.int32(byteLengthSequences(model) - 8);
 
-    for (let sequence of model.Sequences) {
+    for (const sequence of model.Sequences) {
         stream.str(sequence.Name, MODEL_SEQUENCE_NAME_LENGTH);
         stream.int32(sequence.Interval[0]);
         stream.int32(sequence.Interval[1]);
@@ -257,7 +257,7 @@ function generateGlobalSequences (model: Model, stream: Stream): void {
 
     stream.keyword('GLBS');
     stream.int32(model.GlobalSequences.length * 4);
-    for (let duration of model.GlobalSequences) {
+    for (const duration of model.GlobalSequences) {
         stream.int32(duration);
     }
 }
@@ -308,14 +308,14 @@ function generateMaterials (model: Model, stream: Stream): void {
     stream.keyword('MTLS');
     stream.int32(byteLengthMaterials(model) - 8);
 
-    for (let material of model.Materials) {
+    for (const material of model.Materials) {
         stream.int32(byteLengthMaterial(material));
         stream.int32(material.PriorityPlane);
         stream.int32(material.RenderMode);
         stream.keyword('LAYS');
         stream.int32(material.Layers.length);
 
-        for (let layer of material.Layers) {
+        for (const layer of material.Layers) {
             stream.int32(byteLengthLayer(layer));
             stream.int32(layer.FilterMode);
             stream.int32(layer.Shading);
@@ -352,7 +352,7 @@ function byteLengthTextures (model: Model): number {
 
     return 4 /* keyword */ +
         4 /* size */ +
-        sum(model.Textures.map(texture => byteLengthTexture()));
+        sum(model.Textures.map(_texture => byteLengthTexture()));
 }
 
 function generateTextures (model: Model, stream: Stream): void {
@@ -363,7 +363,7 @@ function generateTextures (model: Model, stream: Stream): void {
     stream.keyword('TEXS');
     stream.int32(byteLengthTextures(model) - 8);
 
-    for (let texture of model.Textures) {
+    for (const texture of model.Textures) {
         stream.int32(texture.ReplaceableId);
         stream.str(texture.Image, MODEL_TEXTURE_PATH_LENGTH);
         stream.int32(0);
@@ -397,7 +397,7 @@ function generateTextureAnims (model: Model, stream: Stream): void {
     stream.keyword('TXAN');
     stream.int32(byteLengthTextureAnims(model) - 8);
 
-    for (let anim of model.TextureAnims) {
+    for (const anim of model.TextureAnims) {
         stream.int32(byteLengthTextureAnim(anim));
 
         if (anim.Translation) {
@@ -475,7 +475,7 @@ function generateGeosets (model: Model, stream: Stream): void {
     stream.keyword('GEOS');
     stream.int32(byteLengthGeosets(model) - 8);
 
-    for (let geoset of model.Geosets) {
+    for (const geoset of model.Geosets) {
         stream.int32(byteLengthGeoset(geoset));
 
         stream.keyword('VRTX');
@@ -510,8 +510,8 @@ function generateGeosets (model: Model, stream: Stream): void {
 
         stream.keyword('MATS');
         stream.int32(geoset.TotalGroupsCount);
-        for (let group of geoset.Groups) {
-            for (let index of group) {
+        for (const group of geoset.Groups) {
+            for (const index of group) {
                 stream.int32(index);
             }
         }
@@ -523,14 +523,14 @@ function generateGeosets (model: Model, stream: Stream): void {
         generateExtent(geoset, stream);
 
         stream.int32(geoset.Anims.length);
-        for (let anim of geoset.Anims) {
+        for (const anim of geoset.Anims) {
             generateExtent(anim, stream);
         }
 
         stream.keyword('UVAS');
         stream.int32(geoset.TVertices.length);
 
-        for (let tvertices of geoset.TVertices) {
+        for (const tvertices of geoset.TVertices) {
             stream.keyword('UVBS');
             stream.int32(tvertices.length / 2);
             stream.float32Array(tvertices);
@@ -573,7 +573,7 @@ function generateGeosetAnims (model: Model, stream: Stream): void {
     stream.keyword('GEOA');
     stream.int32(byteLengthGeosetAnims(model) - 8);
 
-    for (let anim of model.GeosetAnims) {
+    for (const anim of model.GeosetAnims) {
         stream.int32(byteLengthGeosetAnim(anim));
         stream.float32(typeof anim.Alpha === 'number' ? anim.Alpha : 1);
         stream.int32(anim.Flags);
@@ -659,7 +659,7 @@ function generateBones (model: Model, stream: Stream): void {
     stream.keyword('BONE');
     stream.int32(byteLengthBones(model) - 8);
 
-    for (let bone of model.Bones) {
+    for (const bone of model.Bones) {
         generateNode(bone, stream);
         stream.int32(bone.GeosetId !== null ? bone.GeosetId : NONE);
         stream.int32(bone.GeosetAnimId !== null ? bone.GeosetAnimId : NONE);
@@ -722,7 +722,7 @@ function generateLights (model: Model, stream: Stream): void {
     stream.keyword('LITE');
     stream.int32(byteLengthLights(model) - 8);
 
-    for (let light of model.Lights) {
+    for (const light of model.Lights) {
         stream.int32(byteLengthLight(light));
         generateNode(light, stream);
         stream.int32(light.LightType);
@@ -803,7 +803,7 @@ function generateHelpers (model: Model, stream: Stream): void {
     stream.keyword('HELP');
     stream.int32(byteLengthHelpers(model) - 8);
 
-    for (let helper of model.Helpers) {
+    for (const helper of model.Helpers) {
         generateNode(helper, stream);
     }
 }
@@ -840,7 +840,7 @@ function generateAttachments (model: Model, stream: Stream): void {
     stream.keyword('ATCH');
     stream.int32(byteLengthAttachments(model) - 8);
 
-    for (let attachment of model.Attachments) {
+    for (const attachment of model.Attachments) {
         stream.int32(byteLengthAttachment(attachment));
         generateNode(attachment, stream);
 
@@ -874,7 +874,7 @@ function generatePivotPoints (model: Model, stream: Stream): void {
     stream.keyword('PIVT');
     stream.int32(model.PivotPoints.length * 4 * 3);
 
-    for (let point of model.PivotPoints) {
+    for (const point of model.PivotPoints) {
         stream.float32Array(point);
     }
 }
@@ -940,7 +940,7 @@ function generateParticleEmitters (model: Model, stream: Stream): void {
     stream.keyword('PREM');
     stream.int32(byteLengthParticleEmitters(model) - 8);
 
-    for (let emitter of model.ParticleEmitters) {
+    for (const emitter of model.ParticleEmitters) {
         stream.int32(byteLengthParticleEmitter(emitter));
         generateNode(emitter, stream);
 
@@ -1065,7 +1065,7 @@ function generateParticleEmitters2 (model: Model, stream: Stream): void {
     stream.keyword('PRE2');
     stream.int32(byteLengthParticleEmitters2(model) - 8);
 
-    for (let emitter of model.ParticleEmitters2) {
+    for (const emitter of model.ParticleEmitters2) {
         stream.int32(byteLengthParticleEmitter2(emitter));
         generateNode(emitter, stream);
 
@@ -1108,7 +1108,7 @@ function generateParticleEmitters2 (model: Model, stream: Stream): void {
             stream.float32(emitter.ParticleScaling[i]);
         }
 
-        for (let part of ['LifeSpanUVAnim', 'DecayUVAnim', 'TailUVAnim', 'TailDecayUVAnim']) {
+        for (const part of ['LifeSpanUVAnim', 'DecayUVAnim', 'TailUVAnim', 'TailDecayUVAnim']) {
             for (let i = 0; i < 3; ++i) {
                 stream.int32(emitter[part][i]);
             }
@@ -1206,7 +1206,7 @@ function generateRibbonEmitters (model: Model, stream: Stream): void {
     stream.keyword('RIBB');
     stream.int32(byteLengthRibbonEmitters(model) - 8);
 
-    for (let emitter of model.RibbonEmitters) {
+    for (const emitter of model.RibbonEmitters) {
         stream.int32(byteLengthRibbonEmitter(emitter));
         generateNode(emitter, stream);
 
@@ -1287,7 +1287,7 @@ function generateCameras (model: Model, stream: Stream): void {
     stream.keyword('CAMS');
     stream.int32(byteLengthCameras(model) - 8);
 
-    for (let camera of model.Cameras) {
+    for (const camera of model.Cameras) {
         stream.int32(byteLengthCamera(camera));
         stream.str(camera.Name, MODEL_CAMERA_NAME_LENGTH);
         stream.float32Array(camera.Position);
@@ -1338,7 +1338,7 @@ function generateEventObjects (model: Model, stream: Stream): void {
     stream.keyword('EVTS');
     stream.int32(byteLengthEventObjects(model) - 8);
 
-    for (let eventObject of model.EventObjects) {
+    for (const eventObject of model.EventObjects) {
         generateNode(eventObject, stream);
         stream.keyword('KEVT');
         stream.int32(eventObject.EventTrack.length);
@@ -1374,7 +1374,7 @@ function generateCollisionShapes (model: Model, stream: Stream): void {
     stream.keyword('CLID');
     stream.int32(byteLengthCollisionShapes(model) - 8);
 
-    for (let collisionShape of model.CollisionShapes) {
+    for (const collisionShape of model.CollisionShapes) {
         generateNode(collisionShape, stream);
         stream.int32(collisionShape.Shape);
         stream.float32Array(collisionShape.Vertices);
@@ -1385,7 +1385,7 @@ function generateCollisionShapes (model: Model, stream: Stream): void {
 }
 
 
-const byteLength: [(model: Model) => number] = [
+const byteLength: ((model: Model) => number)[] = [
     byteLengthVersion,
     byteLengthModelInfo,
     byteLengthSequences,
@@ -1408,7 +1408,7 @@ const byteLength: [(model: Model) => number] = [
     byteLengthCollisionShapes
 ];
 
-const generators: [(model: Model, stream: Stream) => void] = [
+const generators: ((model: Model, stream: Stream) => void)[] = [
     generateVersion,
     generateModelInfo,
     generateSequences,
@@ -1434,16 +1434,16 @@ const generators: [(model: Model, stream: Stream) => void] = [
 export function generate (model: Model): ArrayBuffer {
     let totalLength = 4 /* format keyword */;
 
-    for (let lenFunc of byteLength) {
+    for (const lenFunc of byteLength) {
         totalLength += lenFunc(model);
     }
 
-    let res = new ArrayBuffer(totalLength);
-    let stream = new Stream(res);
+    const res = new ArrayBuffer(totalLength);
+    const stream = new Stream(res);
 
     stream.keyword('MDLX');
 
-    for (let generator of generators) {
+    for (const generator of generators) {
         generator(model, stream);
     }
 

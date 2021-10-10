@@ -1,8 +1,7 @@
+node_modules
+/dist
 *.js
 *.js.map
-!docs/convert/convertOut.js
-!docs/preview/previewOut.js
-!docs/decodeblp/decodeblpOut.js
-!docs/optframes/optframesOut.js
-!docs/shim.js
+!samples.webpack.config.js
 !third_party/decoder.js
+!docs/*/dist/*.js

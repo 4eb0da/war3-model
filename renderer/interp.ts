@@ -1,7 +1,7 @@
 import {LineType, AnimKeyframe, AnimVector} from '../model';
 import {vec3, quat} from 'gl-matrix';
 
-let findKeyframesRes = {
+const findKeyframesRes = {
     frame: 0,
     left: null,
     right: null
@@ -12,7 +12,7 @@ export function lerp (left: number, right: number, t: number): number {
 }
 
 function bezier (left: number, outTan: number, inTan: number, right: number, t: number): number {
-    let inverseFactor = 1 - t,
+    const inverseFactor = 1 - t,
         inverseFactorTimesTwo = inverseFactor * inverseFactor,
         factorTimes2 = t * t,
         factor1 = inverseFactorTimesTwo * inverseFactor,
@@ -24,7 +24,7 @@ function bezier (left: number, outTan: number, inTan: number, right: number, t: 
 }
 
 function hermite (left: number, outTan: number, inTan: number, right: number, t: number): number {
-    let factorTimes2 = t * t,
+    const factorTimes2 = t * t,
         factor1 = factorTimes2 * (2 * t - 3) + 1,
         factor2 = factorTimes2 * (t - 2) + t,
         factor3 = factorTimes2 * (t - 1),
@@ -39,7 +39,7 @@ export function findKeyframes (animVector: AnimVector, frame: number, from: numb
         return null;
     }
 
-    let array = animVector.Keys;
+    const array = animVector.Keys;
     let first = 0;
     let count = array.length;
 
@@ -54,7 +54,7 @@ export function findKeyframes (animVector: AnimVector, frame: number, from: numb
     }
 
     while (count > 0) {
-        let step = count >> 1;
+        const step = count >> 1;
         if (array[first + step].Frame <= frame) {
             first = first + step + 1;
             count -= step + 1;
@@ -98,7 +98,7 @@ export function interpNum (frame: number, left: AnimKeyframe, right: AnimKeyfram
         return left.Vector[0];
     }
 
-    let t = (frame - left.Frame) / (right.Frame - left.Frame);
+    const t = (frame - left.Frame) / (right.Frame - left.Frame);
 
     if (lineType === LineType.DontInterp) {
         return left.Vector[0];
@@ -118,7 +118,7 @@ export function interpVec3 (out: vec3, frame: number, left: AnimKeyframe, right:
         return left.Vector as vec3;
     }
 
-    let t = (frame - left.Frame) / (right.Frame - left.Frame);
+    const t = (frame - left.Frame) / (right.Frame - left.Frame);
 
     if (lineType === LineType.DontInterp) {
         return left.Vector as vec3;
@@ -138,7 +138,7 @@ export function interpQuat (out: quat, frame: number, left: AnimKeyframe, right:
         return left.Vector as quat;
     }
 
-    let t = (frame - left.Frame) / (right.Frame - left.Frame);
+    const t = (frame - left.Frame) / (right.Frame - left.Frame);
 
     if (lineType === LineType.DontInterp) {
         return left.Vector as quat;

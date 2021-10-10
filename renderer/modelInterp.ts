@@ -3,7 +3,7 @@ import {findKeyframes, interpNum, interpVec3, interpQuat} from './interp';
 import {vec3, quat} from 'gl-matrix';
 import {RendererData} from './rendererData';
 
-let findLocalFrameRes = {
+const findLocalFrameRes = {
     frame: 0,
     from: 0,
     to: 0
@@ -33,7 +33,7 @@ export class ModelInterp {
     }
 
     public num (animVector: AnimVector): number|null {
-        let res = this.findKeyframes(animVector);
+        const res = this.findKeyframes(animVector);
         if (!res) {
             return null;
         }
@@ -41,7 +41,7 @@ export class ModelInterp {
     }
 
     public vec3 (out: vec3, animVector: AnimVector): vec3|null {
-        let res = this.findKeyframes(animVector);
+        const res = this.findKeyframes(animVector);
         if (!res) {
             return null;
         }
@@ -49,7 +49,7 @@ export class ModelInterp {
     }
 
     public quat (out: quat, animVector: AnimVector): quat|null {
-        let res = this.findKeyframes(animVector);
+        const res = this.findKeyframes(animVector);
         if (!res) {
             return null;
         }
@@ -76,7 +76,7 @@ export class ModelInterp {
             return null;
         }
 
-        let {frame, from, to} = this.findLocalFrame(animVector);
+        const {frame, from, to} = this.findLocalFrame(animVector);
 
         return findKeyframes(animVector, frame, from, to);
     }

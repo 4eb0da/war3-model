@@ -1,4 +1,10 @@
+html, body {
+    height: 100%;
+}
+
 body {
+    display: flex;
+    flex-direction: column;
     margin: 0;
     font: 16px sans-serif;
 }
@@ -7,9 +13,9 @@ body {
     position: relative;
     display: flex;
     flex-direction: column;
-    max-width: 600px;
-    min-height: 400px;
-    margin: 20px auto auto;
+    flex: 1 1 auto;
+    min-height: 300px;
+    margin: 20px;
     padding: 20px;
     border: 3px dashed #aaa;
     border-radius: 10px;
@@ -31,10 +37,17 @@ body {
     font-size: 120%;
 }
 
-.textarea, .CodeMirror {
+.editor {
     display: none;
     width: 100%;
     flex: 1 1 auto;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.editor-elem {
+    flex: 1 1 auto;
+    min-height: 0;
 }
 
 .save {
@@ -57,8 +70,10 @@ body {
     display: none;
 }
 
-.container_with-data .textarea,
-.container_with-data .CodeMirror,
+.container_with-data .editor {
+    display: flex;
+}
+
 .container_with-data .save {
     display: block;
 }

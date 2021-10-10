@@ -1,7 +1,7 @@
 import {vec3, quat, mat4} from 'gl-matrix';
 
 export function mat4fromRotationOrigin (out: mat4, rotation: quat, origin: vec3): mat4 {
-    let x = rotation[0], y = rotation[1], z = rotation[2], w = rotation[3],
+    const x = rotation[0], y = rotation[1], z = rotation[2], w = rotation[3],
         x2 = x + x,
         y2 = y + y,
         z2 = z + z,
@@ -47,7 +47,7 @@ export function mat4fromRotationOrigin (out: mat4, rotation: quat, origin: vec3)
  * @param {Number} c The angle of rotation
  * @returns {vec3} out
  */
-export function vec3RotateZ (out, a, c) {
+export function vec3RotateZ (out: vec3, a: vec3, c: number): vec3 {
     out[0] = a[0] * Math.cos(c) - a[1] * Math.sin(c);
     out[1] = a[0] * Math.sin(c) + a[1] * Math.cos(c);
     out[2] = a[2];
@@ -64,7 +64,7 @@ export function degToRad (angle: number): number {
 }
 
 export function getShader (gl: WebGLRenderingContext, source: string, type: number): WebGLShader {
-    let shader: WebGLShader = gl.createShader(type);
+    const shader: WebGLShader = gl.createShader(type);
 
     gl.shaderSource(shader, source);
     gl.compileShader(shader);

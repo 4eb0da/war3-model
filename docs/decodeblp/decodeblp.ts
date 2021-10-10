@@ -4,10 +4,9 @@ import {BLPImage} from '../../blp/blpimage';
 import {decode, getImageData} from '../../blp/decode';
 
 document.addEventListener('DOMContentLoaded', function init () {
-    let container = document.querySelector('.container');
-    let preview = document.querySelector('.preview');
-    let save = document.querySelector('.save');
-    let label = document.querySelector('.label');
+    const container = document.querySelector('.container');
+    const preview = document.querySelector('.preview');
+    const label = document.querySelector('.label');
     let dropTarget;
 
     container.addEventListener('dragenter', function onDragEnter (event) {
@@ -28,33 +27,33 @@ document.addEventListener('DOMContentLoaded', function init () {
         event.preventDefault();
         container.classList.remove('container_drag');
 
-        let file = event.dataTransfer.files && event.dataTransfer.files[0];
+        const file = event.dataTransfer.files && event.dataTransfer.files[0];
         if (!file) {
             return;
         }
 
-        let reader = new FileReader();
+        const reader = new FileReader();
 
         reader.onload = () => {
             try {
-                let blp: BLPImage = decode(reader.result);
+                const blp: BLPImage = decode(reader.result as ArrayBuffer);
 
                 console.log(blp);
 
                 clearPreview();
                 container.classList.add('container_hidden');
                 for (let i = 0; i < blp.mipmaps.length; ++i) {
-                    let imageData = getImageData(blp, i);
+                    const imageData = getImageData(blp, i);
 
-                    let canvas = document.createElement('canvas');
+                    const canvas = document.createElement('canvas');
                     canvas.width = imageData.width;
                     canvas.height = imageData.height;
-                    let ctx = canvas.getContext('2d');
+                    const ctx = canvas.getContext('2d');
                     ctx.putImageData(imageData, 0, 0);
 
-                    let previewItem = document.createElement('div');
+                    const previewItem = document.createElement('div');
                     previewItem.className = 'preview-item';
-                    let previewLabel = document.createElement('div');
+                    const previewLabel = document.createElement('div');
                     previewLabel.className = 'preview-item__label';
                     previewLabel.textContent = `${imageData.width}x${imageData.height}`;
                     previewItem.appendChild(canvas);

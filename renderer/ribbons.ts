@@ -5,9 +5,9 @@ import {FilterMode, Layer, LayerShading, Material, RibbonEmitter} from '../model
 import {mat4, vec3} from 'gl-matrix';
 let gl: WebGLRenderingContext;
 let shaderProgram: WebGLProgram;
-let shaderProgramLocations: any = {};
+const shaderProgramLocations: any = {};
 
-let vertexShader = `
+const vertexShader = `
     attribute vec3 aVertexPosition;
     attribute vec2 aTextureCoord;
 
@@ -23,7 +23,7 @@ let vertexShader = `
     }
 `;
 
-let fragmentShader = `
+const fragmentShader = `
     precision mediump float;
 
     varying vec2 vTextureCoord;
@@ -80,15 +80,15 @@ interface RibbonEmitterWrapper {
 }
 
 export class RibbonsController {
-    public static initGL (glContext: WebGLRenderingContext) {
+    public static initGL (glContext: WebGLRenderingContext): void {
         gl = glContext;
 
         RibbonsController.initShaders();
     }
 
     private static initShaders (): void {
-        let vertex = getShader(gl, vertexShader, gl.VERTEX_SHADER);
-        let fragment = getShader(gl, fragmentShader, gl.FRAGMENT_SHADER);
+        const vertex = getShader(gl, vertexShader, gl.VERTEX_SHADER);
+        const fragment = getShader(gl, fragmentShader, gl.FRAGMENT_SHADER);
 
         shaderProgram = gl.createProgram();
         gl.attachShader(shaderProgram, vertex);
@@ -126,8 +126,8 @@ export class RibbonsController {
 
         size = Math.min(size, emitter.baseCapacity);
 
-        let vertices = new Float32Array(size * 2 * 3);  // 2 vertices * xyz
-        let texCoords = new Float32Array(size * 2 * 2); // 2 vertices * xy
+        const vertices = new Float32Array(size * 2 * 3);  // 2 vertices * xyz
+        const texCoords = new Float32Array(size * 2 * 2); // 2 vertices * xy
 
         if (emitter.vertices) {
             vertices.set(emitter.vertices);
@@ -154,8 +154,8 @@ export class RibbonsController {
         this.emitters = [];
 
         if (rendererData.model.RibbonEmitters.length) {
-            for (let ribbonEmitter of rendererData.model.RibbonEmitters) {
-                let emitter: RibbonEmitterWrapper = {
+            for (const ribbonEmitter of rendererData.model.RibbonEmitters) {
+                const emitter: RibbonEmitterWrapper = {
                     emission: 0,
                     props: ribbonEmitter,
                     capacity: 0,
@@ -177,7 +177,7 @@ export class RibbonsController {
     }
 
     public update (delta: number): void {
-        for (let emitter of this.emitters) {
+        for (const emitter of this.emitters) {
             this.updateEmitter(emitter, delta);
         }
     }
@@ -191,7 +191,7 @@ export class RibbonsController {
         gl.enableVertexAttribArray(shaderProgramLocations.vertexPositionAttribute);
         gl.enableVertexAttribArray(shaderProgramLocations.textureCoordAttribute);
 
-        for (let emitter of this.emitters) {
+        for (const emitter of this.emitters) {
             if (emitter.creationTimes.length < 2) {
                 continue;
             }
@@ -202,8 +202,8 @@ export class RibbonsController {
             );
 
             this.setGeneralBuffers(emitter);
-            let materialID: number = emitter.props.MaterialID;
-            let material: Material = this.rendererData.model.Materials[materialID];
+            const materialID: number = emitter.props.MaterialID;
+            const material: Material = this.rendererData.model.Materials[materialID];
             for (let j = 0; j < material.Layers.length; ++j) {
                 this.setLayerProps(material.Layers[j], this.rendererData.materialLayerTextureID[materialID][j]);
                 this.renderEmitter(emitter);
@@ -215,11 +215,11 @@ export class RibbonsController {
     }
 
     private updateEmitter (emitter: RibbonEmitterWrapper, delta: number): void {
-        let now = Date.now();
-        let visibility = this.interp.animVectorVal(emitter.props.Visibility, 1);
+        const now = Date.now();
+        const visibility = this.interp.animVectorVal(emitter.props.Visibility, 1);
 
         if (visibility > 0) {
-            let emissionRate = emitter.props.EmissionRate;
+            const emissionRate = emitter.props.EmissionRate;
 
             emitter.emission += emissionRate * delta;
 
@@ -258,17 +258,17 @@ export class RibbonsController {
     }
 
     private appendVertices (emitter: RibbonEmitterWrapper): void {
-        let first: vec3 = vec3.clone(emitter.props.PivotPoint as vec3);
-        let second: vec3 = vec3.clone(emitter.props.PivotPoint as vec3);
+        const first: vec3 = vec3.clone(emitter.props.PivotPoint as vec3);
+        const second: vec3 = vec3.clone(emitter.props.PivotPoint as vec3);
 
         first[1] -= this.interp.animVectorVal(emitter.props.HeightBelow, 0);
         second[1] += this.interp.animVectorVal(emitter.props.HeightAbove, 0);
 
-        let emitterMatrix: mat4 = this.rendererData.nodes[emitter.props.ObjectId].matrix;
+        const emitterMatrix: mat4 = this.rendererData.nodes[emitter.props.ObjectId].matrix;
         vec3.transformMat4(first, first, emitterMatrix);
         vec3.transformMat4(second, second, emitterMatrix);
 
-        let currentSize = emitter.creationTimes.length;
+        const currentSize = emitter.creationTimes.length;
         emitter.vertices[currentSize * 6]     = first[0];
         emitter.vertices[currentSize * 6 + 1] = first[1];
         emitter.vertices[currentSize * 6 + 2] = first[2];
@@ -280,12 +280,12 @@ export class RibbonsController {
     private updateEmitterTexCoords (emitter: RibbonEmitterWrapper, now: number): void {
         for (let i = 0; i < emitter.creationTimes.length; ++i) {
             let relativePos = (now - emitter.creationTimes[i]) / (emitter.props.LifeSpan * 1000);
-            let textureSlot = this.interp.animVectorVal(emitter.props.TextureSlot, 0);
+            const textureSlot = this.interp.animVectorVal(emitter.props.TextureSlot, 0);
 
-            let texCoordX = textureSlot % emitter.props.Columns;
-            let texCoordY = Math.floor(textureSlot / emitter.props.Rows);
-            let cellWidth = 1 / emitter.props.Columns;
-            let cellHeight = 1 / emitter.props.Rows;
+            const texCoordX = textureSlot % emitter.props.Columns;
+            const texCoordY = Math.floor(textureSlot / emitter.props.Rows);
+            const cellWidth = 1 / emitter.props.Columns;
+            const cellHeight = 1 / emitter.props.Rows;
 
             relativePos = texCoordX * cellWidth + relativePos * cellWidth;
 
@@ -297,7 +297,7 @@ export class RibbonsController {
     }
 
     private setLayerProps (layer: Layer, textureID: number): void {
-        let texture = this.rendererData.model.Textures[textureID];
+        const texture = this.rendererData.model.Textures[textureID];
 
         if (layer.Shading & LayerShading.TwoSided) {
             gl.disable(gl.CULL_FACE);

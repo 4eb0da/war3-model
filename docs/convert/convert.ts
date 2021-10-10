@@ -7,20 +7,14 @@ import {generate as generateMDX} from '../../mdx/generate';
 import {Model} from '../../model';
 import '../shim';
 
-import * as CodeMirror from 'codemirror';
-import 'codemirror/mode/javascript/javascript';
-import 'codemirror/addon/edit/matchbrackets';
-import 'codemirror/addon/fold/foldcode';
-import 'codemirror/addon/fold/foldgutter';
-import 'codemirror/addon/fold/brace-fold';
-import 'codemirror/addon/fold/indent-fold';
+import * as monaco from 'monaco-editor';
 
 document.addEventListener('DOMContentLoaded', function init () {
-    let container = document.querySelector('.container');
-    let save = document.querySelector('.save');
-    let label = document.querySelector('.label');
+    const container = document.querySelector('.container');
+    const save = document.querySelector('.save');
+    const label = document.querySelector('.label');
     let dropTarget;
-    let editor;
+    let editor: monaco.editor.IStandaloneCodeEditor;
     let model: Model;
     let isMDX: boolean;
     let convertedName: string;
@@ -43,20 +37,20 @@ document.addEventListener('DOMContentLoaded', function init () {
         event.preventDefault();
         container.classList.remove('container_drag');
 
-        let file = event.dataTransfer.files && event.dataTransfer.files[0];
+        const file = event.dataTransfer.files && event.dataTransfer.files[0];
         if (!file) {
             return;
         }
 
-        let reader = new FileReader();
+        const reader = new FileReader();
         isMDX = file.name.indexOf('.mdx') > -1;
 
         reader.onload = () => {
             try {
                 if (isMDX) {
-                    model = parseMDX(reader.result);
+                    model = parseMDX(reader.result as ArrayBuffer);
                 } else {
-                    model = parseMDL(reader.result);
+                    model = parseMDL(reader.result as string);
                 }
             } catch (err) {
                 showError(err);
@@ -84,7 +78,7 @@ document.addEventListener('DOMContentLoaded', function init () {
             res = new Blob([generateMDX(model)], {type: 'octet/stream'});
         }
 
-        let link = document.createElement('a');
+        const link = document.createElement('a');
         link.style.display = 'none';
         document.body.appendChild(link);
 
@@ -99,15 +93,10 @@ document.addEventListener('DOMContentLoaded', function init () {
         if (editor) {
             return;
         }
-        editor = CodeMirror.fromTextArea(document.querySelector('.textarea') as HTMLTextAreaElement, {
-            mode: 'application/json',
-            matchBrackets: true,
-            lineWrapping: true,
-            readOnly: true,
-            dragDrop: false,
-            foldGutter: true,
-            gutters: ['CodeMirror-foldgutter'],
-            minFoldSize: 1
+        editor = monaco.editor.create(document.querySelector('.editor-elem'), {
+            value: '',
+            language: 'json',
+            automaticLayout: true
         });
     }
 
@@ -115,10 +104,12 @@ document.addEventListener('DOMContentLoaded', function init () {
         container.classList.add('container_with-data');
 
         createEditor();
-        editor.setValue(JSON.stringify(model, (key, value) => {
-            if (value instanceof Float32Array || value instanceof Int32Array || value instanceof Uint16Array ||
-                value instanceof Uint8Array) {
-                let res = [];
+        editor.setValue(JSON.stringify(model, (_key, value) => {
+            if (
+                value instanceof Float32Array || value instanceof Int32Array ||
+                value instanceof Uint16Array || value instanceof Uint8Array
+            ) {
+                const res = [];
 
                 for (let i = 0; i < value.length; ++i) {
                     res[i] = value[i];
@@ -129,10 +120,9 @@ document.addEventListener('DOMContentLoaded', function init () {
             return value;
         }, 2));
 
-        // foldAll seems to be too slow on big models
-        // editor.execCommand('foldAll');
-        // editor.execCommand('unfold');
-        editor.scrollTo(0, 0);
+        editor.setScrollLeft(0, monaco.editor.ScrollType.Immediate);
+        editor.setScrollTop(0, monaco.editor.ScrollType.Immediate);
+        editor.trigger('war3-model', 'editor.foldLevel2', null);
 
         convertedName = filename.replace(/\.md(x|l)/i, '.' + (isMDX ? 'mdl' : 'mdx'));
 

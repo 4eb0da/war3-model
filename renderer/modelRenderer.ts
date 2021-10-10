@@ -13,7 +13,7 @@ const MAX_NODES = 256;
 
 let gl: WebGLRenderingContext;
 let shaderProgram: WebGLProgram;
-let shaderProgramLocations: any = {};
+const shaderProgramLocations: any = {};
 let anisotropicExt: any;
 
 const vertexShaderHardwareSkinning = `
@@ -111,33 +111,33 @@ const fragmentShader = `
     }
 `;
 
-let translation = vec3.create();
-let rotation = quat.create();
-let scaling = vec3.create();
+const translation = vec3.create();
+const rotation = quat.create();
+const scaling = vec3.create();
 
-let defaultTranslation = vec3.fromValues(0, 0, 0);
-let defaultRotation = quat.fromValues(0, 0, 0, 1);
-let defaultScaling = vec3.fromValues(1, 1, 1);
+const defaultTranslation = vec3.fromValues(0, 0, 0);
+const defaultRotation = quat.fromValues(0, 0, 0, 1);
+const defaultScaling = vec3.fromValues(1, 1, 1);
 
-let tempParentRotationQuat: quat = quat.create();
-let tempParentRotationMat: mat4 = mat4.create();
-let tempCameraMat: mat4 = mat4.create();
-let tempTransformedPivotPoint: vec3 = vec3.create();
-let tempAxis: vec3 = vec3.create();
-let tempLockQuat: quat = quat.create();
-let tempLockMat: mat4 = mat4.create();
-let tempXAxis: vec3 = vec3.create();
-let tempCameraVec: vec3 = vec3.create();
-let tempCross0: vec3 = vec3.create();
-let tempCross1: vec3 = vec3.create();
+const tempParentRotationQuat: quat = quat.create();
+const tempParentRotationMat: mat4 = mat4.create();
+const tempCameraMat: mat4 = mat4.create();
+const tempTransformedPivotPoint: vec3 = vec3.create();
+const tempAxis: vec3 = vec3.create();
+const tempLockQuat: quat = quat.create();
+const tempLockMat: mat4 = mat4.create();
+const tempXAxis: vec3 = vec3.create();
+const tempCameraVec: vec3 = vec3.create();
+const tempCross0: vec3 = vec3.create();
+const tempCross1: vec3 = vec3.create();
 
-let tempPos: vec3 = vec3.create();
-let tempSum: vec3 = vec3.create();
-let tempVec3: vec3 = vec3.create();
+const tempPos: vec3 = vec3.create();
+const tempSum: vec3 = vec3.create();
+const tempVec3: vec3 = vec3.create();
 
-let identifyMat3: mat3 = mat3.create();
-let texCoordMat4: mat4 = mat4.create();
-let texCoordMat3: mat3 = mat3.create();
+const identifyMat3: mat3 = mat3.create();
+const texCoordMat4: mat4 = mat4.create();
+const texCoordMat3: mat3 = mat3.create();
 
 export class ModelRenderer {
     private model: Model;
@@ -185,14 +185,14 @@ export class ModelRenderer {
             matrix: mat4.create(),
             childs: []
         };
-        for (let node of model.Nodes) {
+        for (const node of model.Nodes) {
             this.rendererData.nodes[node.ObjectId] = {
                 node,
                 matrix: mat4.create(),
                 childs: []
             };
         }
-        for (let node of model.Nodes) {
+        for (const node of model.Nodes) {
             if (!node.Parent && node.Parent !== 0) {
                 this.rendererData.rootNode.childs.push(this.rendererData.nodes[node.ObjectId]);
             } else {
@@ -325,8 +325,8 @@ export class ModelRenderer {
                 this.generateGeosetVertices(i);
             }
 
-            let materialID = this.model.Geosets[i].MaterialID;
-            let material = this.model.Materials[materialID];
+            const materialID = this.model.Geosets[i].MaterialID;
+            const material = this.model.Materials[materialID];
 
             for (let j = 0; j < material.Layers.length; ++j) {
                 this.setLayerProps(material.Layers[j], this.rendererData.materialLayerTextureID[materialID][j]);
@@ -358,12 +358,12 @@ export class ModelRenderer {
     }
 
     private generateGeosetVertices (geosetIndex: number): void {
-        let geoset: Geoset = this.model.Geosets[geosetIndex];
-        let buffer = this.vertices[geosetIndex];
+        const geoset: Geoset = this.model.Geosets[geosetIndex];
+        const buffer = this.vertices[geosetIndex];
 
         for (let i = 0; i < buffer.length; i += 3) {
-            let index = i / 3;
-            let group = geoset.Groups[geoset.VertexGroup[index]];
+            const index = i / 3;
+            const group = geoset.Groups[geoset.VertexGroup[index]];
 
             vec3.set(tempPos, geoset.Vertices[i], geoset.Vertices[i + 1], geoset.Vertices[i + 2]);
             vec3.set(tempSum, 0, 0, 0);
@@ -397,13 +397,13 @@ export class ModelRenderer {
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_NEAREST);
 
         if (anisotropicExt) {
-            let max = gl.getParameter(anisotropicExt.MAX_TEXTURE_MAX_ANISOTROPY_EXT);
+            const max = gl.getParameter(anisotropicExt.MAX_TEXTURE_MAX_ANISOTROPY_EXT);
             gl.texParameterf(gl.TEXTURE_2D, anisotropicExt.TEXTURE_MAX_ANISOTROPY_EXT, max);
         }
     }
 
     private updateLayerTextureId (materialId: number, layerId: number): void {
-        let TextureID: AnimVector|number = this.model.Materials[materialId].Layers[layerId].TextureID;
+        const TextureID: AnimVector|number = this.model.Materials[materialId].Layers[layerId].TextureID;
 
         if (typeof TextureID === 'number') {
             this.rendererData.materialLayerTextureID[materialId][layerId] = TextureID;
@@ -417,9 +417,9 @@ export class ModelRenderer {
             return;
         }
 
-        let vertex = getShader(gl, this.softwareSkinning ? vertexShaderSoftwareSkinning : vertexShaderHardwareSkinning,
+        const vertex = getShader(gl, this.softwareSkinning ? vertexShaderSoftwareSkinning : vertexShaderHardwareSkinning,
             gl.VERTEX_SHADER);
-        let fragment = getShader(gl, fragmentShader, gl.FRAGMENT_SHADER);
+        const fragment = getShader(gl, fragmentShader, gl.FRAGMENT_SHADER);
 
         shaderProgram = gl.createProgram();
         gl.attachShader(shaderProgram, vertex);
@@ -472,10 +472,10 @@ export class ModelRenderer {
             if (!this.softwareSkinning) {
                 this.groupBuffer[i] = gl.createBuffer();
                 gl.bindBuffer(gl.ARRAY_BUFFER, this.groupBuffer[i]);
-                let buffer = new Uint16Array(this.model.Geosets[i].VertexGroup.length * 4);
+                const buffer = new Uint16Array(this.model.Geosets[i].VertexGroup.length * 4);
                 for (let j = 0; j < buffer.length; j += 4) {
-                    let index = j / 4;
-                    let group = this.model.Geosets[i].Groups[this.model.Geosets[i].VertexGroup[index]];
+                    const index = j / 4;
+                    const group = this.model.Geosets[i].Groups[this.model.Geosets[i].VertexGroup[index]];
                     buffer[j] = group[0];
                     buffer[j + 1] = group.length > 1 ? group[1] : MAX_NODES;
                     buffer[j + 2] = group.length > 2 ? group[2] : MAX_NODES;
@@ -506,9 +506,9 @@ export class ModelRenderer {
     }
 
     private updateNode (node: NodeWrapper): void {
-        let translationRes = this.interp.vec3(translation, node.node.Translation);
-        let rotationRes = this.interp.quat(rotation, node.node.Rotation);
-        let scalingRes = this.interp.vec3(scaling, node.node.Scaling);
+        const translationRes = this.interp.vec3(translation, node.node.Translation);
+        const rotationRes = this.interp.quat(rotation, node.node.Rotation);
+        const scalingRes = this.interp.vec3(scaling, node.node.Scaling);
 
         if (!translationRes && !rotationRes && !scalingRes) {
             mat4.identity(node.matrix);
@@ -529,7 +529,7 @@ export class ModelRenderer {
             mat4.mul(node.matrix, this.rendererData.nodes[node.node.Parent].matrix, node.matrix);
         }
 
-        let billboardedLock = node.node.Flags & NodeFlags.BillboardedLockX ||
+        const billboardedLock = node.node.Flags & NodeFlags.BillboardedLockX ||
             node.node.Flags & NodeFlags.BillboardedLockY ||
             node.node.Flags & NodeFlags.BillboardedLockZ;
 
@@ -583,13 +583,13 @@ export class ModelRenderer {
             mat4.mul(node.matrix, tempLockMat, node.matrix);
         }
 
-        for (let child of node.childs) {
+        for (const child of node.childs) {
             this.updateNode(child);
         }
     }
 
     private findAlpha (geosetId: number): number {
-        let geosetAnim = this.rendererData.geosetAnims[geosetId];
+        const geosetAnim = this.rendererData.geosetAnims[geosetId];
 
         if (!geosetAnim || geosetAnim.Alpha === undefined) {
             return 1;
@@ -599,7 +599,7 @@ export class ModelRenderer {
             return geosetAnim.Alpha;
         }
 
-        let interpRes = this.interp.num(geosetAnim.Alpha);
+        const interpRes = this.interp.num(geosetAnim.Alpha);
 
         if (interpRes === null) {
             return 1;
@@ -608,7 +608,7 @@ export class ModelRenderer {
     }
 
     private setLayerProps (layer: Layer, textureID: number): void {
-        let texture = this.model.Textures[textureID];
+        const texture = this.model.Textures[textureID];
 
         if (layer.Shading & LayerShading.TwoSided) {
             gl.disable(gl.CULL_FACE);
@@ -677,10 +677,10 @@ export class ModelRenderer {
         }
 
         if (typeof layer.TVertexAnimId === 'number') {
-            let anim: TVertexAnim = this.rendererData.model.TextureAnims[layer.TVertexAnimId];
-            let translationRes = this.interp.vec3(translation, anim.Translation);
-            let rotationRes = this.interp.quat(rotation, anim.Rotation);
-            let scalingRes = this.interp.vec3(scaling, anim.Scaling);
+            const anim: TVertexAnim = this.rendererData.model.TextureAnims[layer.TVertexAnimId];
+            const translationRes = this.interp.vec3(translation, anim.Translation);
+            const rotationRes = this.interp.quat(rotation, anim.Rotation);
+            const scalingRes = this.interp.vec3(scaling, anim.Scaling);
             mat4.fromRotationTranslationScale(
                 texCoordMat4,
                 rotationRes || defaultRotation,
