@@ -162,8 +162,7 @@ export interface Bone extends Node {
     GeosetAnimId?: number;
 }
 
-export interface Helper extends Node {
-}
+export type Helper = Node
 
 export interface Attachment extends Node {
     Path?: string;

@@ -40,7 +40,7 @@ class State {
     }
 
     public keyword (): string {
-        let res = String.fromCharCode(
+        const res = String.fromCharCode(
             this.uint[this.pos],
             this.uint[this.pos + 1],
             this.uint[this.pos + 2],
@@ -63,7 +63,7 @@ class State {
     }
 
     public uint16 (): number {
-        let res = this.view.getUint16(this.pos, BIG_ENDIAN);
+        const res = this.view.getUint16(this.pos, BIG_ENDIAN);
 
         this.pos += 2;
 
@@ -71,7 +71,7 @@ class State {
     }
 
     public int32 (): number {
-        let res = this.view.getInt32(this.pos, BIG_ENDIAN);
+        const res = this.view.getInt32(this.pos, BIG_ENDIAN);
 
         this.pos += 4;
 
@@ -79,7 +79,7 @@ class State {
     }
 
     public float32 (): number {
-        let res = this.view.getFloat32(this.pos, BIG_ENDIAN);
+        const res = this.view.getFloat32(this.pos, BIG_ENDIAN);
 
         this.pos += 4;
 
@@ -98,7 +98,8 @@ class State {
         // ??
         // TS2461:Type 'Uint8Array' is not an array type.
         // let res = String.fromCharCode(...this.uint.slice(this.pos, this.pos + length));
-        let res = String.fromCharCode.apply(String, this.uint.slice(this.pos, this.pos + stringLength));
+        // eslint-disable-next-line prefer-spread
+        const res = String.fromCharCode.apply(String, this.uint.slice(this.pos, this.pos + stringLength));
 
         this.pos += length;
 
@@ -106,15 +107,15 @@ class State {
     }
 
     public animVector (type: AnimVectorType): AnimVector {
-        let res: AnimVector = {
+        const res: AnimVector = {
             Keys: []
         } as AnimVector;
 
-        let isInt = type === AnimVectorType.INT1;
+        const isInt = type === AnimVectorType.INT1;
 
-        let vectorSize = animVectorSize[type];
+        const vectorSize = animVectorSize[type];
 
-        let keysCount = this.int32();
+        const keysCount = this.int32();
         res.LineType = this.int32();
         res.GlobalSeqId = this.int32();
 
@@ -123,7 +124,7 @@ class State {
         }
 
         for (let i = 0; i < keysCount; ++i) {
-            let animKeyFrame: AnimKeyframe = {} as AnimKeyframe;
+            const animKeyFrame: AnimKeyframe = {} as AnimKeyframe;
 
             animKeyFrame.Frame = this.int32();
 
@@ -141,7 +142,7 @@ class State {
             }
 
             if (res.LineType === LineType.Hermite || res.LineType === LineType.Bezier) {
-                for (let part of ['InTan', 'OutTan']) {
+                for (const part of ['InTan', 'OutTan']) {
                     animKeyFrame[part] = new Float32Array(vectorSize);
                     for (let j = 0; j < vectorSize; ++j) {
                         if (isInt) {
@@ -169,7 +170,7 @@ interface ObjWithExtent {
 function parseExtent (obj: ObjWithExtent, state: State) {
     obj.BoundsRadius = state.float32();
 
-    for (let key of ['MinimumExtent', 'MaximumExtent']) {
+    for (const key of ['MinimumExtent', 'MaximumExtent']) {
         obj[key] = new Float32Array(3);
         for (let i = 0; i < 3; ++i) {
             obj[key][i] = state.float32();
@@ -191,16 +192,16 @@ function parseModelInfo (model: Model, state: State): void {
 
 const MODEL_SEQUENCE_NAME_LENGTH = 0x50;
 function parseSequences (model: Model, state: State, size: number): void {
-    let startPos = state.pos;
+    const startPos = state.pos;
 
     while (state.pos < startPos + size) {
-        let name = state.str(MODEL_SEQUENCE_NAME_LENGTH);
+        const name = state.str(MODEL_SEQUENCE_NAME_LENGTH);
 
-        let sequence: Sequence = {} as Sequence;
+        const sequence: Sequence = {} as Sequence;
 
         sequence.Name = name;
 
-        let interval = new Uint32Array(2);
+        const interval = new Uint32Array(2);
         interval[0] = state.int32();
         interval[1] = state.int32();
         sequence.Interval = interval;
@@ -217,12 +218,12 @@ function parseSequences (model: Model, state: State, size: number): void {
 }
 
 function parseMaterials (model: Model, state: State, size: number): void {
-    let startPos = state.pos;
+    const startPos = state.pos;
 
     while (state.pos < startPos + size) {
         state.int32(); // material size inclusive
 
-        let material: Material = {
+        const material: Material = {
             Layers: []
         } as Material;
 
@@ -231,13 +232,13 @@ function parseMaterials (model: Model, state: State, size: number): void {
 
         state.expectKeyword('LAYS', 'Incorrect materials format');
 
-        let layersCount = state.int32();
+        const layersCount = state.int32();
 
         for (let i = 0; i < layersCount; ++i) {
-            let startPos2 = state.pos;
-            let size2 = state.int32();
+            const startPos2 = state.pos;
+            const size2 = state.int32();
 
-            let layer: Layer = {} as Layer;
+            const layer: Layer = {} as Layer;
 
             layer.FilterMode = state.int32();
             layer.Shading = state.int32();
@@ -250,7 +251,7 @@ function parseMaterials (model: Model, state: State, size: number): void {
             layer.Alpha = state.float32();
 
             while (state.pos < startPos2 + size2) {
-                let keyword = state.keyword();
+                const keyword = state.keyword();
 
                 if (keyword === 'KMTA') {
                     layer.Alpha = state.animVector(AnimVectorType.FLOAT1);
@@ -270,10 +271,10 @@ function parseMaterials (model: Model, state: State, size: number): void {
 
 const MODEL_TEXTURE_PATH_LENGTH = 0x100;
 function parseTextures (model: Model, state: State, size: number) {
-    let startPos = state.pos;
+    const startPos = state.pos;
 
     while (state.pos < startPos + size) {
-        let texture: Texture = {} as Texture;
+        const texture: Texture = {} as Texture;
 
         texture.ReplaceableId = state.int32();
         texture.Image = state.str(MODEL_TEXTURE_PATH_LENGTH);
@@ -285,29 +286,29 @@ function parseTextures (model: Model, state: State, size: number) {
 }
 
 function parseGeosets (model: Model, state: State, size: number) {
-    let startPos = state.pos;
+    const startPos = state.pos;
 
     while (state.pos < startPos + size) {
-        let geoset: Geoset = {} as Geoset;
+        const geoset: Geoset = {} as Geoset;
 
         state.int32(); // geoset size, not used
 
         state.expectKeyword('VRTX', 'Incorrect geosets format');
-        let verticesCount = state.int32();
+        const verticesCount = state.int32();
         geoset.Vertices = new Float32Array(verticesCount * 3);
         for (let i = 0; i < verticesCount * 3; ++i) {
             geoset.Vertices[i] = state.float32();
         }
 
         state.expectKeyword('NRMS', 'Incorrect geosets format');
-        let normalsCount = state.int32();
+        const normalsCount = state.int32();
         geoset.Normals = new Float32Array(normalsCount * 3);
         for (let i = 0; i < normalsCount * 3; ++i) {
             geoset.Normals[i] = state.float32();
         }
 
         state.expectKeyword('PTYP', 'Incorrect geosets format');
-        let primitiveCount = state.int32();
+        const primitiveCount = state.int32();
         for (let i = 0; i < primitiveCount; ++i) {
             if (state.int32() !== 4) {
                 throw new Error('Incorrect geosets format');
@@ -315,27 +316,27 @@ function parseGeosets (model: Model, state: State, size: number) {
         }
 
         state.expectKeyword('PCNT', 'Incorrect geosets format');
-        let faceGroupCount = state.int32();
+        const faceGroupCount = state.int32();
         for (let i = 0; i < faceGroupCount; ++i) {
             state.int32();
         }
 
         state.expectKeyword('PVTX', 'Incorrect geosets format');
-        let indicesCount = state.int32();
+        const indicesCount = state.int32();
         geoset.Faces = new Uint16Array(indicesCount);
         for (let i = 0; i < indicesCount; ++i) {
             geoset.Faces[i] = state.uint16();
         }
 
         state.expectKeyword('GNDX', 'Incorrect geosets format');
-        let verticesGroupCount = state.int32();
+        const verticesGroupCount = state.int32();
         geoset.VertexGroup = new Uint8Array(verticesGroupCount);
         for (let i = 0; i < verticesGroupCount; ++i) {
             geoset.VertexGroup[i] = state.uint8();
         }
 
         state.expectKeyword('MTGC', 'Incorrect geosets format');
-        let groupsCount = state.int32();
+        const groupsCount = state.int32();
         geoset.Groups = [];
         for (let i = 0; i < groupsCount; ++i) {
             // new Array(array length)
@@ -360,11 +361,11 @@ function parseGeosets (model: Model, state: State, size: number) {
 
         parseExtent(geoset, state);
 
-        let geosetAnimCount = state.int32();
+        const geosetAnimCount = state.int32();
         geoset.Anims = [];
 
         for (let i = 0; i < geosetAnimCount; ++i) {
-            let geosetAnim: GeosetAnimInfo = {} as GeosetAnimInfo;
+            const geosetAnim: GeosetAnimInfo = {} as GeosetAnimInfo;
 
             parseExtent(geosetAnim, state);
 
@@ -372,14 +373,14 @@ function parseGeosets (model: Model, state: State, size: number) {
         }
 
         state.expectKeyword('UVAS', 'Incorrect geosets format');
-        let textureChunkCount = state.int32();
+        const textureChunkCount = state.int32();
         geoset.TVertices = [];
 
         for (let i = 0; i < textureChunkCount; ++i) {
             state.expectKeyword('UVBS', 'Incorrect geosets format');
-            let textureCoordsCount = state.int32();
+            const textureCoordsCount = state.int32();
 
-            let tvertices = new Float32Array(textureCoordsCount * 2);
+            const tvertices = new Float32Array(textureCoordsCount * 2);
             for (let j = 0; j < textureCoordsCount * 2; ++j) {
                 tvertices[j] = state.float32();
             }
@@ -392,13 +393,13 @@ function parseGeosets (model: Model, state: State, size: number) {
 }
 
 function parseGeosetAnims (model: Model, state: State, size: number): void {
-    let startPos = state.pos;
+    const startPos = state.pos;
 
     while (state.pos < startPos + size) {
-        let animStartPos = state.pos;
-        let animSize = state.int32();
+        const animStartPos = state.pos;
+        const animSize = state.int32();
 
-        let geosetAnim: GeosetAnim = {} as GeosetAnim;
+        const geosetAnim: GeosetAnim = {} as GeosetAnim;
 
         geosetAnim.Alpha = state.float32();
         geosetAnim.Flags = state.int32();
@@ -412,7 +413,7 @@ function parseGeosetAnims (model: Model, state: State, size: number): void {
         }
 
         while (state.pos < animStartPos + animSize) {
-            let keyword = state.keyword();
+            const keyword = state.keyword();
 
             if (keyword === 'KGAO') {
                 geosetAnim.Alpha = state.animVector(AnimVectorType.FLOAT1);
@@ -429,8 +430,8 @@ function parseGeosetAnims (model: Model, state: State, size: number): void {
 
 const MODEL_NODE_NAME_LENGTH = 0x50;
 function parseNode (model: Model, node: Node, state: State): void {
-    let startPos = state.pos;
-    let size = state.int32();
+    const startPos = state.pos;
+    const size = state.int32();
 
     node.Name = state.str(MODEL_NODE_NAME_LENGTH);
     node.ObjectId = state.int32();
@@ -444,7 +445,7 @@ function parseNode (model: Model, node: Node, state: State): void {
     node.Flags = state.int32();
 
     while (state.pos < startPos + size) {
-        let keyword = state.keyword();
+        const keyword = state.keyword();
 
         if (keyword === 'KGTR') {
             node.Translation = state.animVector(AnimVectorType.FLOAT3);
@@ -461,10 +462,10 @@ function parseNode (model: Model, node: Node, state: State): void {
 }
 
 function parseBones (model: Model, state: State, size: number): void {
-    let startPos = state.pos;
+    const startPos = state.pos;
 
     while (state.pos < startPos + size) {
-        let bone: Bone = {} as Bone;
+        const bone: Bone = {} as Bone;
 
         parseNode(model, bone, state);
 
@@ -482,10 +483,10 @@ function parseBones (model: Model, state: State, size: number): void {
 }
 
 function parseHelpers (model: Model, state: State, size: number): void {
-    let startPos = state.pos;
+    const startPos = state.pos;
 
     while (state.pos < startPos + size) {
-        let helper: Helper = {} as Helper;
+        const helper: Helper = {} as Helper;
 
         parseNode(model, helper, state);
 
@@ -495,12 +496,12 @@ function parseHelpers (model: Model, state: State, size: number): void {
 
 const MODEL_ATTACHMENT_PATH_LENGTH = 0x100;
 function parseAttachments (model: Model, state: State, size: number): void {
-    let startPos = state.pos;
+    const startPos = state.pos;
 
     while (state.pos < startPos + size) {
-        let attachmentStart = state.pos;
-        let attachmentSize = state.int32();
-        let attachment: Attachment = {} as Attachment;
+        const attachmentStart = state.pos;
+        const attachmentSize = state.int32();
+        const attachment: Attachment = {} as Attachment;
 
         parseNode(model, attachment, state);
 
@@ -519,7 +520,7 @@ function parseAttachments (model: Model, state: State, size: number): void {
 }
 
 function parsePivotPoints (model: Model, state: State, size: number): void {
-    let pointsCount = size / (4 * 3);
+    const pointsCount = size / (4 * 3);
 
     for (let i = 0; i < pointsCount; ++i) {
         model.PivotPoints[i] = new Float32Array(3);
@@ -530,15 +531,15 @@ function parsePivotPoints (model: Model, state: State, size: number): void {
 }
 
 function parseEventObjects (model: Model, state: State, size: number): void {
-    let startPos = state.pos;
+    const startPos = state.pos;
 
     while (state.pos < startPos + size) {
-        let eventObject: EventObject = {} as EventObject;
+        const eventObject: EventObject = {} as EventObject;
 
         parseNode(model, eventObject, state);
         state.expectKeyword('KEVT', 'Incorrect EventObject chunk data');
 
-        let eventTrackCount = state.int32();
+        const eventTrackCount = state.int32();
         eventObject.EventTrack = new Uint32Array(eventTrackCount);
         state.int32(); // unused 4-byte?
         for (let i = 0; i < eventTrackCount; ++i) {
@@ -550,10 +551,10 @@ function parseEventObjects (model: Model, state: State, size: number): void {
 }
 
 function parseCollisionShapes (model: Model, state: State, size: number): void {
-    let startPos = state.pos;
+    const startPos = state.pos;
 
     while (state.pos < startPos + size) {
-        let collisionShape: CollisionShape = {} as CollisionShape;
+        const collisionShape: CollisionShape = {} as CollisionShape;
 
         parseNode(model, collisionShape, state);
 
@@ -578,7 +579,7 @@ function parseCollisionShapes (model: Model, state: State, size: number): void {
 }
 
 function parseGlobalSequences (model: Model, state: State, size: number): void {
-    let startPos = state.pos;
+    const startPos = state.pos;
 
     model.GlobalSequences = [];
 
@@ -589,12 +590,12 @@ function parseGlobalSequences (model: Model, state: State, size: number): void {
 
 const MODEL_PARTICLE_EMITTER_PATH_LENGTH = 0x100;
 function parseParticleEmitters (model: Model, state: State, size: number): void {
-    let startPos = state.pos;
+    const startPos = state.pos;
 
     while (state.pos < startPos + size) {
-        let emitterStart = state.pos;
-        let emitterSize = state.int32();
-        let emitter: ParticleEmitter = {} as ParticleEmitter;
+        const emitterStart = state.pos;
+        const emitterSize = state.int32();
+        const emitter: ParticleEmitter = {} as ParticleEmitter;
 
         parseNode(model, emitter, state);
 
@@ -610,7 +611,7 @@ function parseParticleEmitters (model: Model, state: State, size: number): void 
         emitter.InitVelocity = state.float32();
 
         while (state.pos < emitterStart + emitterSize) {
-            let keyword = state.keyword();
+            const keyword = state.keyword();
 
             if (keyword === 'KPEV') {
                 emitter.Visibility = state.animVector(AnimVectorType.FLOAT1);
@@ -636,12 +637,12 @@ function parseParticleEmitters (model: Model, state: State, size: number): void 
 }
 
 function parseParticleEmitters2 (model: Model, state: State, size: number): void {
-    let startPos = state.pos;
+    const startPos = state.pos;
 
     while (state.pos < startPos + size) {
-        let emitterStart = state.pos;
-        let emitterSize = state.int32();
-        let emitter: ParticleEmitter2 = {} as ParticleEmitter2;
+        const emitterStart = state.pos;
+        const emitterSize = state.int32();
+        const emitter: ParticleEmitter2 = {} as ParticleEmitter2;
 
         parseNode(model, emitter, state);
 
@@ -658,7 +659,7 @@ function parseParticleEmitters2 (model: Model, state: State, size: number): void
         emitter.Rows = state.int32();
         emitter.Columns = state.int32();
 
-        let frameFlags = state.int32();
+        const frameFlags = state.int32();
         emitter.FrameFlags = 0;
         if (frameFlags === 0 || frameFlags === 2) {
             emitter.FrameFlags |= ParticleEmitter2FramesFlags.Head;
@@ -690,7 +691,7 @@ function parseParticleEmitters2 (model: Model, state: State, size: number): void
             emitter.ParticleScaling[i] = state.float32();
         }
 
-        for (let part of ['LifeSpanUVAnim', 'DecayUVAnim', 'TailUVAnim', 'TailDecayUVAnim']) {
+        for (const part of ['LifeSpanUVAnim', 'DecayUVAnim', 'TailUVAnim', 'TailDecayUVAnim']) {
             emitter[part] = new Uint32Array(3);
             for (let i = 0; i < 3; ++i) {
                 emitter[part][i] = state.int32();
@@ -706,7 +707,7 @@ function parseParticleEmitters2 (model: Model, state: State, size: number): void
         emitter.ReplaceableId = state.int32();
 
         while (state.pos < emitterStart + emitterSize) {
-            let keyword = state.keyword();
+            const keyword = state.keyword();
 
             if (keyword === 'KP2V') {
                 emitter.Visibility = state.animVector(AnimVectorType.FLOAT1);
@@ -735,13 +736,13 @@ function parseParticleEmitters2 (model: Model, state: State, size: number): void
 
 const MODEL_CAMERA_NAME_LENGTH = 0x50;
 function parseCameras (model: Model, state: State, size: number): void {
-    let startPos = state.pos;
+    const startPos = state.pos;
 
     while (state.pos < startPos + size) {
-        let cameraStart = state.pos;
-        let cameraSize = state.int32();
+        const cameraStart = state.pos;
+        const cameraSize = state.int32();
 
-        let camera: Camera = {} as Camera;
+        const camera: Camera = {} as Camera;
 
         camera.Name = state.str(MODEL_CAMERA_NAME_LENGTH);
 
@@ -760,7 +761,7 @@ function parseCameras (model: Model, state: State, size: number): void {
         camera.TargetPosition[2] = state.float32();
 
         while (state.pos < cameraStart + cameraSize) {
-            let keyword = state.keyword();
+            const keyword = state.keyword();
 
             if (keyword === 'KCTR') {
                 camera.Translation = state.animVector(AnimVectorType.FLOAT3);
@@ -778,13 +779,13 @@ function parseCameras (model: Model, state: State, size: number): void {
 }
 
 function parseLights (model: Model, state: State, size: number): void {
-    let startPos = state.pos;
+    const startPos = state.pos;
 
     while (state.pos < startPos + size) {
-        let lightStart = state.pos;
-        let lightSize = state.int32();
+        const lightStart = state.pos;
+        const lightSize = state.int32();
 
-        let light: Light = {} as Light;
+        const light: Light = {} as Light;
 
         parseNode(model, light, state);
 
@@ -809,7 +810,7 @@ function parseLights (model: Model, state: State, size: number): void {
         light.AmbIntensity = state.float32();
 
         while (state.pos < lightStart + lightSize) {
-            let keyword = state.keyword();
+            const keyword = state.keyword();
 
             if (keyword === 'KLAV') {
                 light.Visibility = state.animVector(AnimVectorType.FLOAT1);
@@ -835,16 +836,16 @@ function parseLights (model: Model, state: State, size: number): void {
 }
 
 function parseTextureAnims (model: Model, state: State, size: number): void {
-    let startPos = state.pos;
+    const startPos = state.pos;
 
     while (state.pos < startPos + size) {
-        let animStart = state.pos;
-        let animSize = state.int32();
+        const animStart = state.pos;
+        const animSize = state.int32();
 
-        let anim: TVertexAnim = {} as TVertexAnim;
+        const anim: TVertexAnim = {} as TVertexAnim;
 
         while (state.pos < animStart + animSize) {
-            let keyword = state.keyword();
+            const keyword = state.keyword();
 
             if (keyword === 'KTAT') {
                 anim.Translation = state.animVector(AnimVectorType.FLOAT3);
@@ -862,13 +863,13 @@ function parseTextureAnims (model: Model, state: State, size: number): void {
 }
 
 function parseRibbonEmitters (model: Model, state: State, size: number): void {
-    let startPos = state.pos;
+    const startPos = state.pos;
 
     while (state.pos < startPos + size) {
-        let emitterStart = state.pos;
-        let emitterSize = state.int32();
+        const emitterStart = state.pos;
+        const emitterSize = state.int32();
 
-        let emitter: RibbonEmitter = {} as RibbonEmitter;
+        const emitter: RibbonEmitter = {} as RibbonEmitter;
 
         parseNode(model, emitter, state);
 
@@ -892,7 +893,7 @@ function parseRibbonEmitters (model: Model, state: State, size: number): void {
         emitter.Gravity = state.float32();
 
         while (state.pos < emitterStart + emitterSize) {
-            let keyword = state.keyword();
+            const keyword = state.keyword();
 
             if (keyword === 'KRVS') {
                 emitter.Visibility = state.animVector(AnimVectorType.FLOAT1);
@@ -943,7 +944,7 @@ export function parse (arrayBuffer: ArrayBuffer): Model {
         throw new Error('Not a mdx model');
     }
 
-    let model: Model = {
+    const model: Model = {
         // default
         Version: 800,
         Info: {

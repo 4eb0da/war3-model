@@ -5,27 +5,34 @@ TypeScript-based mdl/mdx (Warcraft 3 model formats) converter/renderer
 * [MDL/MDX converter (also json-like structure-previewer)](https://4eb0da.github.io/war3-model/convert.html)
 * [WebGL model previewer](https://4eb0da.github.io/war3-model/preview.html)
 * [BLP previewer (BLP1 decoder only)](https://4eb0da.github.io/war3-model/decodeblp.html)
+* [Simple model optimizer](https://4eb0da.github.io/war3-model/optframes.html)
 
 ## Usage
+
+* [Usage in Node.js or with bundler (e.g. webpack)](docs/node.md)
+* [Usage in browser as external script](docs/browser-global.md)
+* [Usage in browser as ES Module directly](docs/browser-global.md)
+* [Exported APIs](docs/interface.md)
+* [How to render model in browser](docs/how-to-render.md)
+
 ```bash
 npm i war3-model --save
 ```
 
 MDL parsing/generation
 ```typescript
-import {parse as parseMDL} from 'war3-model/mdl/parse';
-import {generate as generateMDL} from 'war3-model/mdl/generate';
+import { parseMDL, generateMDL } from 'war3-model';
 
 let model = parseMDL('...');
 let mdl = generateMDL(model);
 console.log(mdl);
 ```
 
-BLP => PNG node.js converter
+BLP => PNG node.js cli converter
 ```typescript
 import * as fs from 'fs';
-import {PNG} from 'pngjs';
-import {decode, getImageData} from 'war3-model/blp/decode';
+import { PNG } from 'pngjs';
+import { decodeBLP, getBLPImageData } from 'war3-model';
 
 let blp = decode(new Uint8Array(fs.readFileSync(process.argv[2])).buffer);
 let imageData = getImageData(blp, 0);
@@ -35,6 +42,18 @@ png.data = Buffer.from(imageData.data.buffer);
 
 fs.writeFileSync('out.png', PNG.sync.write(png));
 ```
+
+## Is it good enough?
+
+100% of old classic Warcraft 3 models can be parsed.
+
+After conversion `mdx binary file` -> `in-memory structure` -> `mdx binary file` all of them would be byte-to-byte identical.
+
+~98.4% of models (3276/3329) would be identical after `mdx` -> `structure` -> `mdl` -> `structure` -> `mdx` (because warcraft contains extraneous data in models and because of unsupported multiple texture chunks in mdl).
+
+## What about Reforged?
+
+Nope. Currently not supported, sorry
 
 ## MDL/MDX support
 * All standart features like Sequences, Bones, Cameras, etc

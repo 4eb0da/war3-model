@@ -16,11 +16,14 @@ class State {
     }
 
     public char (): string {
+        if (this.pos >= this.str.length) {
+            throwError(this, 'incorrect model data');
+        }
         return this.str[this.pos];
     }
 }
 
-function throwError (state: State, str: string = ''): void {
+function throwError (state: State, str = ''): void {
     throw new Error(`SyntaxError, near ${state.pos}` + (str ? ', ' + str : ''));
 }
 
@@ -36,7 +39,7 @@ function parseComment (state: State): boolean {
 
 const spaceRE = /\s/i;
 function parseSpace (state: State): void {
-    while (spaceRE.test(state.char())) {
+    while (state.pos < state.str.length && spaceRE.test(state.char())) {
         ++state.pos;
     }
 }
@@ -86,7 +89,7 @@ function parseString (state: State): string {
 
         ++state.pos; // "
 
-        let res = state.str.substring(start, state.pos - 1);
+        const res = state.str.substring(start, state.pos - 1);
 
         parseSpace(state);
 
@@ -108,7 +111,7 @@ function parseNumber (state: State): number|null {
             ++state.pos;
         }
 
-        let res = parseFloat(state.str.substring(start, state.pos));
+        const res = parseFloat(state.str.substring(start, state.pos));
 
         parseSpace(state);
 
@@ -118,7 +121,7 @@ function parseNumber (state: State): number|null {
     return null;
 }
 
-function parseArray (state: State, arr?: number[]|Uint16Array|Uint32Array|Float32Array, pos?: number): typeof arr|null {
+function parseArray (state: State, arr?: number[]|Uint8Array|Uint16Array|Uint32Array|Float32Array, pos?: number): typeof arr|null {
     if (state.char() !== '{') {
         return null;
     }
@@ -131,7 +134,7 @@ function parseArray (state: State, arr?: number[]|Uint16Array|Uint32Array|Float3
     strictParseSymbol(state, '{');
 
     while (state.char() !== '}') {
-        let num = parseNumber(state);
+        const num = parseNumber(state);
 
         if (num === null) {
             throwError(state, 'expected number');
@@ -147,7 +150,7 @@ function parseArray (state: State, arr?: number[]|Uint16Array|Uint32Array|Float3
     return arr;
 }
 
-function parseArrayOrSingleItem<ArrType extends Uint16Array|Uint32Array|Float32Array>
+function parseArrayOrSingleItem<ArrType extends Uint16Array|Uint32Array|Int32Array|Float32Array>
     (state: State, arr: ArrType): ArrType {
     if (state.char() !== '{') {
         arr[0] = parseNumber(state);
@@ -159,7 +162,7 @@ function parseArrayOrSingleItem<ArrType extends Uint16Array|Uint32Array|Float32A
     strictParseSymbol(state, '{');
 
     while (state.char() !== '}') {
-        let num = parseNumber(state);
+        const num = parseNumber(state);
 
         if (num === null) {
             throwError(state, 'expected number');
@@ -177,7 +180,7 @@ function parseArrayOrSingleItem<ArrType extends Uint16Array|Uint32Array|Float32A
 
 function parseObject (state: State): [string|number|null, any] {
     let prefix: string|number|null = null;
-    let obj = {};
+    const obj = {};
 
     if (state.char() !== '{') {
         prefix = parseString(state);
@@ -199,10 +202,10 @@ function parseObject (state: State): [string|number|null, any] {
         }
 
         if (keyword === 'Interval') {
-            let array = new Uint32Array(2);
+            const array = new Uint32Array(2);
             obj[keyword] = parseArray(state, array, 0);
         } else if (keyword === 'MinimumExtent' || keyword === 'MaximumExtent') {
-            let array = new Float32Array(3);
+            const array = new Float32Array(3);
             obj[keyword] = parseArray(state, array, 0);
         } else {
             obj[keyword] = parseArray(state) || parseString(state);
@@ -220,7 +223,7 @@ function parseObject (state: State): [string|number|null, any] {
 }
 
 function parseVersion (state: State, model: Model): void {
-    const [unused, obj] = parseObject(state);
+    const [_unused, obj] = parseObject(state);
 
     if (obj.FormatVersion) {
         model.Version = obj.FormatVersion;
@@ -239,7 +242,7 @@ function parseSequences (state: State, model: Model): void {
 
     strictParseSymbol(state, '{');
 
-    let res: Sequence[] = [];
+    const res: Sequence[] = [];
 
     while (state.char() !== '}') {
         parseKeyword(state); // Anim
@@ -257,7 +260,7 @@ function parseSequences (state: State, model: Model): void {
 }
 
 function parseTextures (state: State, model: Model): void {
-    let res = [];
+    const res = [];
 
     parseNumber(state); // count, not used
 
@@ -266,7 +269,7 @@ function parseTextures (state: State, model: Model): void {
     while (state.char() !== '}') {
         parseKeyword(state); // Bitmap
 
-        const [unused, obj] = parseObject(state);
+        const [_unused, obj] = parseObject(state);
         obj.Flags = 0;
         if ('WrapWidth' in obj) {
             obj.Flags += TextureFlags.WrapWidth;
@@ -300,7 +303,7 @@ const animVectorSize = {
 };
 
 function parseAnimKeyframe (state: State, frame: number, type: AnimVectorType, lineType: LineType): AnimKeyframe {
-    let res: AnimKeyframe = {
+    const res: AnimKeyframe = {
         Frame: frame,
         Vector: null
     };
@@ -326,7 +329,7 @@ function parseAnimKeyframe (state: State, frame: number, type: AnimVectorType, l
 }
 
 function parseAnimVector (state: State, type: AnimVectorType): AnimVector {
-    let animVector: AnimVector = {
+    const animVector: AnimVector = {
         LineType: LineType.DontInterp,
         GlobalSeqId: null,
         Keys: []
@@ -336,7 +339,7 @@ function parseAnimVector (state: State, type: AnimVectorType): AnimVector {
 
     strictParseSymbol(state, '{');
 
-    let lineType: string = parseKeyword(state);
+    const lineType: string = parseKeyword(state);
     if (lineType === 'DontInterp' || lineType === 'Linear' || lineType === 'Hermite' || lineType === 'Bezier') {
         animVector.LineType = LineType[lineType];
     }
@@ -344,13 +347,13 @@ function parseAnimVector (state: State, type: AnimVectorType): AnimVector {
     strictParseSymbol(state, ',');
 
     while (state.char() !== '}') {
-        let keyword = parseKeyword(state);
+        const keyword = parseKeyword(state);
 
         if (keyword === 'GlobalSeqId') {
             animVector[keyword] = parseNumber(state);
             strictParseSymbol(state, ',');
         } else {
-            let frame = parseNumber(state);
+            const frame = parseNumber(state);
 
             if (frame === null) {
                 throwError(state, 'expected frame number or GlobalSeqId');
@@ -368,7 +371,7 @@ function parseAnimVector (state: State, type: AnimVectorType): AnimVector {
 }
 
 function parseLayer (state: State): Layer {
-    let res: Layer = {
+    const res: Layer = {
         Alpha: null,
         TVertexAnimId: null,
         Shading: 0,
@@ -398,7 +401,7 @@ function parseLayer (state: State): Layer {
             keyword === 'Unfogged' || keyword === 'NoDepthTest' || keyword === 'NoDepthSet') {
             res.Shading |= LayerShading[keyword];
         } else if (keyword === 'FilterMode') {
-            let val = parseKeyword(state);
+            const val = parseKeyword(state);
 
             if (val === 'None' || val === 'Transparent' || val === 'Blend' || val === 'Additive' ||
                 val === 'AddAlpha' || val === 'Modulate' || val === 'Modulate2x') {
@@ -425,14 +428,14 @@ function parseLayer (state: State): Layer {
 }
 
 function parseMaterials (state: State, model: Model): void {
-    let res = [];
+    const res = [];
 
     parseNumber(state); // count, not used
 
     strictParseSymbol(state, '{');
 
     while (state.char() !== '}') {
-        let obj = {
+        const obj = {
             RenderMode: 0,
             Layers: []
         };
@@ -472,7 +475,7 @@ function parseMaterials (state: State, model: Model): void {
 }
 
 function parseGeoset (state: State, model: Model): void {
-    let res = {
+    const res = {
         Vertices: null,
         Normals: null,
         TVertices: [],
@@ -506,7 +509,7 @@ function parseGeoset (state: State, model: Model): void {
             }
 
             const count = parseNumber(state);
-            let arr = new Float32Array(count * countPerObj);
+            const arr = new Float32Array(count * countPerObj);
 
             strictParseSymbol(state, '{');
 
@@ -528,7 +531,7 @@ function parseGeoset (state: State, model: Model): void {
             parseArray(state, res[keyword], 0);
         } else if (keyword === 'Faces') {
             parseNumber(state); // group count, always 1?
-            let indexCount = parseNumber(state);
+            const indexCount = parseNumber(state);
 
             res.Faces = new Uint16Array(indexCount);
 
@@ -542,7 +545,7 @@ function parseGeoset (state: State, model: Model): void {
             strictParseSymbol(state, '}');
             strictParseSymbol(state, '}');
         } else if (keyword === 'Groups') {
-            let groups = [];
+            const groups = [];
             parseNumber(state); // groups count, unused
             res.TotalGroupsCount = parseNumber(state); // summed in subarrays
 
@@ -560,14 +563,14 @@ function parseGeoset (state: State, model: Model): void {
 
             res.Groups = groups;
         } else if (keyword === 'MinimumExtent' || keyword === 'MaximumExtent') {
-            let arr = new Float32Array(3);
+            const arr = new Float32Array(3);
             res[keyword] = parseArray(state, arr, 0);
             strictParseSymbol(state, ',');
         } else if (keyword === 'BoundsRadius' || keyword === 'MaterialID' || keyword === 'SelectionGroup') {
             res[keyword] = parseNumber(state);
             strictParseSymbol(state, ',');
         } else if (keyword === 'Anim') {
-            let [unused, obj] = parseObject(state);
+            const [_unused, obj] = parseObject(state);
 
             if (obj.Alpha === undefined) {
                 obj.Alpha = 1;
@@ -586,7 +589,7 @@ function parseGeoset (state: State, model: Model): void {
 }
 
 function parseGeosetAnim (state: State, model: Model): void {
-    let res: GeosetAnim = {
+    const res: GeosetAnim = {
         GeosetId: -1,
         Alpha: 1,
         Color: null,
@@ -616,12 +619,12 @@ function parseGeosetAnim (state: State, model: Model): void {
             }
         } else if (keyword === 'Color') {
             if (isStatic) {
-                let array = new Float32Array(3);
+                const array = new Float32Array(3);
                 res.Color = parseArray(state, array, 0) as Float32Array;
                 res.Color.reverse();
             } else {
                 res.Color = parseAnimVector(state, AnimVectorType.FLOAT3);
-                for (let key of res.Color.Keys) {
+                for (const key of res.Color.Keys) {
                     key.Vector.reverse();
                     if (key.InTan) {
                         key.InTan.reverse();
@@ -646,7 +649,7 @@ function parseGeosetAnim (state: State, model: Model): void {
 function parseNode (state: State, type: string, model: Model): Node {
     const name = parseString(state);
 
-    let node: Node = {
+    const node: Node = {
         Name: name,
         ObjectId: null,
         Parent: null,
@@ -677,7 +680,7 @@ function parseNode (state: State, type: string, model: Model): Node {
         } else if (keyword === 'DontInherit') {
             strictParseSymbol(state, '{');
 
-            let val = parseKeyword(state);
+            const val = parseKeyword(state);
 
             if (val === 'Translation') {
                 node.Flags |= NodeFlags.DontInheritTranslation;
@@ -732,7 +735,7 @@ function parseAttachment (state: State, model: Model): void {
 function parsePivotPoints (state: State, model: Model): void {
     const count = parseNumber(state);
 
-    let res = [];
+    const res = [];
 
     strictParseSymbol(state, '{');
 
@@ -749,7 +752,7 @@ function parsePivotPoints (state: State, model: Model): void {
 function parseEventObject (state: State, model: Model): void {
     const name = parseString(state);
 
-    let res: EventObject = {
+    const res: EventObject = {
         Name: name,
         ObjectId: null,
         Parent: null,
@@ -768,11 +771,11 @@ function parseEventObject (state: State, model: Model): void {
         }
 
         if (keyword === 'EventTrack') {
-            let count = parseNumber(state); // EventTrack count
+            const count = parseNumber(state); // EventTrack count
 
             res.EventTrack = parseArray(state, new Uint32Array(count), 0) as Uint32Array;
         } else if (keyword === 'Translation' || keyword === 'Rotation' || keyword === 'Scaling') {
-            let type: AnimVectorType = keyword === 'Rotation' ? AnimVectorType.FLOAT4 : AnimVectorType.FLOAT3;
+            const type: AnimVectorType = keyword === 'Rotation' ? AnimVectorType.FLOAT4 : AnimVectorType.FLOAT3;
 
             res[keyword] = parseAnimVector(state, type);
         } else {
@@ -791,7 +794,7 @@ function parseEventObject (state: State, model: Model): void {
 function parseCollisionShape (state: State, model: Model): void {
     const name = parseString(state);
 
-    let res: CollisionShape = {
+    const res: CollisionShape = {
         Name: name,
         ObjectId: null,
         Parent: null,
@@ -815,8 +818,8 @@ function parseCollisionShape (state: State, model: Model): void {
         } else if (keyword === 'Box') {
             res.Shape = CollisionShapeType.Box;
         } else if (keyword === 'Vertices') {
-            let count = parseNumber(state);
-            let vertices = new Float32Array(count * 3);
+            const count = parseNumber(state);
+            const vertices = new Float32Array(count * 3);
 
             strictParseSymbol(state, '{');
 
@@ -829,7 +832,7 @@ function parseCollisionShape (state: State, model: Model): void {
 
             res.Vertices = vertices;
         } else if (keyword === 'Translation' || keyword === 'Rotation' || keyword === 'Scaling') {
-            let type: AnimVectorType = keyword === 'Rotation' ? AnimVectorType.FLOAT4 : AnimVectorType.FLOAT3;
+            const type: AnimVectorType = keyword === 'Rotation' ? AnimVectorType.FLOAT4 : AnimVectorType.FLOAT3;
             res[keyword] = parseAnimVector(state, type);
         } else {
             res[keyword] = parseNumber(state);
@@ -845,9 +848,9 @@ function parseCollisionShape (state: State, model: Model): void {
 }
 
 function parseGlobalSequences (state: State, model: Model): void {
-    let res = [];
+    const res = [];
 
-    let count = parseNumber(state);
+    const count = parseNumber(state);
 
     strictParseSymbol(state, '{');
 
@@ -885,7 +888,7 @@ function parseUnknownBlock (state: State): void {
 }
 
 function parseParticleEmitter (state: State, model: Model): void {
-    let res: ParticleEmitter = {
+    const res: ParticleEmitter = {
         ObjectId: null,
         Parent: null,
         Name: null,
@@ -961,9 +964,9 @@ function parseParticleEmitter (state: State, model: Model): void {
 }
 
 function parseParticleEmitter2 (state: State, model: Model): void {
-    let name = parseString(state);
+    const name = parseString(state);
 
-    let res: ParticleEmitter2 = {
+    const res: ParticleEmitter2 = {
         Name: name,
         ObjectId: null,
         Parent: null,
@@ -1021,7 +1024,7 @@ function parseParticleEmitter2 (state: State, model: Model): void {
         } else if (keyword === 'DontInherit') {
             strictParseSymbol(state, '{');
 
-            let val = parseKeyword(state);
+            const val = parseKeyword(state);
 
             if (val === 'Translation') {
                 res.Flags |= NodeFlags.DontInheritTranslation;
@@ -1033,17 +1036,17 @@ function parseParticleEmitter2 (state: State, model: Model): void {
 
             strictParseSymbol(state, '}');
         } else if (keyword === 'SegmentColor') {
-            let colors = [];
+            const colors = [];
 
             strictParseSymbol(state, '{');
             while (state.char() !== '}') {
                 parseKeyword(state); // Color
 
-                let colorArr = new Float32Array(3);
+                const colorArr = new Float32Array(3);
                 parseArray(state, colorArr, 0);
 
                 // bgr order, inverse from mdx
-                let temp = colorArr[0];
+                const temp = colorArr[0];
                 colorArr[0] = colorArr[2];
                 colorArr[2] = temp;
                 colors.push(colorArr);
@@ -1080,7 +1083,7 @@ function parseParticleEmitter2 (state: State, model: Model): void {
 }
 
 function parseCamera (state: State, model: Model): void {
-    let res: Camera = {
+    const res: Camera = {
         Name: null,
         Position: null,
         FieldOfView: 0,
@@ -1138,9 +1141,9 @@ function parseCamera (state: State, model: Model): void {
 }
 
 function parseLight (state: State, model: Model): void {
-    let name = parseString(state);
+    const name = parseString(state);
 
-    let res: Light = {
+    const res: Light = {
         Name: name,
         ObjectId: null,
         Parent: null,
@@ -1183,7 +1186,7 @@ function parseLight (state: State, model: Model): void {
             }
             res[keyword] = parseAnimVector(state, type);
             if (keyword === 'Color' || keyword === 'AmbColor') {
-                for (let key of (res[keyword] as AnimVector).Keys) {
+                for (const key of (res[keyword] as AnimVector).Keys) {
                     key.Vector.reverse();
                     if (key.InTan) {
                         key.InTan.reverse();
@@ -1194,11 +1197,11 @@ function parseLight (state: State, model: Model): void {
         } else if (keyword === 'Omnidirectional' || keyword === 'Directional' || keyword === 'Ambient') {
             res.LightType = LightType[keyword];
         } else if (keyword === 'Color' || keyword === 'AmbColor') {
-            let color = new Float32Array(3);
+            const color = new Float32Array(3);
             parseArray(state, color, 0);
 
             // bgr order, inverse from mdx
-            let temp = color[0];
+            const temp = color[0];
             color[0] = color[2];
             color[2] = temp;
 
@@ -1217,14 +1220,14 @@ function parseLight (state: State, model: Model): void {
 }
 
 function parseTextureAnims (state: State, model: Model): void {
-    let res = [];
+    const res = [];
 
     parseNumber(state); // count, not used
 
     strictParseSymbol(state, '{');
 
     while (state.char() !== '}') {
-        let obj: TVertexAnim = {};
+        const obj: TVertexAnim = {};
 
         parseKeyword(state); // TVertexAnim
 
@@ -1238,7 +1241,7 @@ function parseTextureAnims (state: State, model: Model): void {
             }
 
             if (keyword === 'Translation' || keyword === 'Rotation' || keyword === 'Scaling') {
-                let type: AnimVectorType = keyword === 'Rotation' ? AnimVectorType.FLOAT4 : AnimVectorType.FLOAT3;
+                const type: AnimVectorType = keyword === 'Rotation' ? AnimVectorType.FLOAT4 : AnimVectorType.FLOAT3;
                 obj[keyword] = parseAnimVector(state, type);
             } else {
                 throw new Error('Unknown texture anim property ' + keyword);
@@ -1258,9 +1261,9 @@ function parseTextureAnims (state: State, model: Model): void {
 }
 
 function parseRibbonEmitter (state: State, model: Model): void {
-    let name = parseString(state);
+    const name = parseString(state);
 
-    let res: RibbonEmitter = {
+    const res: RibbonEmitter = {
         Name: name,
         ObjectId: null,
         Parent: null,
@@ -1315,11 +1318,11 @@ function parseRibbonEmitter (state: State, model: Model): void {
             }
             res[keyword] = parseAnimVector(state, type);
         } else if (keyword === 'Color') {
-            let color = new Float32Array(3);
+            const color = new Float32Array(3);
             parseArray(state, color, 0);
 
             // bgr order, inverse from mdx
-            let temp = color[0];
+            const temp = color[0];
             color[0] = color[2];
             color[2] = temp;
 
@@ -1362,7 +1365,7 @@ const parsers = {
 
 export function parse (str: string): Model {
     const state = new State(str);
-    let model: Model = {
+    const model: Model = {
         // default
         Version: 800,
         Info: {

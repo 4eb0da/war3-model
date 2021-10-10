@@ -8,11 +8,11 @@ import {AnimKeyframe, AnimVector, Model} from '../../model';
 import '../shim';
 
 document.addEventListener('DOMContentLoaded', function init () {
-    let container = document.querySelector('.container');
-    let saveMDL = document.querySelector('.save[data-type="mdl"]');
-    let saveMDX = document.querySelector('.save[data-type="mdx"]');
-    let label = document.querySelector('.label');
-    let log = document.querySelector('.log');
+    const container = document.querySelector('.container');
+    const saveMDL = document.querySelector('.save[data-type="mdl"]');
+    const saveMDX = document.querySelector('.save[data-type="mdx"]');
+    const label = document.querySelector('.label');
+    const log = document.querySelector('.log');
     let dropTarget;
     let model: Model;
     let cleanedName: string;
@@ -35,22 +35,22 @@ document.addEventListener('DOMContentLoaded', function init () {
         event.preventDefault();
         container.classList.remove('container_drag');
 
-        let file = event.dataTransfer.files && event.dataTransfer.files[0];
+        const file = event.dataTransfer.files && event.dataTransfer.files[0];
         if (!file) {
             return;
         }
 
-        let reader = new FileReader();
-        let isMDX = file.name.indexOf('.mdx') > -1;
+        const reader = new FileReader();
+        const isMDX = file.name.indexOf('.mdx') > -1;
 
         cleanedName = file.name.replace(/\.[^.]+$/, '');
 
         reader.onload = () => {
             try {
                 if (isMDX) {
-                    model = parseMDX(reader.result);
+                    model = parseMDX(reader.result as ArrayBuffer);
                 } else {
-                    model = parseMDL(reader.result);
+                    model = parseMDL(reader.result as string);
                 }
             } catch (err) {
                 showError(err);
@@ -72,7 +72,7 @@ document.addEventListener('DOMContentLoaded', function init () {
             event.preventDefault();
 
             let res: Blob;
-            let isMDL = button.getAttribute('data-type') === 'mdl';
+            const isMDL = button.getAttribute('data-type') === 'mdl';
 
             if (isMDL) {
                 res = new Blob([generateMDL(model)], {type: 'octet/stream'});
@@ -80,7 +80,7 @@ document.addEventListener('DOMContentLoaded', function init () {
                 res = new Blob([generateMDX(model)], {type: 'octet/stream'});
             }
 
-            let link = document.createElement('a');
+            const link = document.createElement('a');
             link.style.display = 'none';
             document.body.appendChild(link);
 
@@ -97,7 +97,7 @@ document.addEventListener('DOMContentLoaded', function init () {
     }
 
     function logStr (str) {
-        let p = document.createElement('p');
+        const p = document.createElement('p');
 
         p.textContent = str;
         log.appendChild(p);
@@ -109,7 +109,7 @@ document.addEventListener('DOMContentLoaded', function init () {
         let totalKeys = 0,
             cleanedKeys = 0;
 
-        let isSameKey = (keyframe0: AnimKeyframe, keyframe1: AnimKeyframe): boolean => {
+        const isSameKey = (keyframe0: AnimKeyframe, keyframe1: AnimKeyframe): boolean => {
             for (let i = 0; i < keyframe0.Vector.length; ++i) {
                 if (keyframe0.Vector[i] !== keyframe1.Vector[i]) {
                     return false;
@@ -130,10 +130,10 @@ document.addEventListener('DOMContentLoaded', function init () {
             return true;
         };
 
-        let processKeys = (obj: any, key: string): void => {
-            let animVector: AnimVector = obj[key];
-            let sequences = model.Sequences;
-            let globalSequences = model.GlobalSequences;
+        const processKeys = (obj: any, key: string): void => {
+            const animVector: AnimVector = obj[key];
+            const sequences = model.Sequences;
+            const globalSequences = model.GlobalSequences;
 
             if (!animVector || !animVector.Keys) {
                 return;
@@ -142,16 +142,16 @@ document.addEventListener('DOMContentLoaded', function init () {
 
             let newKeys = [];
 
-            let processAnim = (from: number, to: number): void => {
-                let keys = [];
+            const processAnim = (from: number, to: number): void => {
+                const keys = [];
 
-                for (let keyframe of animVector.Keys) {
+                for (const keyframe of animVector.Keys) {
                     if (keyframe.Frame >= from && keyframe.Frame <= to) {
                         keys.push(keyframe);
                     }
                 }
                 let prevKey: AnimKeyframe = null;
-                let filtered = [];
+                const filtered = [];
                 for (let i = 0; i < keys.length; ++i) {
                     if (!prevKey) {
                         prevKey = keys[i];
@@ -171,7 +171,7 @@ document.addEventListener('DOMContentLoaded', function init () {
             if (animVector.GlobalSeqId !== null) {
                 processAnim(0, globalSequences[animVector.GlobalSeqId]);
             } else {
-                for (let anim of sequences) {
+                for (const anim of sequences) {
                     processAnim(anim.Interval[0], anim.Interval[1]);
                 }
             }
@@ -181,7 +181,7 @@ document.addEventListener('DOMContentLoaded', function init () {
             animVector.Keys = newKeys;
         };
 
-        for (let node of model.Nodes) {
+        for (const node of model.Nodes) {
             processKeys(node, 'Translation');
             processKeys(node, 'Rotation');
             processKeys(node, 'Scaling');
@@ -207,20 +207,20 @@ document.addEventListener('DOMContentLoaded', function init () {
             processKeys(node, 'TextureSlot');
         }
 
-        for (let camera of model.Cameras) {
+        for (const camera of model.Cameras) {
             processKeys(camera, 'TargetTranslation');
             processKeys(camera, 'Translation');
             processKeys(camera, 'Rotation');
         }
 
-        for (let anim of model.TextureAnims) {
+        for (const anim of model.TextureAnims) {
             processKeys(anim, 'Translation');
             processKeys(anim, 'Rotation');
             processKeys(anim, 'Scaling');
         }
 
-        for (let material of model.Materials) {
-            for (let layer of material.Layers) {
+        for (const material of model.Materials) {
+            for (const layer of material.Layers) {
                 processKeys(layer, 'TextureID');
                 processKeys(layer, 'Alpha');
             }

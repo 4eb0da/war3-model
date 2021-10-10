@@ -6,21 +6,21 @@ import {
     CollisionShapeType, ParticleEmitter, ParticleEmitterFlags
 } from '../model';
 
-const FLOAT_PRESICION: number = 6;
-const EPSILON: number = 1e-6;
+const FLOAT_PRESICION = 6;
+const EPSILON = 1e-6;
 
-function isNotEmptyVec3 (vec: Float32Array, val: number = 0) {
+function isNotEmptyVec3 (vec: Float32Array, val = 0) {
     return Math.abs(vec[0] - val) > EPSILON ||
         Math.abs(vec[1] - val) > EPSILON ||
         Math.abs(vec[2] - val) > EPSILON;
 }
 
-function generateTab (tabSize: number = 1): string {
+function generateTab (tabSize = 1): string {
     if (tabSize === 0) {
         return '';
     }
 
-    let res: string = '\t';
+    let res = '\t';
 
     for (let i = 1; i < tabSize; ++i) {
         res += '\t';
@@ -40,29 +40,29 @@ function generateWrappedStringOrNumber (val: string|number): string {
     return generateWrappedString(val);
 }
 
-function generateBlockStart (blockName: string, subInfo: string|number|null = null, tabSize: number = 0): string {
+function generateBlockStart (blockName: string, subInfo: string|number|null = null, tabSize = 0): string {
     return generateTab(tabSize) +
             blockName + ' ' +
             (subInfo !== null ? generateWrappedStringOrNumber(subInfo) + ' ' : '') +
             '{\n';
 }
 
-function generateBlockEnd (tabSize: number = 0) {
+function generateBlockEnd (tabSize = 0) {
     return generateTab(tabSize) + '}\n';
 }
 
-let trailingZeroRegExp = /(\..+?)0+$/;
-let trailingZeroRegExp2 = /\.0+$/;
-let negativeZeroRegExp = /^-0$/;
-function generateFloat (val: number): string {
+const trailingZeroRegExp = /(\..+?)0+$/;
+const trailingZeroRegExp2 = /\.0+$/;
+const negativeZeroRegExp = /^-0$/;
+function generateNumber (val: number): string {
     return val.toFixed(FLOAT_PRESICION)
         .replace(trailingZeroRegExp, '$1')
         .replace(trailingZeroRegExp2, '')
         .replace(negativeZeroRegExp, '0');
 }
 
-function generateFloatArray (arr: Float32Array, reverse: boolean = false): string {
-    let middle: string = '';
+function generateArray (arr: Float32Array|Int32Array|Uint32Array, reverse = false): string {
+    let middle = '';
 
     if (reverse) {
         for (let i = arr.length - 1; i >= 0; --i) {
@@ -70,7 +70,7 @@ function generateFloatArray (arr: Float32Array, reverse: boolean = false): strin
                 middle += ', ';
             }
 
-            middle += generateFloat(arr[i]);
+            middle += generateNumber(arr[i]);
         }
     } else {
         for (let i = 0; i < arr.length; ++i) {
@@ -78,7 +78,7 @@ function generateFloatArray (arr: Float32Array, reverse: boolean = false): strin
                 middle += ', ';
             }
 
-            middle += generateFloat(arr[i]);
+            middle += generateNumber(arr[i]);
         }
     }
 
@@ -86,7 +86,7 @@ function generateFloatArray (arr: Float32Array, reverse: boolean = false): strin
 }
 
 function generateUIntArray (arr: number[]|Uint8Array|Uint16Array|Uint32Array): string {
-    let middle: string = '';
+    let middle = '';
 
     for (let i = 0; i < arr.length; ++i) {
         if (i > 0) {
@@ -103,51 +103,51 @@ function generateStatic (isStatic: boolean|null) {
     return isStatic ? 'static ' : '';
 }
 
-function generateProp (name: string, val: string, isStatic: boolean|null, tabSize: number = 1): string {
+function generateProp (name: string, val: string, isStatic: boolean|null, tabSize = 1): string {
     return `${generateTab(tabSize) + generateStatic(isStatic) + name} ${val},\n`;
 }
 
-function generateIntProp (name: string, val: number, isStatic: boolean|null = null, tabSize: number = 1): string {
+function generateIntProp (name: string, val: number, isStatic: boolean|null = null, tabSize = 1): string {
     return generateProp(name, String(val), isStatic, tabSize);
 }
 
-function generateFloatProp (name: string, val: number, isStatic: boolean|null = null, tabSize: number = 1): string {
-    return generateProp(name, generateFloat(val), isStatic, tabSize);
+function generateFloatProp (name: string, val: number, isStatic: boolean|null = null, tabSize = 1): string {
+    return generateProp(name, generateNumber(val), isStatic, tabSize);
 }
 
-function generateStringProp (name: string, val: string, isStatic: boolean|null = null, tabSize: number = 1): string {
+function generateStringProp (name: string, val: string, isStatic: boolean|null = null, tabSize = 1): string {
     return generateProp(name, val, isStatic, tabSize);
 }
 
 function generateWrappedStringProp (name: string, val: string, isStatic: boolean|null = null,
-                                    tabSize: number = 1): string {
+                                    tabSize = 1): string {
     return generateProp(name, generateWrappedString(val), isStatic, tabSize);
 }
 
-function generateFloatArrayProp (name: string, val: Float32Array, isStatic: boolean|null = null,
-                                 tabSize: number = 1): string {
-    return generateProp(name, generateFloatArray(val), isStatic, tabSize);
+function generateFloatArrayProp (name: string, val: Uint32Array|Float32Array, isStatic: boolean|null = null,
+                                 tabSize = 1): string {
+    return generateProp(name, generateArray(val), isStatic, tabSize);
 }
 
-function generateUIntArrayProp (name: string, val: Uint32Array, isStatic: boolean|null = null,
-                                tabSize: number = 1): string {
+function generateUIntArrayProp (name: string, val: Uint8Array|Uint32Array, isStatic: boolean|null = null,
+                                tabSize = 1): string {
     return generateProp(name, generateUIntArray(val), isStatic, tabSize);
 }
 
-function generateBooleanProp (name: string, tabSize: number = 1): string {
+function generateBooleanProp (name: string, tabSize = 1): string {
     return generateTab(tabSize) + name + ',\n';
 }
 
-function generateIntPropIfNotEmpty (name: string, val: number|null|undefined, defaultVal: number = 0,
-                                    isStatic: boolean|null = null, tabSize: number = 1): string {
+function generateIntPropIfNotEmpty (name: string, val: number|null|undefined, defaultVal = 0,
+                                    isStatic: boolean|null = null, tabSize = 1): string {
     if (val !== defaultVal && val !== null && val !== undefined) {
         return generateIntProp(name, val, isStatic, tabSize);
     }
     return '';
 }
 
-function generateFloatPropIfNotEmpty (name: string, val: number, defaultVal: number = 0, isStatic: boolean|null = null,
-                                      tabSize: number = 1): string {
+function generateFloatPropIfNotEmpty (name: string, val: number, defaultVal = 0, isStatic: boolean|null = null,
+                                      tabSize = 1): string {
     if (Math.abs(val - defaultVal) > EPSILON) {
         return generateFloatProp(name, val, isStatic, tabSize);
     }
@@ -169,22 +169,22 @@ function generateLineType (lineType: LineType): string {
     return '';
 }
 
-function generateAnimKeyFrame (key: AnimKeyframe, tabSize: number = 2, reverse: boolean = false) {
+function generateAnimKeyFrame (key: AnimKeyframe, tabSize = 2, reverse = false) {
     let res = generateTab(tabSize) + key.Frame + ': ' +
-        (key.Vector.length === 1 ? generateFloat(key.Vector[0]) : generateFloatArray(key.Vector, reverse)) + ',\n';
+        (key.Vector.length === 1 ? generateNumber(key.Vector[0]) : generateArray(key.Vector, reverse)) + ',\n';
 
     if (key.InTan/* or OutTan */) {
         res += generateTab(tabSize + 1) + 'InTan ' +
-            (key.InTan.length === 1 ? generateFloat(key.InTan[0]) : generateFloatArray(key.InTan, reverse)) + ',\n';
+            (key.InTan.length === 1 ? generateNumber(key.InTan[0]) : generateArray(key.InTan, reverse)) + ',\n';
         res += generateTab(tabSize + 1) + 'OutTan ' +
-            (key.OutTan.length === 1 ? generateFloat(key.OutTan[0]) : generateFloatArray(key.OutTan, reverse)) + ',\n';
+            (key.OutTan.length === 1 ? generateNumber(key.OutTan[0]) : generateArray(key.OutTan, reverse)) + ',\n';
     }
 
     return res;
 }
 
 function generateAnimVectorProp (name, val: AnimVector|number, defaultVal: number|null = 0,
-                                 tabSize: number = 1, reverse: boolean = false): string {
+                                 tabSize = 1, reverse = false): string {
     if (val === null || val === undefined) {
         return '';
     }
@@ -382,10 +382,10 @@ function generateGeosetChunk (geoset: Geoset): string {
 
 function generateGeosetArray (name: string, arr: Float32Array, elemLength: number): string {
     let middle = '';
-    let elemCount = arr.length / elemLength;
+    const elemCount = arr.length / elemLength;
 
     for (let i = 0; i < elemCount; ++i) {
-        middle += generateTab(2) + generateFloatArray(arr.slice(i * elemLength, (i + 1) * elemLength)) + ',\n';
+        middle += generateTab(2) + generateArray(arr.slice(i * elemLength, (i + 1) * elemLength)) + ',\n';
     }
 
     return generateBlockStart(name, elemCount, 1) +
@@ -393,7 +393,7 @@ function generateGeosetArray (name: string, arr: Float32Array, elemLength: numbe
         generateBlockEnd(1);
 }
 
-function generateGeosetVertexGroup (arr: Uint16Array): string {
+function generateGeosetVertexGroup (arr: Uint8Array|Uint16Array): string {
     let middle = '';
 
     for (let i = 0; i < arr.length; ++i) {
@@ -417,7 +417,7 @@ function generateGeosetGroups (groups: number[][]): string {
     let totalMatrices = 0;
     let middle = '';
 
-    for (let group of groups) {
+    for (const group of groups) {
         totalMatrices += group.length;
         middle += generateTab(2) + 'Matrices ' + generateUIntArray(group) + ',\n';
     }
@@ -452,7 +452,7 @@ function generateGeosetAnims (model: Model): string {
 }
 
 function generateColorProp (name: string, color: AnimVector|Float32Array, isStatic: boolean|null,
-                            tabSize: number = 1): string {
+                            tabSize = 1): string {
     if (color) {
         if (color instanceof Float32Array) {
             if (!isStatic || isNotEmptyVec3(color, 1)) {
@@ -462,10 +462,10 @@ function generateColorProp (name: string, color: AnimVector|Float32Array, isStat
                     if (i < 2) {
                         middle += ', ';
                     }
-                    middle += generateFloat(color[i]);
+                    middle += generateNumber(color[i]);
                 }
 
-                return `${generateTab(tabSize)}${isStatic ? 'static ' : ''}${name} \{ ${middle} },\n`;
+                return `${generateTab(tabSize)}${isStatic ? 'static ' : ''}${name} { ${middle} },\n`;
             }
         } else {
             return generateAnimVectorProp(name, color, null, tabSize, true);
@@ -499,7 +499,7 @@ function generateNodeProps (node: Node): string {
 }
 
 function generateNodeDontInherit (flags: NodeFlags) {
-    let flagsStrs: string[] = [];
+    const flagsStrs: string[] = [];
 
     if (flags & NodeFlags.DontInheritTranslation) {
         flagsStrs.push('Translation');
@@ -598,7 +598,7 @@ function generateAttachmentChunk (attachment: Attachment): string {
 
 function generatePivotPoints (model: Model): string {
     return generateBlockStart('PivotPoints', model.PivotPoints.length) +
-        model.PivotPoints.map(point => `${generateTab()}${generateFloatArray(point)},\n`).join('') +
+        model.PivotPoints.map(point => `${generateTab()}${generateArray(point)},\n`).join('') +
         generateBlockEnd();
 }
 
@@ -772,13 +772,13 @@ function generateCollisionShapeChunk (collisionShape: CollisionShape): string {
     if (collisionShape.Shape === CollisionShapeType.Box) {
         middle = generateBooleanProp('Box');
         middle += generateBlockStart('Vertices', 2, 1) +
-            generateTab(2) + generateFloatArray(collisionShape.Vertices.slice(0, 3)) + ',\n' +
-            generateTab(2) + generateFloatArray(collisionShape.Vertices.slice(3, 6)) + ',\n' +
+            generateTab(2) + generateArray(collisionShape.Vertices.slice(0, 3)) + ',\n' +
+            generateTab(2) + generateArray(collisionShape.Vertices.slice(3, 6)) + ',\n' +
             generateBlockEnd(1);
     } else {
         middle = generateBooleanProp('Sphere');
         middle += generateBlockStart('Vertices', 1, 1) +
-            generateTab(2) + generateFloatArray(collisionShape.Vertices) + ',\n' +
+            generateTab(2) + generateArray(collisionShape.Vertices) + ',\n' +
             generateBlockEnd(1) +
             generateFloatProp('BoundsRadius', collisionShape.BoundsRadius);
     }
@@ -789,7 +789,7 @@ function generateCollisionShapeChunk (collisionShape: CollisionShape): string {
         generateBlockEnd();
 }
 
-const generators: [(model: Model) => string] = [
+const generators: ((model: Model) => string)[] = [
     generateVersion,
     generateModel,
     generateSequences,
@@ -815,7 +815,7 @@ const generators: [(model: Model) => string] = [
 export function generate (model: Model): string {
     let res = '';
 
-    for (let generator of generators) {
+    for (const generator of generators) {
         res += generator(model);
     }
 

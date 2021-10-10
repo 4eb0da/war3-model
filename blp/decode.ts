@@ -1,4 +1,4 @@
-import * as decodeJPEG from '../third_party/decoder';
+import decodeJPEG from '../third_party/decoder';
 import {BLPImage, BLPContent, BLPType} from './blpimage';
 
 function keyword (view: DataView, offset: number): string {
@@ -16,7 +16,7 @@ function uint32 (view: DataView, offset: number): number {
 
 function bitVal (data: Uint8Array, bitCount: number, index: number): number {
     // only 1, 4 or 8 bits
-    let byte = data[Math.floor(index * bitCount / 8)],
+    const byte = data[Math.floor(index * bitCount / 8)],
         valsPerByte = 8 / bitCount;
 
     return (byte >> (valsPerByte - index % valsPerByte - 1)) & ((1 << bitCount) - 1);
@@ -42,9 +42,9 @@ function createImageData (width: number, height: number): ImageDataLike {
 }
 
 export function decode (arrayBuffer: ArrayBuffer): BLPImage {
-    let view = new DataView(arrayBuffer);
+    const view = new DataView(arrayBuffer);
 
-    let image: BLPImage = {
+    const image: BLPImage = {
         type: BLPType.BLP1,
         width: 0,
         height: 0,
@@ -54,7 +54,7 @@ export function decode (arrayBuffer: ArrayBuffer): BLPImage {
         data: arrayBuffer,
     };
 
-    let type = keyword(view, 0);
+    const type = keyword(view, 0);
 
     if (type === 'BLP0' || type === 'BLP2') {
         throw new Error('BLP0/BLP2 not supported');
@@ -74,7 +74,7 @@ export function decode (arrayBuffer: ArrayBuffer): BLPImage {
     image.height = uint32(view, 4);
 
     for (let i = 0; i < 16; ++i) {
-        let mipmap = {
+        const mipmap = {
             offset: uint32(view, 7 + i),
             size: uint32(view, 7 + 16 + i)
         };
@@ -90,12 +90,12 @@ export function decode (arrayBuffer: ArrayBuffer): BLPImage {
 }
 
 export function getImageData (blp: BLPImage, mipmapLevel: number): ImageDataLike {
-    let view = new DataView(blp.data),
+    const view = new DataView(blp.data),
         uint8Data = new Uint8Array(blp.data),
         mipmap = blp.mipmaps[mipmapLevel];
 
     if (blp.content === BLPContent.JPEG) {
-        let headerSize = uint32(view, 39),
+        const headerSize = uint32(view, 39),
             data = new Uint8Array(headerSize + mipmap.size);
 
         data.set(uint8Data.subarray(40 * 4, 40 * 4 + headerSize));
@@ -103,7 +103,7 @@ export function getImageData (blp: BLPImage, mipmapLevel: number): ImageDataLike
 
         return decodeJPEG(data);
     } else {
-        let palette = new Uint8Array(blp.data, 39 * 4, 256 * 4),
+        const palette = new Uint8Array(blp.data, 39 * 4, 256 * 4),
             width = blp.width / (1 << mipmapLevel),
             height = blp.height / (1 << mipmapLevel),
             size = width * height,
@@ -112,7 +112,7 @@ export function getImageData (blp: BLPImage, mipmapLevel: number): ImageDataLike
             valPerAlphaBit = 255 / ((1 << blp.alphaBits) - 1);
 
         for (let i = 0; i < size; ++i) {
-            let paletteIndex = view.getUint8(mipmap.offset + i) * 4;
+            const paletteIndex = view.getUint8(mipmap.offset + i) * 4;
             // BGRA order
             imageData.data[i * 4]     = palette[paletteIndex + 2];
             imageData.data[i * 4 + 1] = palette[paletteIndex + 1];
