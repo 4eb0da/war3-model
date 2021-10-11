@@ -1,5 +1,6 @@
 node_modules
 /dist
+/docs/*/dist
 *.js
 *.js.map
 !samples.webpack.config.js
