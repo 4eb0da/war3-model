@@ -74,6 +74,10 @@ export interface Layer {
     TVertexAnimId?: number;
     CoordId: number;
     Alpha?: AnimVector|number;
+    EmissiveGain?: number;
+    FresnelColor?: Float32Array;
+    FresnelOpacity?: number;
+    FresnelTeamColor?: number;
 }
 
 export enum MaterialRenderMode {
@@ -86,6 +90,7 @@ export interface Material {
     PriorityPlane?: number;
     RenderMode?: number;
     Layers: Layer[];
+    Shader?: string;
 }
 
 export interface GeosetAnimInfo {
@@ -109,6 +114,10 @@ export interface Geoset {
     MaterialID: number;
     SelectionGroup: number;
     Unselectable: boolean;
+    LevelOfDetail?: number;
+    Name?: string;
+    Tangents?: Float32Array;
+    SkinWeights?: Uint8Array;
 }
 
 export enum GeosetAnimFlags {
@@ -308,6 +317,15 @@ export interface TVertexAnim {
     Scaling?: AnimVector;
 }
 
+export interface FaceFX {
+    Name: string;
+    Path: string;
+}
+
+export interface BindPose {
+    Matrices: Float32Array[];
+}
+
 export interface Model {
     Version: number;
     Info: ModelInfo;
@@ -330,4 +348,6 @@ export interface Model {
     Lights: Light[];
     RibbonEmitters: RibbonEmitter[];
     TextureAnims: TVertexAnim[];
+    FaceFX?: FaceFX[];
+    BindPose?: BindPose[];
 }

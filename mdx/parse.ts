@@ -1,7 +1,7 @@
 import {
     Model, Sequence, Material, Layer, AnimVector, AnimKeyframe, LineType, Texture, Geoset,
     GeosetAnimInfo, GeosetAnim, Node, Bone, Helper, Attachment, EventObject, CollisionShape, CollisionShapeType,
-    ParticleEmitter2, ParticleEmitter2FramesFlags, Camera, Light, TVertexAnim, RibbonEmitter, ParticleEmitter
+    ParticleEmitter2, ParticleEmitter2FramesFlags, Camera, Light, TVertexAnim, RibbonEmitter, ParticleEmitter, FaceFX, BindPose
 } from '../model';
 
 const BIG_ENDIAN = true;
@@ -53,7 +53,8 @@ class State {
     }
 
     public expectKeyword (keyword: string, errorText: string): void {
-        if (this.keyword() !== keyword) {
+        const curKeyword = this.keyword();
+        if (curKeyword !== keyword) {
             throw new Error(errorText);
         }
     }
@@ -82,6 +83,26 @@ class State {
         const res = this.view.getFloat32(this.pos, BIG_ENDIAN);
 
         this.pos += 4;
+
+        return res;
+    }
+
+    public float32Array (len: number): Float32Array {
+        const res = new Float32Array(len);
+
+        for (let i = 0; i < len; ++i) {
+            res[i] = this.float32();
+        }
+
+        return res;
+    }
+
+    public uint8Array (len: number): Uint8Array {
+        const res = new Uint8Array(len);
+
+        for (let i = 0; i < len; ++i) {
+            res[i] = this.uint8();
+        }
 
         return res;
     }
@@ -230,6 +251,10 @@ function parseMaterials (model: Model, state: State, size: number): void {
         material.PriorityPlane = state.int32();
         material.RenderMode = state.int32();
 
+        if (model.Version >= 900) {
+            material.Shader = state.str(80);
+        }
+
         state.expectKeyword('LAYS', 'Incorrect materials format');
 
         const layersCount = state.int32();
@@ -249,6 +274,16 @@ function parseMaterials (model: Model, state: State, size: number): void {
             }
             layer.CoordId = state.int32();
             layer.Alpha = state.float32();
+
+            if (model.Version >= 900) {
+                layer.EmissiveGain = state.float32();
+
+                if (model.Version >= 1000) {
+                    layer.FresnelColor = state.float32Array(3);
+                    layer.FresnelOpacity = state.float32();
+                    layer.FresnelTeamColor = state.float32();
+                }
+            }
 
             while (state.pos < startPos2 + size2) {
                 const keyword = state.keyword();
@@ -359,6 +394,11 @@ function parseGeosets (model: Model, state: State, size: number) {
         geoset.SelectionGroup = state.int32();
         geoset.Unselectable = state.int32() > 0;
 
+        if (model.Version >= 900) {
+            geoset.LevelOfDetail = state.int32();
+            geoset.Name = state.str(80);
+        }
+
         parseExtent(geoset, state);
 
         const geosetAnimCount = state.int32();
@@ -372,7 +412,33 @@ function parseGeosets (model: Model, state: State, size: number) {
             geoset.Anims.push(geosetAnim);
         }
 
-        state.expectKeyword('UVAS', 'Incorrect geosets format');
+        let keyword = state.keyword();
+        if (model.Version >= 900) {
+            while (1) {
+                if (state.pos >= state.length) {
+                    throw new Error('Unexpected EOF');
+                }
+                if (keyword === 'TANG') {
+                    if (geoset.Tangents) {
+                        throw new Error('Incorrect geoset, multiple Tangents');
+                    }
+                    const len = state.int32();
+                    geoset.Tangents = state.float32Array(len * 4);
+                } else if (keyword === 'SKIN') {
+                    if (geoset.SkinWeights) {
+                        throw new Error('Incorrect geoset, multiple SkinWeights');
+                    }
+                    const len = state.int32();
+                    geoset.SkinWeights = state.uint8Array(len);
+                } else if (keyword === 'UVAS') {
+                    break;
+                }
+                keyword = state.keyword();
+            }
+        } else if (keyword !== 'UVAS') {
+            throw new Error('Incorrect geosets format');
+        }
+
         const textureChunkCount = state.int32();
         geoset.TVertices = [];
 
@@ -914,6 +980,53 @@ function parseRibbonEmitters (model: Model, state: State, size: number): void {
     }
 }
 
+function parseFaceFX (model: Model, state: State, size: number): void {
+    if (model.Version < 900) {
+        throw new Error('Mismatched version chunk');
+    }
+
+    const startPos = state.pos;
+    
+    model.FaceFX = model.FaceFX || [];
+
+    while (state.pos < startPos + size) {
+        const faceFX: FaceFX = {
+            Name: '',
+            Path: ''
+        };
+
+        faceFX.Name = state.str(80);
+        faceFX.Path = state.str(260);
+
+        model.FaceFX.push(faceFX);
+    }
+}
+
+function parseBindPose (model: Model, state: State, size: number): void {
+    if (model.Version < 900) {
+        throw new Error('Mismatched version chunk');
+    }
+
+    const startPos = state.pos;
+    
+    model.BindPose = model.BindPose || [];
+
+    let len = state.int32();
+    const bindPose: BindPose = {
+        Matrices: []
+    };
+
+    for (let i = 0; i < len; ++i) {
+        const matrix = state.float32Array(12);
+        bindPose.Matrices.push(matrix);
+    }
+    model.BindPose.push(bindPose);
+
+    if (state.pos !== startPos + size) {
+        throw new Error('Mismatched BindPose data');
+    }
+}
+
 const parsers: {[key: string]: (model: Model, state: State, size: number) => void} = {
     VERS: parseVersion,
     MODL: parseModelInfo,
@@ -934,7 +1047,9 @@ const parsers: {[key: string]: (model: Model, state: State, size: number) => voi
     CAMS: parseCameras,
     LITE: parseLights,
     TXAN: parseTextureAnims,
-    RIBB: parseRibbonEmitters
+    RIBB: parseRibbonEmitters,
+    FAFX: parseFaceFX,
+    BPOS: parseBindPose
 };
 
 export function parse (arrayBuffer: ArrayBuffer): Model {
@@ -982,7 +1097,8 @@ export function parse (arrayBuffer: ArrayBuffer): Model {
         if (keyword in parsers) {
             parsers[keyword](model, state, size);
         } else {
-            throw new Error('Unknown group ' + keyword);
+            // throw new Error('Unknown group ' + keyword);
+            state.pos += size;
         }
     }
 
