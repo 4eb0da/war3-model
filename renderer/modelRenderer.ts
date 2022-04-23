@@ -11,11 +11,6 @@ import {RibbonsController} from './ribbons';
 
 const MAX_NODES = 256;
 
-let gl: WebGLRenderingContext;
-let shaderProgram: WebGLProgram;
-const shaderProgramLocations: any = {};
-let anisotropicExt: any;
-
 const vertexShaderHardwareSkinning = `
     attribute vec3 aVertexPosition;
     attribute vec2 aTextureCoord;
@@ -140,6 +135,25 @@ const texCoordMat4: mat4 = mat4.create();
 const texCoordMat3: mat3 = mat3.create();
 
 export class ModelRenderer {
+    private gl: WebGLRenderingContext;
+    private vertexShader: WebGLShader | null;
+    private fragmentShader: WebGLShader | null;
+    private shaderProgram: WebGLProgram | null;
+    private anisotropicExt: EXT_texture_filter_anisotropic | null;
+    private shaderProgramLocations: {
+        vertexPositionAttribute: number | null;
+        textureCoordAttribute: number | null;
+        groupAttribute: number | null;
+        pMatrixUniform: WebGLUniformLocation | null;
+        mvMatrixUniform: WebGLUniformLocation | null;
+        samplerUniform: WebGLUniformLocation | null;
+        replaceableColorUniform: WebGLUniformLocation | null;
+        replaceableTypeUniform: WebGLUniformLocation | null;
+        discardAlphaLevelUniform: WebGLUniformLocation | null;
+        tVertexAnimUniform: WebGLUniformLocation | null;
+        nodesMatricesAttributes: (WebGLUniformLocation | null)[];
+    };
+
     private model: Model;
     private interp: ModelInterp;
     private rendererData: RendererData;
@@ -154,6 +168,20 @@ export class ModelRenderer {
     private groupBuffer: WebGLBuffer[] = [];
 
     constructor(model: Model) {
+        this.shaderProgramLocations = {
+            vertexPositionAttribute: null,
+            textureCoordAttribute: null,
+            groupAttribute: null,
+            pMatrixUniform: null,
+            mvMatrixUniform: null,
+            samplerUniform: null,
+            replaceableColorUniform: null,
+            replaceableTypeUniform: null,
+            discardAlphaLevelUniform: null,
+            tVertexAnimUniform: null,
+            nodesMatricesAttributes: null
+        };
+
         this.model = model;
 
         this.rendererData = {
@@ -219,14 +247,33 @@ export class ModelRenderer {
         this.ribbonsController = new RibbonsController(this.interp, this.rendererData);
     }
 
+    public destroy () {
+        if (!this.shaderProgram) {
+            return;
+        }
+
+        if (this.vertexShader) {
+            this.gl.detachShader(this.shaderProgram, this.vertexShader);
+            this.gl.deleteShader(this.vertexShader);
+            this.vertexShader = null;
+        }
+        if (this.fragmentShader) {
+            this.gl.detachShader(this.shaderProgram, this.fragmentShader);
+            this.gl.deleteShader(this.fragmentShader);
+            this.fragmentShader = null;
+        }
+        this.gl.deleteProgram(this.shaderProgram);
+        this.shaderProgram = null;
+    }
+
     public initGL (glContext: WebGLRenderingContext): void {
-        gl = glContext;
+        this.gl = glContext;
         // Max bones + MV + P
-        this.softwareSkinning = gl.getParameter(gl.MAX_VERTEX_UNIFORM_VECTORS) < 4 * (MAX_NODES + 2);
-        anisotropicExt = (
-            gl.getExtension('EXT_texture_filter_anisotropic') ||
-            gl.getExtension('MOZ_EXT_texture_filter_anisotropic') ||
-            gl.getExtension('WEBKIT_EXT_texture_filter_anisotropic')
+        this.softwareSkinning = this.gl.getParameter(this.gl.MAX_VERTEX_UNIFORM_VECTORS) < 4 * (MAX_NODES + 2);
+        this.anisotropicExt = (
+            this.gl.getExtension('EXT_texture_filter_anisotropic') ||
+            this.gl.getExtension('MOZ_EXT_texture_filter_anisotropic') ||
+            this.gl.getExtension('WEBKIT_EXT_texture_filter_anisotropic')
         );
         this.initShaders();
         this.initBuffers();
@@ -235,26 +282,26 @@ export class ModelRenderer {
     }
 
     public setTextureImage (path: string, img: HTMLImageElement, flags: TextureFlags): void {
-        this.rendererData.textures[path] = gl.createTexture();
-        gl.bindTexture(gl.TEXTURE_2D, this.rendererData.textures[path]);
-        // gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
+        this.rendererData.textures[path] = this.gl.createTexture();
+        this.gl.bindTexture(this.gl.TEXTURE_2D, this.rendererData.textures[path]);
+        // this.gl.pixelStorei(this.gl.UNPACK_FLIP_Y_WEBGL, true);
+        this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, this.gl.RGBA, this.gl.UNSIGNED_BYTE, img);
         this.setTextureParameters(flags);
 
-        gl.generateMipmap(gl.TEXTURE_2D);
-        gl.bindTexture(gl.TEXTURE_2D, null);
+        this.gl.generateMipmap(this.gl.TEXTURE_2D);
+        this.gl.bindTexture(this.gl.TEXTURE_2D, null);
     }
 
     public setTextureImageData (path: string, imageData: ImageData[], flags: TextureFlags): void {
-        this.rendererData.textures[path] = gl.createTexture();
-        gl.bindTexture(gl.TEXTURE_2D, this.rendererData.textures[path]);
-        // gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+        this.rendererData.textures[path] = this.gl.createTexture();
+        this.gl.bindTexture(this.gl.TEXTURE_2D, this.rendererData.textures[path]);
+        // this.gl.pixelStorei(this.gl.UNPACK_FLIP_Y_WEBGL, true);
         for (let i = 0; i < imageData.length; ++i) {
-            gl.texImage2D(gl.TEXTURE_2D, i, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, imageData[i]);
+            this.gl.texImage2D(this.gl.TEXTURE_2D, i, this.gl.RGBA, this.gl.RGBA, this.gl.UNSIGNED_BYTE, imageData[i]);
         }
         this.setTextureParameters(flags);
 
-        gl.bindTexture(gl.TEXTURE_2D, null);
+        this.gl.bindTexture(this.gl.TEXTURE_2D, null);
     }
 
     public setCamera (cameraPos: vec3, cameraQuat: quat): void {
@@ -296,21 +343,21 @@ export class ModelRenderer {
     }
 
     public render (mvMatrix: mat4, pMatrix: mat4): void {
-        gl.useProgram(shaderProgram);
+        this.gl.useProgram(this.shaderProgram);
 
-        gl.uniformMatrix4fv(shaderProgramLocations.pMatrixUniform, false, pMatrix);
-        gl.uniformMatrix4fv(shaderProgramLocations.mvMatrixUniform, false, mvMatrix);
+        this.gl.uniformMatrix4fv(this.shaderProgramLocations.pMatrixUniform, false, pMatrix);
+        this.gl.uniformMatrix4fv(this.shaderProgramLocations.mvMatrixUniform, false, mvMatrix);
 
-        gl.enableVertexAttribArray(shaderProgramLocations.vertexPositionAttribute);
-        gl.enableVertexAttribArray(shaderProgramLocations.textureCoordAttribute);
+        this.gl.enableVertexAttribArray(this.shaderProgramLocations.vertexPositionAttribute);
+        this.gl.enableVertexAttribArray(this.shaderProgramLocations.textureCoordAttribute);
         if (!this.softwareSkinning) {
-            gl.enableVertexAttribArray(shaderProgramLocations.groupAttribute);
+            this.gl.enableVertexAttribArray(this.shaderProgramLocations.groupAttribute);
         }
 
         if (!this.softwareSkinning) {
             for (let j = 0; j < MAX_NODES; ++j) {
                 if (this.rendererData.nodes[j]) {
-                    gl.uniformMatrix4fv(shaderProgramLocations.nodesMatricesAttributes[j], false,
+                    this.gl.uniformMatrix4fv(this.shaderProgramLocations.nodesMatricesAttributes[j], false,
                         this.rendererData.nodes[j].matrix);
                 }
             }
@@ -331,26 +378,26 @@ export class ModelRenderer {
             for (let j = 0; j < material.Layers.length; ++j) {
                 this.setLayerProps(material.Layers[j], this.rendererData.materialLayerTextureID[materialID][j]);
 
-                gl.bindBuffer(gl.ARRAY_BUFFER, this.vertexBuffer[i]);
-                gl.vertexAttribPointer(shaderProgramLocations.vertexPositionAttribute, 3, gl.FLOAT, false, 0, 0);
+                this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.vertexBuffer[i]);
+                this.gl.vertexAttribPointer(this.shaderProgramLocations.vertexPositionAttribute, 3, this.gl.FLOAT, false, 0, 0);
 
-                gl.bindBuffer(gl.ARRAY_BUFFER, this.texCoordBuffer[i]);
-                gl.vertexAttribPointer(shaderProgramLocations.textureCoordAttribute, 2, gl.FLOAT, false, 0, 0);
+                this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.texCoordBuffer[i]);
+                this.gl.vertexAttribPointer(this.shaderProgramLocations.textureCoordAttribute, 2, this.gl.FLOAT, false, 0, 0);
 
                 if (!this.softwareSkinning) {
-                    gl.bindBuffer(gl.ARRAY_BUFFER, this.groupBuffer[i]);
-                    gl.vertexAttribPointer(shaderProgramLocations.groupAttribute, 4, gl.UNSIGNED_SHORT, false, 0, 0);
+                    this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.groupBuffer[i]);
+                    this.gl.vertexAttribPointer(this.shaderProgramLocations.groupAttribute, 4, this.gl.UNSIGNED_SHORT, false, 0, 0);
                 }
 
-                gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.indexBuffer[i]);
-                gl.drawElements(gl.TRIANGLES, this.model.Geosets[i].Faces.length, gl.UNSIGNED_SHORT, 0);
+                this.gl.bindBuffer(this.gl.ELEMENT_ARRAY_BUFFER, this.indexBuffer[i]);
+                this.gl.drawElements(this.gl.TRIANGLES, this.model.Geosets[i].Faces.length, this.gl.UNSIGNED_SHORT, 0);
             }
         }
 
-        gl.disableVertexAttribArray(shaderProgramLocations.vertexPositionAttribute);
-        gl.disableVertexAttribArray(shaderProgramLocations.textureCoordAttribute);
+        this.gl.disableVertexAttribArray(this.shaderProgramLocations.vertexPositionAttribute);
+        this.gl.disableVertexAttribArray(this.shaderProgramLocations.textureCoordAttribute);
         if (!this.softwareSkinning) {
-            gl.disableVertexAttribArray(shaderProgramLocations.groupAttribute);
+            this.gl.disableVertexAttribArray(this.shaderProgramLocations.groupAttribute);
         }
 
         this.particlesController.render(mvMatrix, pMatrix);
@@ -378,27 +425,27 @@ export class ModelRenderer {
             buffer[i + 1] = tempPos[1];
             buffer[i + 2] = tempPos[2];
         }
-        gl.bindBuffer(gl.ARRAY_BUFFER, this.vertexBuffer[geosetIndex]);
-        gl.bufferData(gl.ARRAY_BUFFER, buffer, gl.DYNAMIC_DRAW);
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.vertexBuffer[geosetIndex]);
+        this.gl.bufferData(this.gl.ARRAY_BUFFER, buffer, this.gl.DYNAMIC_DRAW);
     }
 
     private setTextureParameters (flags: TextureFlags) {
         if (flags & TextureFlags.WrapWidth) {
-            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_S, this.gl.REPEAT);
         } else {
-            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_S, this.gl.CLAMP_TO_EDGE);
         }
         if (flags & TextureFlags.WrapHeight) {
-            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_T, this.gl.REPEAT);
         } else {
-            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_T, this.gl.CLAMP_TO_EDGE);
         }
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_NEAREST);
+        this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MAG_FILTER, this.gl.LINEAR);
+        this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MIN_FILTER, this.gl.LINEAR_MIPMAP_NEAREST);
 
-        if (anisotropicExt) {
-            const max = gl.getParameter(anisotropicExt.MAX_TEXTURE_MAX_ANISOTROPY_EXT);
-            gl.texParameterf(gl.TEXTURE_2D, anisotropicExt.TEXTURE_MAX_ANISOTROPY_EXT, max);
+        if (this.anisotropicExt) {
+            const max = this.gl.getParameter(this.anisotropicExt.MAX_TEXTURE_MAX_ANISOTROPY_EXT);
+            this.gl.texParameterf(this.gl.TEXTURE_2D, this.anisotropicExt.TEXTURE_MAX_ANISOTROPY_EXT, max);
         }
     }
 
@@ -413,65 +460,65 @@ export class ModelRenderer {
     }
 
     private initShaders (): void {
-        if (shaderProgram) {
+        if (this.shaderProgram) {
             return;
         }
 
-        const vertex = getShader(gl, this.softwareSkinning ? vertexShaderSoftwareSkinning : vertexShaderHardwareSkinning,
-            gl.VERTEX_SHADER);
-        const fragment = getShader(gl, fragmentShader, gl.FRAGMENT_SHADER);
+        const vertex = this.vertexShader = getShader(this.gl, this.softwareSkinning ? vertexShaderSoftwareSkinning : vertexShaderHardwareSkinning,
+            this.gl.VERTEX_SHADER);
+        const fragment = this.fragmentShader = getShader(this.gl, fragmentShader, this.gl.FRAGMENT_SHADER);
 
-        shaderProgram = gl.createProgram();
-        gl.attachShader(shaderProgram, vertex);
-        gl.attachShader(shaderProgram, fragment);
-        gl.linkProgram(shaderProgram);
+        const shaderProgram = this.shaderProgram = this.gl.createProgram();
+        this.gl.attachShader(shaderProgram, vertex);
+        this.gl.attachShader(shaderProgram, fragment);
+        this.gl.linkProgram(shaderProgram);
 
-        if (!gl.getProgramParameter(shaderProgram, gl.LINK_STATUS)) {
+        if (!this.gl.getProgramParameter(shaderProgram, this.gl.LINK_STATUS)) {
             alert('Could not initialise shaders');
         }
 
-        gl.useProgram(shaderProgram);
+        this.gl.useProgram(shaderProgram);
 
-        shaderProgramLocations.vertexPositionAttribute = gl.getAttribLocation(shaderProgram, 'aVertexPosition');
-        shaderProgramLocations.textureCoordAttribute = gl.getAttribLocation(shaderProgram, 'aTextureCoord');
+        this.shaderProgramLocations.vertexPositionAttribute = this.gl.getAttribLocation(shaderProgram, 'aVertexPosition');
+        this.shaderProgramLocations.textureCoordAttribute = this.gl.getAttribLocation(shaderProgram, 'aTextureCoord');
         if (!this.softwareSkinning) {
-            shaderProgramLocations.groupAttribute = gl.getAttribLocation(shaderProgram, 'aGroup');
+            this.shaderProgramLocations.groupAttribute = this.gl.getAttribLocation(shaderProgram, 'aGroup');
         }
 
-        shaderProgramLocations.pMatrixUniform = gl.getUniformLocation(shaderProgram, 'uPMatrix');
-        shaderProgramLocations.mvMatrixUniform = gl.getUniformLocation(shaderProgram, 'uMVMatrix');
-        shaderProgramLocations.samplerUniform = gl.getUniformLocation(shaderProgram, 'uSampler');
-        shaderProgramLocations.replaceableColorUniform = gl.getUniformLocation(shaderProgram, 'uReplaceableColor');
-        shaderProgramLocations.replaceableTypeUniform = gl.getUniformLocation(shaderProgram, 'uReplaceableType');
-        shaderProgramLocations.discardAlphaLevelUniform = gl.getUniformLocation(shaderProgram, 'uDiscardAlphaLevel');
-        shaderProgramLocations.tVertexAnimUniform = gl.getUniformLocation(shaderProgram, 'uTVextexAnim');
+        this.shaderProgramLocations.pMatrixUniform = this.gl.getUniformLocation(shaderProgram, 'uPMatrix');
+        this.shaderProgramLocations.mvMatrixUniform = this.gl.getUniformLocation(shaderProgram, 'uMVMatrix');
+        this.shaderProgramLocations.samplerUniform = this.gl.getUniformLocation(shaderProgram, 'uSampler');
+        this.shaderProgramLocations.replaceableColorUniform = this.gl.getUniformLocation(shaderProgram, 'uReplaceableColor');
+        this.shaderProgramLocations.replaceableTypeUniform = this.gl.getUniformLocation(shaderProgram, 'uReplaceableType');
+        this.shaderProgramLocations.discardAlphaLevelUniform = this.gl.getUniformLocation(shaderProgram, 'uDiscardAlphaLevel');
+        this.shaderProgramLocations.tVertexAnimUniform = this.gl.getUniformLocation(shaderProgram, 'uTVextexAnim');
 
         if (!this.softwareSkinning) {
-            shaderProgramLocations.nodesMatricesAttributes = [];
+            this.shaderProgramLocations.nodesMatricesAttributes = [];
             for (let i = 0; i < MAX_NODES; ++i) {
-                shaderProgramLocations.nodesMatricesAttributes[i] =
-                    gl.getUniformLocation(shaderProgram, `uNodesMatrices[${i}]`);
+                this.shaderProgramLocations.nodesMatricesAttributes[i] =
+                this.gl.getUniformLocation(shaderProgram, `uNodesMatrices[${i}]`);
             }
         }
     }
 
     private initBuffers (): void {
         for (let i = 0; i < this.model.Geosets.length; ++i) {
-            this.vertexBuffer[i] = gl.createBuffer();
+            this.vertexBuffer[i] = this.gl.createBuffer();
             if (this.softwareSkinning) {
                 this.vertices[i] = new Float32Array(this.model.Geosets[i].Vertices.length);
             } else {
-                gl.bindBuffer(gl.ARRAY_BUFFER, this.vertexBuffer[i]);
-                gl.bufferData(gl.ARRAY_BUFFER, this.model.Geosets[i].Vertices, gl.STATIC_DRAW);
+                this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.vertexBuffer[i]);
+                this.gl.bufferData(this.gl.ARRAY_BUFFER, this.model.Geosets[i].Vertices, this.gl.STATIC_DRAW);
             }
 
-            this.texCoordBuffer[i] = gl.createBuffer();
-            gl.bindBuffer(gl.ARRAY_BUFFER, this.texCoordBuffer[i]);
-            gl.bufferData(gl.ARRAY_BUFFER, this.model.Geosets[i].TVertices[0], gl.STATIC_DRAW);
+            this.texCoordBuffer[i] = this.gl.createBuffer();
+            this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.texCoordBuffer[i]);
+            this.gl.bufferData(this.gl.ARRAY_BUFFER, this.model.Geosets[i].TVertices[0], this.gl.STATIC_DRAW);
 
             if (!this.softwareSkinning) {
-                this.groupBuffer[i] = gl.createBuffer();
-                gl.bindBuffer(gl.ARRAY_BUFFER, this.groupBuffer[i]);
+                this.groupBuffer[i] = this.gl.createBuffer();
+                this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.groupBuffer[i]);
                 const buffer = new Uint16Array(this.model.Geosets[i].VertexGroup.length * 4);
                 for (let j = 0; j < buffer.length; j += 4) {
                     const index = j / 4;
@@ -481,12 +528,12 @@ export class ModelRenderer {
                     buffer[j + 2] = group.length > 2 ? group[2] : MAX_NODES;
                     buffer[j + 3] = group.length > 3 ? group[3] : MAX_NODES;
                 }
-                gl.bufferData(gl.ARRAY_BUFFER, buffer, gl.STATIC_DRAW);
+                this.gl.bufferData(this.gl.ARRAY_BUFFER, buffer, this.gl.STATIC_DRAW);
             }
 
-            this.indexBuffer[i] = gl.createBuffer();
-            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.indexBuffer[i]);
-            gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, this.model.Geosets[i].Faces, gl.STATIC_DRAW);
+            this.indexBuffer[i] = this.gl.createBuffer();
+            this.gl.bindBuffer(this.gl.ELEMENT_ARRAY_BUFFER, this.indexBuffer[i]);
+            this.gl.bufferData(this.gl.ELEMENT_ARRAY_BUFFER, this.model.Geosets[i].Faces, this.gl.STATIC_DRAW);
         }
     }
 
@@ -611,69 +658,69 @@ export class ModelRenderer {
         const texture = this.model.Textures[textureID];
 
         if (layer.Shading & LayerShading.TwoSided) {
-            gl.disable(gl.CULL_FACE);
+            this.gl.disable(this.gl.CULL_FACE);
         } else {
-            gl.enable(gl.CULL_FACE);
+            this.gl.enable(this.gl.CULL_FACE);
         }
 
         if (layer.FilterMode === FilterMode.Transparent) {
-            gl.uniform1f(shaderProgramLocations.discardAlphaLevelUniform, 0.75);
+            this.gl.uniform1f(this.shaderProgramLocations.discardAlphaLevelUniform, 0.75);
         } else {
-            gl.uniform1f(shaderProgramLocations.discardAlphaLevelUniform, 0.);
+            this.gl.uniform1f(this.shaderProgramLocations.discardAlphaLevelUniform, 0.);
         }
 
         if (layer.FilterMode === FilterMode.None) {
-            gl.disable(gl.BLEND);
-            gl.enable(gl.DEPTH_TEST);
-            // gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-            gl.depthMask(true);
+            this.gl.disable(this.gl.BLEND);
+            this.gl.enable(this.gl.DEPTH_TEST);
+            // this.gl.blendFunc(this.gl.SRC_ALPHA, this.gl.ONE_MINUS_SRC_ALPHA);
+            this.gl.depthMask(true);
         } else if (layer.FilterMode === FilterMode.Transparent) {
-            gl.enable(gl.BLEND);
-            gl.enable(gl.DEPTH_TEST);
-            gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
-            gl.depthMask(true);
+            this.gl.enable(this.gl.BLEND);
+            this.gl.enable(this.gl.DEPTH_TEST);
+            this.gl.blendFuncSeparate(this.gl.SRC_ALPHA, this.gl.ONE_MINUS_SRC_ALPHA, this.gl.ONE, this.gl.ONE_MINUS_SRC_ALPHA);
+            this.gl.depthMask(true);
         } else if (layer.FilterMode === FilterMode.Blend) {
-            gl.enable(gl.BLEND);
-            gl.enable(gl.DEPTH_TEST);
-            gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
-            gl.depthMask(false);
+            this.gl.enable(this.gl.BLEND);
+            this.gl.enable(this.gl.DEPTH_TEST);
+            this.gl.blendFuncSeparate(this.gl.SRC_ALPHA, this.gl.ONE_MINUS_SRC_ALPHA, this.gl.ONE, this.gl.ONE_MINUS_SRC_ALPHA);
+            this.gl.depthMask(false);
         } else if (layer.FilterMode === FilterMode.Additive) {
-            gl.enable(gl.BLEND);
-            gl.enable(gl.DEPTH_TEST);
-            gl.blendFunc(gl.SRC_COLOR, gl.ONE);
-            gl.depthMask(false);
+            this.gl.enable(this.gl.BLEND);
+            this.gl.enable(this.gl.DEPTH_TEST);
+            this.gl.blendFunc(this.gl.SRC_COLOR, this.gl.ONE);
+            this.gl.depthMask(false);
         } else if (layer.FilterMode === FilterMode.AddAlpha) {
-            gl.enable(gl.BLEND);
-            gl.enable(gl.DEPTH_TEST);
-            gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
-            gl.depthMask(false);
+            this.gl.enable(this.gl.BLEND);
+            this.gl.enable(this.gl.DEPTH_TEST);
+            this.gl.blendFunc(this.gl.SRC_ALPHA, this.gl.ONE);
+            this.gl.depthMask(false);
         } else if (layer.FilterMode === FilterMode.Modulate) {
-            gl.enable(gl.BLEND);
-            gl.enable(gl.DEPTH_TEST);
-            gl.blendFuncSeparate(gl.ZERO, gl.SRC_COLOR, gl.ZERO, gl.ONE);
-            gl.depthMask(false);
+            this.gl.enable(this.gl.BLEND);
+            this.gl.enable(this.gl.DEPTH_TEST);
+            this.gl.blendFuncSeparate(this.gl.ZERO, this.gl.SRC_COLOR, this.gl.ZERO, this.gl.ONE);
+            this.gl.depthMask(false);
         } else if (layer.FilterMode === FilterMode.Modulate2x) {
-            gl.enable(gl.BLEND);
-            gl.enable(gl.DEPTH_TEST);
-            gl.blendFuncSeparate(gl.DST_COLOR, gl.SRC_COLOR, gl.ZERO, gl.ONE);
-            gl.depthMask(false);
+            this.gl.enable(this.gl.BLEND);
+            this.gl.enable(this.gl.DEPTH_TEST);
+            this.gl.blendFuncSeparate(this.gl.DST_COLOR, this.gl.SRC_COLOR, this.gl.ZERO, this.gl.ONE);
+            this.gl.depthMask(false);
         }
 
         if (texture.Image) {
-            gl.activeTexture(gl.TEXTURE0);
-            gl.bindTexture(gl.TEXTURE_2D, this.rendererData.textures[texture.Image]);
-            gl.uniform1i(shaderProgramLocations.samplerUniform, 0);
-            gl.uniform1f(shaderProgramLocations.replaceableTypeUniform, 0);
+            this.gl.activeTexture(this.gl.TEXTURE0);
+            this.gl.bindTexture(this.gl.TEXTURE_2D, this.rendererData.textures[texture.Image]);
+            this.gl.uniform1i(this.shaderProgramLocations.samplerUniform, 0);
+            this.gl.uniform1f(this.shaderProgramLocations.replaceableTypeUniform, 0);
         } else if (texture.ReplaceableId === 1 || texture.ReplaceableId === 2) {
-            gl.uniform3fv(shaderProgramLocations.replaceableColorUniform, this.rendererData.teamColor);
-            gl.uniform1f(shaderProgramLocations.replaceableTypeUniform, texture.ReplaceableId);
+            this.gl.uniform3fv(this.shaderProgramLocations.replaceableColorUniform, this.rendererData.teamColor);
+            this.gl.uniform1f(this.shaderProgramLocations.replaceableTypeUniform, texture.ReplaceableId);
         }
 
         if (layer.Shading & LayerShading.NoDepthTest) {
-            gl.disable(gl.DEPTH_TEST);
+            this.gl.disable(this.gl.DEPTH_TEST);
         }
         if (layer.Shading & LayerShading.NoDepthSet) {
-            gl.depthMask(false);
+            this.gl.depthMask(false);
         }
 
         if (typeof layer.TVertexAnimId === 'number') {
@@ -694,9 +741,9 @@ export class ModelRenderer {
                 texCoordMat4[12], texCoordMat4[13], 0
             );
 
-            gl.uniformMatrix3fv(shaderProgramLocations.tVertexAnimUniform, false, texCoordMat3);
+            this.gl.uniformMatrix3fv(this.shaderProgramLocations.tVertexAnimUniform, false, texCoordMat3);
         } else {
-            gl.uniformMatrix3fv(shaderProgramLocations.tVertexAnimUniform, false, identifyMat3);
+            this.gl.uniformMatrix3fv(this.shaderProgramLocations.tVertexAnimUniform, false, identifyMat3);
         }
     }
 }
