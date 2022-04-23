@@ -2,16 +2,16 @@
 TypeScript-based mdl/mdx (Warcraft 3 model formats) converter/renderer
 
 ## Demo
-* [MDL/MDX converter (also json-like structure-previewer)](https://4eb0da.github.io/war3-model/convert.html)
-* [WebGL model previewer](https://4eb0da.github.io/war3-model/preview.html)
-* [BLP previewer (BLP1 decoder only)](https://4eb0da.github.io/war3-model/decodeblp.html)
-* [Simple model optimizer](https://4eb0da.github.io/war3-model/optframes.html)
+* [MDL/MDX converter (also json-like structure-previewer)](https://4eb0da.github.io/war3-model/convert/convert.html)
+* [WebGL model previewer](https://4eb0da.github.io/war3-model/preview/preview.html)
+* [BLP previewer (BLP1 decoder only)](https://4eb0da.github.io/war3-model/decodeblp/decodeblp.html)
+* [Simple model optimizer](https://4eb0da.github.io/war3-model/optframes/optframes.html)
 
 ## Usage
 
 * [Usage in Node.js or with bundler (e.g. webpack)](docs/node.md)
 * [Usage in browser as external script](docs/browser-global.md)
-* [Usage in browser as ES Module directly](docs/browser-global.md)
+* [Usage in browser as ES Module directly](docs/browser-es.md)
 * [Exported APIs](docs/interface.md)
 * [How to render model in browser](docs/how-to-render.md)
 

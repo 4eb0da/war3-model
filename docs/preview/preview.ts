@@ -5,7 +5,7 @@ import {Model, TextureFlags} from '../../model';
 import {ModelRenderer} from '../../renderer/modelRenderer';
 import {vec3RotateZ} from '../../renderer/util';
 import {decode, getImageData} from '../../blp/decode';
-import '../shim';
+import '../common/shim';
 
 let model: Model;
 let modelRenderer: ModelRenderer;
@@ -274,7 +274,7 @@ function initCameraMove () {
     }
 
     function wheel (event) {
-        updateCameraDistance(cameraDistance * (1 - event.deltaY / 30));
+        updateCameraDistance(cameraDistance * (1 + event.wheelDelta / 600));
     }
 
     let startCameraDistance: number;

@@ -1,16 +1,16 @@
 {
   "name": "war3-model",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Warcraft 3 model parser, generator, convertor and previewer",
   "keywords": [
-    "front-end",
-    "backend",
     "warcraft3",
     "mdl",
     "mdx",
     "blp",
     "webgl",
-    "typescript"
+    "typescript",
+    "front-end",
+    "backend"
   ],
   "homepage": "https://github.com/4eb0da/war3-model",
   "bugs": {

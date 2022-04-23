@@ -5,7 +5,7 @@ import {parse as parseMDX} from '../../mdx/parse';
 import {generate as generateMDL} from '../../mdl/generate';
 import {generate as generateMDX} from '../../mdx/generate';
 import {Model} from '../../model';
-import '../shim';
+import '../common/shim';
 
 import * as monaco from 'monaco-editor';
 

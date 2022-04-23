@@ -18,6 +18,7 @@ function getBLPImageData(blp: BLPImage, mipmapLevel: number): ImageData;
 class ModelRenderer {
     constructor(model: Model);
 
+    destroy (): void;
     initGL (glContext: WebGLRenderingContext): void;
     setTextureImage (path: string, img: HTMLImageElement, flags: TextureFlags): void;
     setTextureImageData (path: string, imageData: ImageData[], flags: TextureFlags): void;
