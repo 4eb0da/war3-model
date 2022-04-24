@@ -1,0 +1,39 @@
+# This workflow uses actions that are not certified by GitHub.
+# They are provided by a third-party and are governed by
+# separate terms of service, privacy policy, and support
+# documentation.
+# ESLint is a tool for identifying and reporting on patterns
+# found in ECMAScript/JavaScript code.
+# More details at https://github.com/eslint/eslint
+# and https://eslint.org
+
+name: TypeScript
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    # The branches below must be a subset of the branches above
+    branches: [ master ]
+  schedule:
+    - cron: '20 21 * * 5'
+
+jobs:
+  eslint:
+    name: Run tsc check
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Install modules
+        run: |
+          npm ci
+
+      - name: TypeScript Error Reporter
+        # You may pin to the exact commit or the version.
+        # uses: andoshin11/typescript-error-reporter-action@efcdda22e14816a9fb946e88593f14183488184d
+        uses: andoshin11/typescript-error-reporter-action@v1.0.2
