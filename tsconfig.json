@@ -5,7 +5,7 @@
 		"isolatedModules": true,
         "module": "esnext",
         "target": "es5",
-	"lib": ["es2016"],
+	"lib": ["ES2017"],
         "resolveJsonModule": true,
         "esModuleInterop": true,
         "moduleResolution": "node",
