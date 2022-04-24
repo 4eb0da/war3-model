@@ -31,12 +31,11 @@ jobs:
 
       - name: Install ESLint
         run: |
-          npm ci
-          npm install @microsoft/eslint-formatter-sarif@2.1.7
+          npm ci && npm install @microsoft/eslint-formatter-sarif@2.1.7
 
       - name: Run ESLint
         run: npx eslint .
-          --config .eslintrc.js
+          --config .eslintrc
           --ext .js,.jsx,.ts,.tsx
           --format @microsoft/eslint-formatter-sarif 
           --output-file eslint-results.sarif
