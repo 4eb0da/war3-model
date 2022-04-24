@@ -14,7 +14,7 @@ import {RibbonsController} from './ribbons';
 type DDS_FORMAT = WEBGL_compressed_texture_s3tc['COMPRESSED_RGBA_S3TC_DXT1_EXT'] | 
     WEBGL_compressed_texture_s3tc['COMPRESSED_RGBA_S3TC_DXT3_EXT'] | 
     WEBGL_compressed_texture_s3tc['COMPRESSED_RGBA_S3TC_DXT5_EXT'] | 
-    WEBGL_compressed_texture_s3tc['COMPRESSED_RGB_S3TC_DXT1_EXT'];
+    WEBGL_compressed_texture_s3tc['COMPRESSED_RGB_S3TC_DXT1_EXT23'];
 
 const MAX_NODES = 256;
 
