@@ -17,7 +17,7 @@ const war3model = {
     decodeBLP,
     getBLPImageData,
     ModelRenderer
-};
+}
 
 declare global {
     interface Window {
