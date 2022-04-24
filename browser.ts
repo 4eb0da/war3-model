@@ -7,7 +7,7 @@ import * as blp from './blp/blpimage';
 import {decode as decodeBLP, getImageData as getBLPImageData} from './blp/decode';
 import {ModelRenderer} from './renderer/modelRenderer';
 
-const war3model = {
+var war3model = {
     model,
     parseMDX,
     generateMDX,
@@ -17,7 +17,7 @@ const war3model = {
     decodeBLP,
     getBLPImageData,
     ModelRenderer
-}
+};
 
 declare global {
     interface Window {
