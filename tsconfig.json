@@ -5,7 +5,6 @@
 		"isolatedModules": true,
         "module": "esnext",
         "target": "es5",
-        // "allowJs": true,
         "resolveJsonModule": true,
         "esModuleInterop": true,
         "moduleResolution": "node",
