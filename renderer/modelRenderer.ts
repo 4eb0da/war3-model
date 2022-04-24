@@ -3,11 +3,18 @@ import {
     TextureFlags, TVertexAnim, Geoset
 } from '../model';
 import {vec3, quat, mat3, mat4} from 'gl-matrix';
-import {mat4fromRotationOrigin, getShader} from './util';
+import type {DdsInfo} from 'parse-dds';
+import {mat4fromRotationOrigin, getShader, isWebGL2} from './util';
 import {ModelInterp} from './modelInterp';
 import {ParticlesController} from './particles';
 import {RendererData, NodeWrapper} from './rendererData';
 import {RibbonsController} from './ribbons';
+
+// actually, all is number
+type DDS_FORMAT = WEBGL_compressed_texture_s3tc['COMPRESSED_RGBA_S3TC_DXT1_EXT'] | 
+    WEBGL_compressed_texture_s3tc['COMPRESSED_RGBA_S3TC_DXT3_EXT'] | 
+    WEBGL_compressed_texture_s3tc['COMPRESSED_RGBA_S3TC_DXT5_EXT'] | 
+    WEBGL_compressed_texture_s3tc['COMPRESSED_RGB_S3TC_DXT1_EXT'];
 
 const MAX_NODES = 256;
 
@@ -135,7 +142,7 @@ const texCoordMat4: mat4 = mat4.create();
 const texCoordMat3: mat3 = mat3.create();
 
 export class ModelRenderer {
-    private gl: WebGLRenderingContext;
+    private gl: WebGL2RenderingContext | WebGLRenderingContext;
     private vertexShader: WebGLShader | null;
     private fragmentShader: WebGLShader | null;
     private shaderProgram: WebGLProgram | null;
@@ -286,7 +293,7 @@ export class ModelRenderer {
         this.gl.bindTexture(this.gl.TEXTURE_2D, this.rendererData.textures[path]);
         // this.gl.pixelStorei(this.gl.UNPACK_FLIP_Y_WEBGL, true);
         this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, this.gl.RGBA, this.gl.UNSIGNED_BYTE, img);
-        this.setTextureParameters(flags);
+        this.setTextureParameters(flags, true);
 
         this.gl.generateMipmap(this.gl.TEXTURE_2D);
         this.gl.bindTexture(this.gl.TEXTURE_2D, null);
@@ -299,7 +306,36 @@ export class ModelRenderer {
         for (let i = 0; i < imageData.length; ++i) {
             this.gl.texImage2D(this.gl.TEXTURE_2D, i, this.gl.RGBA, this.gl.RGBA, this.gl.UNSIGNED_BYTE, imageData[i]);
         }
-        this.setTextureParameters(flags);
+        this.setTextureParameters(flags, false);
+
+        this.gl.bindTexture(this.gl.TEXTURE_2D, null);
+    }
+
+    public setTextureCompressedImage (path: string, format: DDS_FORMAT, imageData: ArrayBuffer, ddsInfo: DdsInfo, flags: TextureFlags): void {
+        this.rendererData.textures[path] = this.gl.createTexture();
+        this.gl.bindTexture(this.gl.TEXTURE_2D, this.rendererData.textures[path]);
+
+        const view = new Uint8Array(imageData);
+
+        if (isWebGL2(this.gl)) {
+            this.gl.texStorage2D(this.gl.TEXTURE_2D, ddsInfo.images.length, format, ddsInfo.images[0].shape[0], ddsInfo.images[0].shape[0]);
+            
+            for (let i = 0; i < ddsInfo.images.length; ++i) {
+                const image = ddsInfo.images[i];
+                this.gl.compressedTexSubImage2D(this.gl.TEXTURE_2D, i, 0, 0, image.shape[0], image.shape[1], format, view.subarray(image.offset, image.offset + image.length));
+            }
+        } else {
+            for (let i = 0; i < ddsInfo.images.length; ++i) {
+                const image = ddsInfo.images[i];
+                if (image.shape[0] >= 2 && image.shape[1] >= 2) {
+                    this.gl.compressedTexImage2D(this.gl.TEXTURE_2D, i, format, image.shape[0], image.shape[1], 0, view.subarray(image.offset, image.offset + image.length));
+                } else {
+                    break;
+                }
+            }
+        }
+
+        this.setTextureParameters(flags, isWebGL2(this.gl));
 
         this.gl.bindTexture(this.gl.TEXTURE_2D, null);
     }
@@ -429,7 +465,7 @@ export class ModelRenderer {
         this.gl.bufferData(this.gl.ARRAY_BUFFER, buffer, this.gl.DYNAMIC_DRAW);
     }
 
-    private setTextureParameters (flags: TextureFlags) {
+    private setTextureParameters (flags: TextureFlags, hasMipmaps: boolean) {
         if (flags & TextureFlags.WrapWidth) {
             this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_S, this.gl.REPEAT);
         } else {
@@ -441,7 +477,7 @@ export class ModelRenderer {
             this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_T, this.gl.CLAMP_TO_EDGE);
         }
         this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MAG_FILTER, this.gl.LINEAR);
-        this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MIN_FILTER, this.gl.LINEAR_MIPMAP_NEAREST);
+        this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MIN_FILTER, hasMipmaps ? this.gl.LINEAR_MIPMAP_NEAREST : this.gl.LINEAR);
 
         if (this.anisotropicExt) {
             const max = this.gl.getParameter(this.anisotropicExt.MAX_TEXTURE_MAX_ANISOTROPY_EXT);

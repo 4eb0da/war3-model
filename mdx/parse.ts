@@ -414,6 +414,7 @@ function parseGeosets (model: Model, state: State, size: number) {
 
         let keyword = state.keyword();
         if (model.Version >= 900) {
+            // eslint-disable-next-line no-constant-condition
             while (1) {
                 if (state.pos >= state.length) {
                     throw new Error('Unexpected EOF');
@@ -1011,7 +1012,7 @@ function parseBindPose (model: Model, state: State, size: number): void {
     
     model.BindPose = model.BindPose || [];
 
-    let len = state.int32();
+    const len = state.int32();
     const bindPose: BindPose = {
         Matrices: []
     };

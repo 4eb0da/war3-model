@@ -1,6 +1,8 @@
+import {vec3, mat4, quat} from 'gl-matrix';
+import parse from 'parse-dds';
+
 import {parse as parseMDL} from '../../mdl/parse';
 import {parse as parseMDX} from '../../mdx/parse';
-import {vec3, mat4, quat} from 'gl-matrix';
 import {Model, TextureFlags} from '../../model';
 import {ModelRenderer} from '../../renderer/modelRenderer';
 import {vec3RotateZ} from '../../renderer/util';
@@ -16,6 +18,7 @@ const mvMatrix = mat4.create();
 let loadedTextures = 0;
 let totalTextures = 0;
 const cleanupNameRegexp = /.*?([^\\/]+)\.\w+$/;
+let ddsExt: WEBGL_compressed_texture_s3tc | null = null;
 
 let cameraTheta = Math.PI / 4;
 let cameraPhi = 0;
@@ -46,7 +49,16 @@ function initGL () {
     }
 
     try {
-        gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl') as WebGLRenderingContext;
+        gl = canvas.getContext('webgl2') ||
+            canvas.getContext('webgl') ||
+            canvas.getContext('experimental-webgl') as
+            (WebGL2RenderingContext | WebGLRenderingContext);
+
+        ddsExt = (
+            gl.getExtension('WEBGL_compressed_texture_s3tc') ||
+            gl.getExtension('MOZ_WEBGL_compressed_texture_s3tc') ||
+            gl.getExtension('WEBKIT_WEBGL_compressed_texture_s3tc')
+        );
 
         gl.clearColor(0.0, 0.0, 0.0, 1.0);
         gl.enable(gl.DEPTH_TEST);
@@ -403,9 +415,32 @@ function initDragDrop () {
     const dropTexture = (file, textureName: string, textureFlags: TextureFlags) => {
         const reader = new FileReader();
         const isBLP = file.name.indexOf('.blp') > -1;
+        const isDDS = file.name.indexOf('.dds') > -1;
 
         reader.onload = () => {
-            if (isBLP) {
+            if (isDDS) {
+                const dds = parse(reader.result as ArrayBuffer);
+
+                console.log(dds);
+
+                let format: GLenum;
+
+                if (dds.format === 'dxt1') {
+                    format = ddsExt.COMPRESSED_RGB_S3TC_DXT1_EXT;
+                } else if (dds.format === 'dxt3') {
+                    format = ddsExt.COMPRESSED_RGBA_S3TC_DXT3_EXT;
+                } else if (dds.format === 'dxt5') {
+                    format = ddsExt.COMPRESSED_RGBA_S3TC_DXT5_EXT;
+                }
+
+                modelRenderer.setTextureCompressedImage(
+                    textureName,
+                    format,
+                    reader.result as ArrayBuffer,
+                    dds,
+                    textureFlags
+                );
+            } else if (isBLP) {
                 const blp = decode(reader.result as ArrayBuffer);
 
                 console.log(file.name, blp);
@@ -428,7 +463,7 @@ function initDragDrop () {
             handleLoadedTexture();
         };
 
-        if (isBLP) {
+        if (isBLP || isDDS) {
             reader.readAsArrayBuffer(file);
         } else {
             reader.readAsDataURL(file);
