@@ -7,7 +7,7 @@ import * as blp from './blp/blpimage';
 import {decode as decodeBLP, getImageData as getBLPImageData} from './blp/decode';
 import {ModelRenderer} from './renderer/modelRenderer';
 
-var war3model = {
+const war3model = {
     model,
     parseMDX,
     generateMDX,
