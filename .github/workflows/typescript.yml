@@ -33,7 +33,6 @@ jobs:
         run: |
           npm ci
 
-      - name: TypeScript Error Reporter
-        # You may pin to the exact commit or the version.
-        # uses: andoshin11/typescript-error-reporter-action@efcdda22e14816a9fb946e88593f14183488184d
-        uses: andoshin11/typescript-error-reporter-action@v1.0.2
+      - name: Run tsc
+        run: |
+          npm run typecheck
