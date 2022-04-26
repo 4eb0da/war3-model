@@ -1,5 +1,5 @@
 import {vec3, mat4, quat} from 'gl-matrix';
-import parse from 'parse-dds';
+import parseDds from 'parse-dds';
 
 import {parse as parseMDL} from '../../mdl/parse';
 import {parse as parseMDX} from '../../mdx/parse';
@@ -24,6 +24,10 @@ let cameraTheta = Math.PI / 4;
 let cameraPhi = 0;
 let cameraDistance = 500;
 let cameraTargetZ = 50;
+
+let wireframe = false;
+let showSkeleton = false;
+let skeletonNodes: string[] | null = null;
 
 const cameraBasePos: vec3 = vec3.create();
 const cameraPos: vec3 = vec3.create();
@@ -104,7 +108,13 @@ function drawScene () {
     calcCameraQuat();
 
     modelRenderer.setCamera(cameraPos, cameraQuat);
-    modelRenderer.render(mvMatrix, pMatrix);
+    modelRenderer.render(mvMatrix, pMatrix, {
+        wireframe
+    });
+
+    if (showSkeleton) {
+        modelRenderer.renderSkeleton(mvMatrix, pMatrix, skeletonNodes);
+    }
 }
 
 function tick(timestamp: number) {
@@ -190,16 +200,20 @@ function init() {
     window.addEventListener('resize', updateCanvasSize);
 }
 
+function parseColor(value: string): vec3 {
+    const val = value.slice(1);
+
+    return vec3.fromValues(
+        parseInt(val.slice(0, 2), 16) / 255,
+        parseInt(val.slice(2, 4), 16) / 255,
+        parseInt(val.slice(4, 6), 16) / 255
+    );
+}
+
 function initControls () {
     const inputColor = document.getElementById('color') as HTMLInputElement;
     inputColor.addEventListener('input', () => {
-        const val = inputColor.value.slice(1);
-        const arr = vec3.fromValues(
-            parseInt(val.slice(0, 2), 16) / 255,
-            parseInt(val.slice(2, 4), 16) / 255,
-            parseInt(val.slice(4, 6), 16) / 255
-        );
-        modelRenderer.setTeamColor(arr);
+        modelRenderer.setTeamColor(parseColor(inputColor.value));
     });
 
     const select = document.getElementById('select') as HTMLSelectElement;
@@ -208,13 +222,48 @@ function initControls () {
     });
 
     const inputZ = document.getElementById('targetZ') as HTMLInputElement;
+    cameraTargetZ = parseInt(inputZ.value, 10);
     inputZ.addEventListener('input', () => {
         cameraTargetZ = parseInt(inputZ.value, 10);
     });
 
     const inputDistance = document.getElementById('distance') as HTMLInputElement;
+    cameraDistance = parseInt(inputDistance.value, 10);
     inputDistance.addEventListener('input', () => {
         cameraDistance = parseInt(inputDistance.value, 10);
+    });
+
+    const wireframeCheck = document.getElementById('wireframe') as HTMLInputElement;
+    wireframe = wireframeCheck.checked;
+    wireframeCheck.addEventListener('input', () => {
+        wireframe = wireframeCheck.checked;
+    });
+
+    const readSkeletonNodes = (value: string) => {
+        const val = value.trim();
+
+        if (val === '*') {
+            return null;
+        } else {
+            return val.split(/\s*,\s*/).map(it => it.trim()).filter(Boolean);
+        }
+    };
+
+    const skeleton = document.getElementById('skeleton') as HTMLInputElement;
+    skeletonNodes = readSkeletonNodes(skeleton.value);
+    skeleton.addEventListener('input', () => {
+        skeletonNodes = readSkeletonNodes(skeleton.value);
+    });
+
+    const setShowSkeleton = (val: boolean): void => {
+        showSkeleton = val;
+        skeleton.disabled = !val;
+    };
+
+    const skeletonCheck = document.getElementById('show_skeleton') as HTMLInputElement;
+    setShowSkeleton(skeletonCheck.checked);
+    skeletonCheck.addEventListener('input', () => {
+        setShowSkeleton(skeletonCheck.checked);
     });
 }
 
@@ -419,7 +468,7 @@ function initDragDrop () {
 
         reader.onload = () => {
             if (isDDS) {
-                const dds = parse(reader.result as ArrayBuffer);
+                const dds = parseDds(reader.result as ArrayBuffer);
 
                 console.log(dds);
 

@@ -25,6 +25,7 @@
   "scripts": {
     "build-lib": "rm -rf dist && rollup --config rollup.config.ts --configPlugin typescript",
     "build-samples": "rm -rf docs/convert/dist docs/decodeblp/dist docs/preview/dist docs/optframes/dist && webpack-cli --config samples.webpack.config.js",
+    "build-samples-watch": "rm -rf docs/convert/dist docs/decodeblp/dist docs/preview/dist docs/optframes/dist && webpack-cli --config samples.webpack.config.js --watch",
     "typecheck": "tsc --noEmit",
     "lint": "eslint --ext .ts ."
   },
@@ -38,6 +39,7 @@
     "@types/eslint": "7.29.0",
     "@types/estree": "0.0.51",
     "@types/node": "7.10.14",
+    "@types/parse-dds": "1.0.0",
     "@typescript-eslint/eslint-plugin": "4.33.0",
     "@typescript-eslint/parser": "4.33.0",
     "css-loader": "5.2.7",

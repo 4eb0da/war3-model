@@ -22,6 +22,11 @@
         <label>Animation <select id="select"><option>None</option></select></label>
         <label>Target z <input type="range" id="targetZ" value="50" min="0" max="200"></label>
         <label>Camera distance <input type="range" id="distance" value="500" min="100" max="1000"></label>
+        <label>Wireframe <input type="checkbox" id="wireframe"></label>
+        <fieldset class="skeleton-group">
+            <label>Show skeleton <input type="checkbox" id="show_skeleton"></label>
+            <label>Skeleton nodes <input type="text" id="skeleton" placeholder="* or comma-separated ids" value="*" disabled></label>
+        </fieldset>
     </div>
 </div>
 <script src="dist/main.js"></script>

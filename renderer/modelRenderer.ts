@@ -3,7 +3,7 @@ import {
     TextureFlags, TVertexAnim, Geoset
 } from '../model';
 import {vec3, quat, mat3, mat4} from 'gl-matrix';
-import type {DdsInfo} from 'parse-dds';
+import parseDds from 'parse-dds';
 import {mat4fromRotationOrigin, getShader, isWebGL2} from './util';
 import {ModelInterp} from './modelInterp';
 import {ParticlesController} from './particles';
@@ -113,6 +113,28 @@ const fragmentShader = `
     }
 `;
 
+const skeletonVertexShader = `
+    attribute vec3 aVertexPosition;
+
+    uniform mat4 uMVMatrix;
+    uniform mat4 uPMatrix;
+
+    void main(void) {
+        vec4 position = vec4(aVertexPosition, 1.0);
+        gl_Position = uPMatrix * uMVMatrix * position;
+    }
+`;
+
+const skeletonFragmentShader = `
+    precision mediump float;
+
+    uniform vec3 uColor;
+
+    void main(void) {
+        gl_FragColor = vec4(uColor, 1.0);
+    }
+`;
+
 const translation = vec3.create();
 const rotation = quat.create();
 const scaling = vec3.create();
@@ -143,10 +165,10 @@ const texCoordMat3: mat3 = mat3.create();
 
 export class ModelRenderer {
     private gl: WebGL2RenderingContext | WebGLRenderingContext;
+    private anisotropicExt: EXT_texture_filter_anisotropic | null;
     private vertexShader: WebGLShader | null;
     private fragmentShader: WebGLShader | null;
     private shaderProgram: WebGLProgram | null;
-    private anisotropicExt: EXT_texture_filter_anisotropic | null;
     private shaderProgramLocations: {
         vertexPositionAttribute: number | null;
         textureCoordAttribute: number | null;
@@ -160,6 +182,16 @@ export class ModelRenderer {
         tVertexAnimUniform: WebGLUniformLocation | null;
         nodesMatricesAttributes: (WebGLUniformLocation | null)[];
     };
+    private skeletonShaderProgram: WebGLProgram | null;
+    private skeletonVertexShader: WebGLShader | null;
+    private skeletonFragmentShader: WebGLShader | null;
+    private skeletonShaderProgramLocations: {
+        vertexPositionAttribute: number | null;
+        pMatrixUniform: WebGLUniformLocation | null;
+        mvMatrixUniform: WebGLUniformLocation | null;
+        colorUniform: WebGLUniformLocation | null;
+    };
+    private skeletonVertexBuffer: WebGLBuffer | null;
 
     private model: Model;
     private interp: ModelInterp;
@@ -172,6 +204,7 @@ export class ModelRenderer {
     private vertices: Float32Array[] = []; // Array per geoset for software skinning
     private texCoordBuffer: WebGLBuffer[] = [];
     private indexBuffer: WebGLBuffer[] = [];
+    private wireframeIndexBuffer: WebGLBuffer[] = [];
     private groupBuffer: WebGLBuffer[] = [];
 
     constructor(model: Model) {
@@ -187,6 +220,12 @@ export class ModelRenderer {
             discardAlphaLevelUniform: null,
             tVertexAnimUniform: null,
             nodesMatricesAttributes: null
+        };
+        this.skeletonShaderProgramLocations = {
+            vertexPositionAttribute: null,
+            mvMatrixUniform: null,
+            pMatrixUniform: null,
+            colorUniform: null
         };
 
         this.model = model;
@@ -255,22 +294,35 @@ export class ModelRenderer {
     }
 
     public destroy () {
-        if (!this.shaderProgram) {
-            return;
+        if (this.skeletonShaderProgram) {
+            if (this.skeletonVertexShader) {
+                this.gl.detachShader(this.skeletonShaderProgram, this.skeletonVertexShader);
+                this.gl.deleteShader(this.skeletonVertexShader);
+                this.skeletonVertexShader = null;
+            }
+            if (this.skeletonFragmentShader) {
+                this.gl.detachShader(this.skeletonShaderProgram, this.skeletonFragmentShader);
+                this.gl.deleteShader(this.skeletonFragmentShader);
+                this.skeletonFragmentShader = null;
+            }
+            this.gl.deleteProgram(this.skeletonShaderProgram);
+            this.skeletonShaderProgram = null;
         }
 
-        if (this.vertexShader) {
-            this.gl.detachShader(this.shaderProgram, this.vertexShader);
-            this.gl.deleteShader(this.vertexShader);
-            this.vertexShader = null;
+        if (this.shaderProgram) {
+            if (this.vertexShader) {
+                this.gl.detachShader(this.shaderProgram, this.vertexShader);
+                this.gl.deleteShader(this.vertexShader);
+                this.vertexShader = null;
+            }
+            if (this.fragmentShader) {
+                this.gl.detachShader(this.shaderProgram, this.fragmentShader);
+                this.gl.deleteShader(this.fragmentShader);
+                this.fragmentShader = null;
+            }
+            this.gl.deleteProgram(this.shaderProgram);
+            this.shaderProgram = null;
         }
-        if (this.fragmentShader) {
-            this.gl.detachShader(this.shaderProgram, this.fragmentShader);
-            this.gl.deleteShader(this.fragmentShader);
-            this.fragmentShader = null;
-        }
-        this.gl.deleteProgram(this.shaderProgram);
-        this.shaderProgram = null;
     }
 
     public initGL (glContext: WebGLRenderingContext): void {
@@ -311,7 +363,7 @@ export class ModelRenderer {
         this.gl.bindTexture(this.gl.TEXTURE_2D, null);
     }
 
-    public setTextureCompressedImage (path: string, format: DDS_FORMAT, imageData: ArrayBuffer, ddsInfo: DdsInfo, flags: TextureFlags): void {
+    public setTextureCompressedImage (path: string, format: DDS_FORMAT, imageData: ArrayBuffer, ddsInfo: ReturnType<typeof parseDds>, flags: TextureFlags): void {
         this.rendererData.textures[path] = this.gl.createTexture();
         this.gl.bindTexture(this.gl.TEXTURE_2D, this.rendererData.textures[path]);
 
@@ -378,7 +430,9 @@ export class ModelRenderer {
         }
     }
 
-    public render (mvMatrix: mat4, pMatrix: mat4): void {
+    public render (mvMatrix: mat4, pMatrix: mat4, { wireframe } : {
+        wireframe: boolean;
+    }): void {
         this.gl.useProgram(this.shaderProgram);
 
         this.gl.uniformMatrix4fv(this.shaderProgramLocations.pMatrixUniform, false, pMatrix);
@@ -425,8 +479,17 @@ export class ModelRenderer {
                     this.gl.vertexAttribPointer(this.shaderProgramLocations.groupAttribute, 4, this.gl.UNSIGNED_SHORT, false, 0, 0);
                 }
 
-                this.gl.bindBuffer(this.gl.ELEMENT_ARRAY_BUFFER, this.indexBuffer[i]);
-                this.gl.drawElements(this.gl.TRIANGLES, this.model.Geosets[i].Faces.length, this.gl.UNSIGNED_SHORT, 0);
+                if (wireframe && !this.wireframeIndexBuffer[i]) {
+                    this.createWireframeBuffer(i);
+                }
+
+                this.gl.bindBuffer(this.gl.ELEMENT_ARRAY_BUFFER, wireframe ? this.wireframeIndexBuffer[i] : this.indexBuffer[i]);
+                this.gl.drawElements(
+                    wireframe ? this.gl.LINES : this.gl.TRIANGLES,
+                    wireframe ? this.model.Geosets[i].Faces.length * 2 : this.model.Geosets[i].Faces.length,
+                    this.gl.UNSIGNED_SHORT,
+                    0
+                );
             }
         }
 
@@ -438,6 +501,88 @@ export class ModelRenderer {
 
         this.particlesController.render(mvMatrix, pMatrix);
         this.ribbonsController.render(mvMatrix, pMatrix);
+    }
+
+    /**
+     * @param mvMatrix 
+     * @param pMatrix 
+     * @param nodes Nodes to highlight. null means draw all
+     */
+    public renderSkeleton (mvMatrix: mat4, pMatrix: mat4, nodes: string[] | null): void {
+        if (!this.skeletonShaderProgram) {
+            this.skeletonShaderProgram = this.initSkeletonShaderProgram();
+        }
+
+        this.gl.disable(this.gl.BLEND);
+        this.gl.disable(this.gl.DEPTH_TEST);
+
+        this.gl.useProgram(this.skeletonShaderProgram);
+
+        this.gl.uniformMatrix4fv(this.skeletonShaderProgramLocations.pMatrixUniform, false, pMatrix);
+        this.gl.uniformMatrix4fv(this.skeletonShaderProgramLocations.mvMatrixUniform, false, mvMatrix);
+        this.gl.uniform3fv(this.skeletonShaderProgramLocations.colorUniform, vec3.fromValues(0, 1, 0));
+
+        this.gl.enableVertexAttribArray(this.skeletonShaderProgramLocations.vertexPositionAttribute);
+
+        if (!this.skeletonVertexBuffer) {
+            this.skeletonVertexBuffer = this.gl.createBuffer();
+        }
+        const coords = [];
+        const line = (node0: NodeWrapper, node1: NodeWrapper) => {
+            vec3.transformMat4(tempPos, node0.node.PivotPoint, node0.matrix);
+            coords.push(
+                tempPos[0],
+                tempPos[1],
+                tempPos[2]
+            );
+            vec3.transformMat4(tempPos, node1.node.PivotPoint, node1.matrix);
+            coords.push(
+                tempPos[0],
+                tempPos[1],
+                tempPos[2]
+            );
+        };
+        const updateNode = (node: NodeWrapper) => {
+            if ((node.node.Parent || node.node.Parent === 0) && (!nodes || nodes.includes(node.node.Name))) {
+                line(node, this.rendererData.nodes[node.node.Parent]);
+            }
+            for (const child of node.childs) {
+                updateNode(child);
+            }
+        };
+        updateNode(this.rendererData.rootNode);
+        const buffer = new Float32Array(coords);
+
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.skeletonVertexBuffer);
+        this.gl.bufferData(this.gl.ARRAY_BUFFER, buffer, this.gl.DYNAMIC_DRAW);
+        this.gl.vertexAttribPointer(this.skeletonShaderProgramLocations.vertexPositionAttribute, 3, this.gl.FLOAT, false, 0, 0);
+
+        this.gl.drawArrays(this.gl.LINES, 0, buffer.length / 3);
+
+        this.gl.disableVertexAttribArray(this.skeletonShaderProgramLocations.vertexPositionAttribute);
+    }
+
+    private initSkeletonShaderProgram (): WebGLProgram {
+        const vertex = this.skeletonVertexShader = getShader(this.gl, skeletonVertexShader, this.gl.VERTEX_SHADER);
+        const fragment = this.skeletonFragmentShader = getShader(this.gl, skeletonFragmentShader, this.gl.FRAGMENT_SHADER);
+
+        const shaderProgram = this.gl.createProgram();
+        this.gl.attachShader(shaderProgram, vertex);
+        this.gl.attachShader(shaderProgram, fragment);
+        this.gl.linkProgram(shaderProgram);
+
+        if (!this.gl.getProgramParameter(shaderProgram, this.gl.LINK_STATUS)) {
+            alert('Could not initialise shaders');
+        }
+
+        this.gl.useProgram(shaderProgram);
+
+        this.skeletonShaderProgramLocations.vertexPositionAttribute = this.gl.getAttribLocation(shaderProgram, 'aVertexPosition');
+        this.skeletonShaderProgramLocations.pMatrixUniform = this.gl.getUniformLocation(shaderProgram, 'uPMatrix');
+        this.skeletonShaderProgramLocations.mvMatrixUniform = this.gl.getUniformLocation(shaderProgram, 'uMVMatrix');
+        this.skeletonShaderProgramLocations.colorUniform = this.gl.getUniformLocation(shaderProgram, 'uColor');
+
+        return shaderProgram;
     }
 
     private generateGeosetVertices (geosetIndex: number): void {
@@ -536,6 +681,24 @@ export class ModelRenderer {
                 this.gl.getUniformLocation(shaderProgram, `uNodesMatrices[${i}]`);
             }
         }
+    }
+
+    private createWireframeBuffer (index: number): void {
+        const faces = this.model.Geosets[index].Faces;
+        const lines = new Uint16Array(faces.length * 2);
+
+        for (let i = 0; i < faces.length; i += 3) {
+            lines[i * 2]     = faces[i];
+            lines[i * 2 + 1] = faces[i + 1];
+            lines[i * 2 + 2] = faces[i + 1];
+            lines[i * 2 + 3] = faces[i + 2];
+            lines[i * 2 + 4] = faces[i + 2];
+            lines[i * 2 + 5] = faces[i];
+        }
+
+        this.wireframeIndexBuffer[index] = this.gl.createBuffer();
+        this.gl.bindBuffer(this.gl.ELEMENT_ARRAY_BUFFER, this.wireframeIndexBuffer[index]);
+        this.gl.bufferData(this.gl.ELEMENT_ARRAY_BUFFER, lines, this.gl.STATIC_DRAW);
     }
 
     private initBuffers (): void {
