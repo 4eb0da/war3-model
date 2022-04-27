@@ -245,7 +245,7 @@ function initControls () {
         if (val === '*') {
             return null;
         } else {
-            return val.split(/\s*,\s*/).map(it => it.trim()).filter(Boolean);
+            return [val];
         }
     };
 
@@ -368,10 +368,6 @@ function updateCanvasSize () {
     canvas.height = height * dpr;
 }
 
-function encode (html) {
-    return html.replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
-
 function setAnimationList () {
     let list: any[] = model.Sequences.map(seq => seq.Name);
 
@@ -380,7 +376,21 @@ function setAnimationList () {
     }
 
     const select = document.getElementById('select') as HTMLSelectElement;
-    select.innerHTML = list.map((item, index) => `<option value="${index}">${encode(item)}</option>`).join('');
+    select.innerHTML = '';
+    list.forEach((item, index) => {
+        const option = document.createElement('option');
+        option.textContent = item;
+        option.value = String(index);
+        select.appendChild(option);
+    });
+
+    const skeleton = document.getElementById('skeleton') as HTMLSelectElement;
+    for (const node of model.Nodes) {
+        const option = document.createElement('option');
+        option.textContent = node.Name;
+        option.value = node.Name;
+        skeleton.appendChild(option);
+    }
 }
 
 function setDragDropTextures () {
