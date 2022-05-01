@@ -298,7 +298,7 @@ export class ModelRenderer {
         this.ribbonsController = new RibbonsController(this.interp, this.rendererData);
     }
 
-    public destroy () {
+    public destroy (): void {
         if (this.skeletonShaderProgram) {
             if (this.skeletonVertexShader) {
                 this.gl.detachShader(this.skeletonShaderProgram, this.skeletonVertexShader);

@@ -369,7 +369,7 @@ function updateCanvasSize () {
 }
 
 function setAnimationList () {
-    let list: any[] = model.Sequences.map(seq => seq.Name);
+    let list: string[] = model.Sequences.map(seq => seq.Name);
 
     if (list.length === 0) {
         list = ['None'];

@@ -11,7 +11,27 @@ import {lerp} from './interp';
 
 let gl: WebGLRenderingContext;
 let shaderProgram: WebGLProgram;
-const shaderProgramLocations: any = {};
+const shaderProgramLocations: {
+    vertexPositionAttribute: number | null;
+    textureCoordAttribute: number | null;
+    colorAttribute: number | null;
+    pMatrixUniform: WebGLUniformLocation | null;
+    mvMatrixUniform: WebGLUniformLocation | null;
+    samplerUniform: WebGLUniformLocation | null;
+    replaceableColorUniform: WebGLUniformLocation | null;
+    replaceableTypeUniform: WebGLUniformLocation | null;
+    discardAlphaLevelUniform: WebGLUniformLocation | null;
+} = {
+    vertexPositionAttribute: null,
+    textureCoordAttribute: null,
+    colorAttribute: null,
+    pMatrixUniform: null,
+    mvMatrixUniform: null,
+    samplerUniform: null,
+    replaceableColorUniform: null,
+    replaceableTypeUniform: null,
+    discardAlphaLevelUniform: null
+};
 const particleStorage: Particle[] = [];
 
 const rotateCenter: vec3 = vec3.fromValues(0, 0, 0);

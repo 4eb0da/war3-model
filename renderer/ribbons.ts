@@ -5,7 +5,27 @@ import {FilterMode, Layer, LayerShading, Material, RibbonEmitter} from '../model
 import {mat4, vec3} from 'gl-matrix';
 let gl: WebGLRenderingContext;
 let shaderProgram: WebGLProgram;
-const shaderProgramLocations: any = {};
+const shaderProgramLocations: {
+    vertexPositionAttribute: number,
+    textureCoordAttribute: number,
+    pMatrixUniform: WebGLUniformLocation | null,
+    mvMatrixUniform: WebGLUniformLocation | null,
+    samplerUniform: WebGLUniformLocation | null,
+    replaceableColorUniform: WebGLUniformLocation | null,
+    replaceableTypeUniform: WebGLUniformLocation | null,
+    discardAlphaLevelUniform: WebGLUniformLocation | null,
+    colorUniform: WebGLUniformLocation | null
+} = {
+    vertexPositionAttribute: null,
+    textureCoordAttribute: null,
+    pMatrixUniform: null,
+    mvMatrixUniform: null,
+    samplerUniform: null,
+    replaceableColorUniform: null,
+    replaceableTypeUniform: null,
+    discardAlphaLevelUniform: null,
+    colorUniform: null
+};
 
 const vertexShader = `
     attribute vec3 aVertexPosition;

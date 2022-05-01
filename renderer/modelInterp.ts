@@ -1,4 +1,4 @@
-import {AnimVector} from '../model';
+import {AnimKeyframe, AnimVector} from '../model';
 import {findKeyframes, interpNum, interpVec3, interpQuat} from './interp';
 import {vec3, quat} from 'gl-matrix';
 import {RendererData} from './rendererData';
@@ -71,7 +71,7 @@ export class ModelInterp {
         return res;
     }
 
-    public findKeyframes (animVector: AnimVector): null | {frame: number, left: any, right: any} {
+    public findKeyframes (animVector: AnimVector): null | {frame: number, left: AnimKeyframe, right: AnimKeyframe} {
         if (!animVector) {
             return null;
         }

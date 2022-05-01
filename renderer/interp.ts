@@ -34,7 +34,7 @@ function hermite (left: number, outTan: number, inTan: number, right: number, t:
 }
 
 export function findKeyframes (animVector: AnimVector, frame: number, from: number, to: number):
-        null | {frame: number, left: any, right: any} {
+        null | {frame: number, left: AnimKeyframe, right: AnimKeyframe} {
     if (!animVector) {
         return null;
     }

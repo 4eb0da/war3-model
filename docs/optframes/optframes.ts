@@ -4,7 +4,7 @@ import {parse as parseMDL} from '../../mdl/parse';
 import {parse as parseMDX} from '../../mdx/parse';
 import {generate as generateMDL} from '../../mdl/generate';
 import {generate as generateMDX} from '../../mdx/generate';
-import {AnimKeyframe, AnimVector, Model} from '../../model';
+import {AnimKeyframe, AnimVector, Camera, Layer, Model, Node, TVertexAnim} from '../../model';
 import '../common/shim';
 
 document.addEventListener('DOMContentLoaded', function init () {
@@ -130,7 +130,7 @@ document.addEventListener('DOMContentLoaded', function init () {
             return true;
         };
 
-        const processKeys = (obj: any, key: string): void => {
+        const processKeys = (obj: Node | Camera | TVertexAnim | Layer, key: string): void => {
             const animVector: AnimVector = obj[key];
             const sequences = model.Sequences;
             const globalSequences = model.GlobalSequences;
