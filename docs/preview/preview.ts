@@ -15,9 +15,7 @@ let canvas: HTMLCanvasElement;
 let gl: WebGLRenderingContext;
 const pMatrix = mat4.create();
 const mvMatrix = mat4.create();
-let loadedTextures = 0;
-let totalTextures = 0;
-const cleanupNameRegexp = /.*?([^\\/]+)\.\w+$/;
+const CLEANUP_NAME_REGEXP = /.*?([^\\/]+)\.\w+$/;
 let ddsExt: WEBGL_compressed_texture_s3tc | null = null;
 
 let cameraTheta = Math.PI / 4;
@@ -53,9 +51,14 @@ function initGL () {
     }
 
     try {
-        gl = canvas.getContext('webgl2') ||
-            canvas.getContext('webgl') ||
-            canvas.getContext('experimental-webgl') as
+        const opts: WebGLContextAttributes = {
+            antialias: true,
+            alpha: false
+        };
+
+        gl = canvas.getContext('webgl2', opts) ||
+            canvas.getContext('webgl', opts) ||
+            canvas.getContext('experimental-webgl', opts) as
             (WebGL2RenderingContext | WebGLRenderingContext);
 
         ddsExt = (
@@ -134,8 +137,10 @@ function loadTexture (src: string, textureName: string, flags: TextureFlags) {
     img.src = src;
 }
 
+let started = false;
 function handleLoadedTexture (): void {
-    if (++loadedTextures === totalTextures) {
+    if (!started) {
+        started = true;
         requestAnimationFrame(tick);
     }
 }
@@ -150,8 +155,6 @@ function handleLoadedTexture (): void {
 
 function processModelLoading () {
     console.log(model);
-
-    loadedTextures = totalTextures = 0;
 
     modelRenderer = new ModelRenderer(model);
 
@@ -471,62 +474,72 @@ function initDragDrop () {
             reader.readAsText(file);
         }
     };
-    const dropTexture = (file, textureName: string, textureFlags: TextureFlags) => {
-        const reader = new FileReader();
-        const isBLP = file.name.indexOf('.blp') > -1;
-        const isDDS = file.name.indexOf('.dds') > -1;
 
-        reader.onload = () => {
-            if (isDDS) {
-                const dds = parseDds(reader.result as ArrayBuffer);
+    const dropTexture = (file: File, textureName: string, textureFlags: TextureFlags) => {
+        return new Promise<void>(resolve => {
+            const reader = new FileReader();
+            const isBLP = file.name.indexOf('.blp') > -1;
+            const isDDS = file.name.indexOf('.dds') > -1;
 
-                console.log(dds);
+            reader.onload = () => {
+                try {
+                    if (isDDS) {
+                        const dds = parseDds(reader.result as ArrayBuffer);
 
-                let format: GLenum;
+                        console.log(dds);
 
-                if (dds.format === 'dxt1') {
-                    format = ddsExt.COMPRESSED_RGB_S3TC_DXT1_EXT;
-                } else if (dds.format === 'dxt3') {
-                    format = ddsExt.COMPRESSED_RGBA_S3TC_DXT3_EXT;
-                } else if (dds.format === 'dxt5') {
-                    format = ddsExt.COMPRESSED_RGBA_S3TC_DXT5_EXT;
+                        let format: GLenum;
+
+                        if (dds.format === 'dxt1') {
+                            format = ddsExt.COMPRESSED_RGB_S3TC_DXT1_EXT;
+                        } else if (dds.format === 'dxt3') {
+                            format = ddsExt.COMPRESSED_RGBA_S3TC_DXT3_EXT;
+                        } else if (dds.format === 'dxt5') {
+                            format = ddsExt.COMPRESSED_RGBA_S3TC_DXT5_EXT;
+                        }
+
+                        modelRenderer.setTextureCompressedImage(
+                            textureName,
+                            format,
+                            reader.result as ArrayBuffer,
+                            dds,
+                            textureFlags
+                        );
+                        resolve();
+                    } else if (isBLP) {
+                        const blp = decode(reader.result as ArrayBuffer);
+
+                        console.log(file.name, blp);
+
+                        modelRenderer.setTextureImageData(
+                            textureName,
+                            blp.mipmaps.map((_mipmap, i) => getImageData(blp, i)),
+                            textureFlags
+                        );
+                        resolve();
+                    } else {
+                        const img = new Image();
+
+                        img.onload = () => {
+                            console.log(file.name, img);
+                            modelRenderer.setTextureImage(textureName, img, textureFlags);
+                            resolve();
+                        };
+
+                        img.src = reader.result as string;
+                    }
+                } catch (err) {
+                    console.error(err);
+                    resolve();
                 }
+            };
 
-                modelRenderer.setTextureCompressedImage(
-                    textureName,
-                    format,
-                    reader.result as ArrayBuffer,
-                    dds,
-                    textureFlags
-                );
-            } else if (isBLP) {
-                const blp = decode(reader.result as ArrayBuffer);
-
-                console.log(file.name, blp);
-
-                modelRenderer.setTextureImageData(
-                    textureName,
-                    blp.mipmaps.map((_mipmap, i) => getImageData(blp, i)),
-                    textureFlags
-                );
+            if (isBLP || isDDS) {
+                reader.readAsArrayBuffer(file);
             } else {
-                const img = new Image();
-
-                img.onload = () => {
-                    console.log(file.name, img);
-                    modelRenderer.setTextureImage(textureName, img, textureFlags);
-                };
-
-                img.src = reader.result as string;
+                reader.readAsDataURL(file);
             }
-            handleLoadedTexture();
-        };
-
-        if (isBLP || isDDS) {
-            reader.readAsArrayBuffer(file);
-        } else {
-            reader.readAsDataURL(file);
-        }
+        });
     };
     container.addEventListener('drop', function onDrop (event: DragEvent) {
         event.preventDefault();
@@ -544,7 +557,9 @@ function initDragDrop () {
 
         if (dropTarget.getAttribute('data-texture')) {
             dropTexture(files[0], dropTarget.getAttribute('data-texture'),
-                Number(dropTarget.getAttribute('data-texture-flags')));
+                Number(dropTarget.getAttribute('data-texture-flags'))).then(() => {
+                    handleLoadedTexture();
+                });
         } else {
             let modelFile;
 
@@ -562,7 +577,7 @@ function initDragDrop () {
 
                 for (let i = 0; i < files.length; ++i) {
                     const file = files[i],
-                        name = file.name.replace(cleanupNameRegexp, '$1');
+                        name = file.name.replace(CLEANUP_NAME_REGEXP, '$1').toLowerCase();
 
                     if (file.name.indexOf('.mdl') > -1 || file.name.indexOf('.mdx') > -1) {
                         continue;
@@ -579,18 +594,22 @@ function initDragDrop () {
 
 
     function setTextures (textures) {
+        let promises: Promise<void>[] = [];
+
         for (const texture of model.Textures) {
             if (texture.Image) {
-                ++totalTextures;
-
-                const cleanupName = texture.Image.replace(cleanupNameRegexp, '$1');
+                const cleanupName = texture.Image.replace(CLEANUP_NAME_REGEXP, '$1').toLowerCase();
                 if (cleanupName in textures) {
-                    dropTexture(textures[cleanupName], texture.Image, texture.Flags);
+                    promises.push(dropTexture(textures[cleanupName], texture.Image, texture.Flags));
                 } else {
                     loadTexture('empty.png', texture.Image, 0);
                 }
             }
         }
+
+        Promise.all(promises).then(() => {
+            handleLoadedTexture();
+        });
     }
 }
 
