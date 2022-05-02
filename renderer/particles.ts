@@ -9,11 +9,6 @@ import {degToRad, rand, getShader} from './util';
 import {RendererData} from './rendererData';
 import {lerp} from './interp';
 
-let gl: WebGLRenderingContext;
-let shaderProgram: WebGLProgram;
-const shaderProgramLocations: any = {};
-const particleStorage: Particle[] = [];
-
 const rotateCenter: vec3 = vec3.fromValues(0, 0, 0);
 const firstColor = vec4.create();
 const secondColor = vec4.create();
@@ -126,46 +121,146 @@ const DISCARD_ALPHA_KEY_LEVEL = 0.83;
 const DISCARD_MODULATE_LEVEL = 0.01;
 
 export class ParticlesController {
-    public static initGL (glContext: WebGLRenderingContext): void {
-        gl = glContext;
+    private gl: WebGL2RenderingContext | WebGLRenderingContext;
+    private shaderProgram: WebGLProgram;
+    private vertexShader: WebGLShader;
+    private fragmentShader: WebGLShader;
 
-        ParticlesController.initShaders();
+    private shaderProgramLocations: {
+        vertexPositionAttribute: number | null;
+        textureCoordAttribute: number | null;
+        colorAttribute: number | null;
+        pMatrixUniform: WebGLUniformLocation | null;
+        mvMatrixUniform: WebGLUniformLocation | null;
+        samplerUniform: WebGLUniformLocation | null;
+        replaceableColorUniform: WebGLUniformLocation | null;
+        replaceableTypeUniform: WebGLUniformLocation | null;
+        discardAlphaLevelUniform: WebGLUniformLocation | null;
+    };
+
+    private particleStorage: Particle[];
+
+    private interp: ModelInterp;
+    private rendererData: RendererData;
+    private emitters: ParticleEmitterWrapper[];
+
+    private particleBaseVectors: vec3[];
+
+    constructor (interp: ModelInterp, rendererData: RendererData) {
+        this.shaderProgramLocations = {
+            vertexPositionAttribute: null,
+            textureCoordAttribute: null,
+            colorAttribute: null,
+            pMatrixUniform: null,
+            mvMatrixUniform: null,
+            samplerUniform: null,
+            replaceableColorUniform: null,
+            replaceableTypeUniform: null,
+            discardAlphaLevelUniform: null
+        };
+        this.particleStorage = [];
+        this.interp = interp;
+        this.rendererData = rendererData;
+        this.emitters = [];
+
+        if (rendererData.model.ParticleEmitters2.length) {
+            this.particleBaseVectors = [
+                vec3.create(),
+                vec3.create(),
+                vec3.create(),
+                vec3.create()
+            ];
+
+            for (const particleEmitter of rendererData.model.ParticleEmitters2) {
+                const emitter: ParticleEmitterWrapper = {
+                    emission: 0,
+                    squirtFrame: 0,
+                    particles: [],
+                    props: particleEmitter,
+                    capacity: 0,
+                    baseCapacity: 0,
+                    type: particleEmitter.FrameFlags,
+                    tailVertices: null,
+                    tailVertexBuffer: null,
+                    headVertices: null,
+                    headVertexBuffer: null,
+                    tailTexCoords: null,
+                    tailTexCoordBuffer: null,
+                    headTexCoords: null,
+                    headTexCoordBuffer: null,
+                    colors: null,
+                    colorBuffer: null,
+                    indices: null,
+                    indexBuffer: null
+                };
+
+                emitter.baseCapacity = Math.ceil(
+                    ModelInterp.maxAnimVectorVal(emitter.props.EmissionRate) * emitter.props.LifeSpan
+                );
+
+                this.emitters.push(emitter);
+            }
+        }
     }
 
-    private static initShaders (): void {
-        const vertex = getShader(gl, vertexShader, gl.VERTEX_SHADER);
-        const fragment = getShader(gl, fragmentShader, gl.FRAGMENT_SHADER);
+    public destroy (): void {
+        if (this.shaderProgram) {
+            if (this.vertexShader) {
+                this.gl.detachShader(this.shaderProgram, this.vertexShader);
+                this.gl.deleteShader(this.vertexShader);
+                this.vertexShader = null;
+            }
+            if (this.fragmentShader) {
+                this.gl.detachShader(this.shaderProgram, this.fragmentShader);
+                this.gl.deleteShader(this.fragmentShader);
+                this.fragmentShader = null;
+            }
+            this.gl.deleteProgram(this.shaderProgram);
+            this.shaderProgram = null;
+        }
+        this.particleStorage = [];
+    }
 
-        shaderProgram = gl.createProgram();
-        gl.attachShader(shaderProgram, vertex);
-        gl.attachShader(shaderProgram, fragment);
-        gl.linkProgram(shaderProgram);
+    public initGL (glContext: WebGLRenderingContext): void {
+        this.gl = glContext;
 
-        if (!gl.getProgramParameter(shaderProgram, gl.LINK_STATUS)) {
+        this.initShaders();
+    }
+
+    private initShaders (): void {
+        const vertex = this.vertexShader = getShader(this.gl, vertexShader, this.gl.VERTEX_SHADER);
+        const fragment = this.fragmentShader = getShader(this.gl, fragmentShader, this.gl.FRAGMENT_SHADER);
+
+        const shaderProgram = this.shaderProgram = this.gl.createProgram();
+        this.gl.attachShader(shaderProgram, vertex);
+        this.gl.attachShader(shaderProgram, fragment);
+        this.gl.linkProgram(shaderProgram);
+
+        if (!this.gl.getProgramParameter(shaderProgram, this.gl.LINK_STATUS)) {
             alert('Could not initialise shaders');
         }
 
-        gl.useProgram(shaderProgram);
+        this.gl.useProgram(shaderProgram);
 
-        shaderProgramLocations.vertexPositionAttribute =
-            gl.getAttribLocation(shaderProgram, 'aVertexPosition');
-        shaderProgramLocations.textureCoordAttribute =
-            gl.getAttribLocation(shaderProgram, 'aTextureCoord');
-        shaderProgramLocations.colorAttribute =
-            gl.getAttribLocation(shaderProgram, 'aColor');
+        this.shaderProgramLocations.vertexPositionAttribute =
+            this.gl.getAttribLocation(shaderProgram, 'aVertexPosition');
+        this.shaderProgramLocations.textureCoordAttribute =
+            this.gl.getAttribLocation(shaderProgram, 'aTextureCoord');
+        this.shaderProgramLocations.colorAttribute =
+            this.gl.getAttribLocation(shaderProgram, 'aColor');
 
-        shaderProgramLocations.pMatrixUniform = gl.getUniformLocation(shaderProgram, 'uPMatrix');
-        shaderProgramLocations.mvMatrixUniform = gl.getUniformLocation(shaderProgram, 'uMVMatrix');
-        shaderProgramLocations.samplerUniform = gl.getUniformLocation(shaderProgram, 'uSampler');
-        shaderProgramLocations.replaceableColorUniform =
-            gl.getUniformLocation(shaderProgram, 'uReplaceableColor');
-        shaderProgramLocations.replaceableTypeUniform =
-            gl.getUniformLocation(shaderProgram, 'uReplaceableType');
-        shaderProgramLocations.discardAlphaLevelUniform =
-            gl.getUniformLocation(shaderProgram, 'uDiscardAlphaLevel');
+        this.shaderProgramLocations.pMatrixUniform = this.gl.getUniformLocation(shaderProgram, 'uPMatrix');
+        this.shaderProgramLocations.mvMatrixUniform = this.gl.getUniformLocation(shaderProgram, 'uMVMatrix');
+        this.shaderProgramLocations.samplerUniform = this.gl.getUniformLocation(shaderProgram, 'uSampler');
+        this.shaderProgramLocations.replaceableColorUniform =
+            this.gl.getUniformLocation(shaderProgram, 'uReplaceableColor');
+        this.shaderProgramLocations.replaceableTypeUniform =
+            this.gl.getUniformLocation(shaderProgram, 'uReplaceableType');
+        this.shaderProgramLocations.discardAlphaLevelUniform =
+            this.gl.getUniformLocation(shaderProgram, 'uDiscardAlphaLevel');
     }
 
-    private static updateParticle (particle: Particle, delta: number): void {
+    private updateParticle (particle: Particle, delta: number): void {
         delta /= 1000;
 
         particle.lifeSpan -= delta;
@@ -179,7 +274,7 @@ export class ParticlesController {
         particle.pos[2] += particle.speed[2] * delta;
     }
 
-    private static resizeEmitterBuffers (emitter: ParticleEmitterWrapper, size: number): void {
+    private resizeEmitterBuffers (emitter: ParticleEmitterWrapper, size: number): void {
         if (size <= emitter.capacity) {
             return;
         }
@@ -231,66 +326,15 @@ export class ParticlesController {
 
         if (!emitter.indexBuffer) {
             if (emitter.type & ParticleEmitter2FramesFlags.Tail) {
-                emitter.tailVertexBuffer = gl.createBuffer();
-                emitter.tailTexCoordBuffer = gl.createBuffer();
+                emitter.tailVertexBuffer = this.gl.createBuffer();
+                emitter.tailTexCoordBuffer = this.gl.createBuffer();
             }
             if (emitter.type & ParticleEmitter2FramesFlags.Head) {
-                emitter.headVertexBuffer = gl.createBuffer();
-                emitter.headTexCoordBuffer = gl.createBuffer();
+                emitter.headVertexBuffer = this.gl.createBuffer();
+                emitter.headTexCoordBuffer = this.gl.createBuffer();
             }
-            emitter.colorBuffer = gl.createBuffer();
-            emitter.indexBuffer = gl.createBuffer();
-        }
-    }
-
-    private interp: ModelInterp;
-    private rendererData: RendererData;
-    private emitters: ParticleEmitterWrapper[];
-
-    private particleBaseVectors: vec3[];
-
-    constructor (interp: ModelInterp, rendererData: RendererData) {
-        this.interp = interp;
-        this.rendererData = rendererData;
-        this.emitters = [];
-
-        if (rendererData.model.ParticleEmitters2.length) {
-            this.particleBaseVectors = [
-                vec3.create(),
-                vec3.create(),
-                vec3.create(),
-                vec3.create()
-            ];
-
-            for (const particleEmitter of rendererData.model.ParticleEmitters2) {
-                const emitter: ParticleEmitterWrapper = {
-                    emission: 0,
-                    squirtFrame: 0,
-                    particles: [],
-                    props: particleEmitter,
-                    capacity: 0,
-                    baseCapacity: 0,
-                    type: particleEmitter.FrameFlags,
-                    tailVertices: null,
-                    tailVertexBuffer: null,
-                    headVertices: null,
-                    headVertexBuffer: null,
-                    tailTexCoords: null,
-                    tailTexCoordBuffer: null,
-                    headTexCoords: null,
-                    headTexCoordBuffer: null,
-                    colors: null,
-                    colorBuffer: null,
-                    indices: null,
-                    indexBuffer: null
-                };
-
-                emitter.baseCapacity = Math.ceil(
-                    ModelInterp.maxAnimVectorVal(emitter.props.EmissionRate) * emitter.props.LifeSpan
-                );
-
-                this.emitters.push(emitter);
-            }
+            emitter.colorBuffer = this.gl.createBuffer();
+            emitter.indexBuffer = this.gl.createBuffer();
         }
     }
 
@@ -301,15 +345,15 @@ export class ParticlesController {
     }
 
     public render (mvMatrix: mat4, pMatrix: mat4): void {
-        gl.enable(gl.CULL_FACE);
-        gl.useProgram(shaderProgram);
+        this.gl.enable(this.gl.CULL_FACE);
+        this.gl.useProgram(this.shaderProgram);
 
-        gl.uniformMatrix4fv(shaderProgramLocations.pMatrixUniform, false, pMatrix);
-        gl.uniformMatrix4fv(shaderProgramLocations.mvMatrixUniform, false, mvMatrix);
+        this.gl.uniformMatrix4fv(this.shaderProgramLocations.pMatrixUniform, false, pMatrix);
+        this.gl.uniformMatrix4fv(this.shaderProgramLocations.mvMatrixUniform, false, mvMatrix);
 
-        gl.enableVertexAttribArray(shaderProgramLocations.vertexPositionAttribute);
-        gl.enableVertexAttribArray(shaderProgramLocations.textureCoordAttribute);
-        gl.enableVertexAttribArray(shaderProgramLocations.colorAttribute);
+        this.gl.enableVertexAttribArray(this.shaderProgramLocations.vertexPositionAttribute);
+        this.gl.enableVertexAttribArray(this.shaderProgramLocations.textureCoordAttribute);
+        this.gl.enableVertexAttribArray(this.shaderProgramLocations.colorAttribute);
 
         for (const emitter of this.emitters) {
             if (!emitter.particles.length) {
@@ -327,9 +371,9 @@ export class ParticlesController {
             }
         }
 
-        gl.disableVertexAttribArray(shaderProgramLocations.vertexPositionAttribute);
-        gl.disableVertexAttribArray(shaderProgramLocations.textureCoordAttribute);
-        gl.disableVertexAttribArray(shaderProgramLocations.colorAttribute);
+        this.gl.disableVertexAttribArray(this.shaderProgramLocations.vertexPositionAttribute);
+        this.gl.disableVertexAttribArray(this.shaderProgramLocations.textureCoordAttribute);
+        this.gl.disableVertexAttribArray(this.shaderProgramLocations.colorAttribute);
     }
 
     private updateEmitter (emitter: ParticleEmitterWrapper, delta: number): void {
@@ -362,11 +406,11 @@ export class ParticlesController {
         if (emitter.particles.length) {
             const updatedParticles = [];
             for (const particle of emitter.particles) {
-                ParticlesController.updateParticle(particle, delta);
+                this.updateParticle(particle, delta);
                 if (particle.lifeSpan > 0) {
                     updatedParticles.push(particle);
                 } else {
-                    particleStorage.push(particle);
+                    this.particleStorage.push(particle);
                 }
             }
             emitter.particles = updatedParticles;
@@ -390,7 +434,7 @@ export class ParticlesController {
                 }
             }
 
-            ParticlesController.resizeEmitterBuffers(emitter, emitter.particles.length);
+            this.resizeEmitterBuffers(emitter, emitter.particles.length);
             for (let i = 0; i < emitter.particles.length; ++i) {
                 this.updateParticleBuffers(emitter.particles[i], i, emitter);
             }
@@ -400,8 +444,8 @@ export class ParticlesController {
     private createParticle (emitter: ParticleEmitterWrapper, emitterMatrix: mat4) {
         let particle: Particle;
 
-        if (particleStorage.length) {
-            particle = particleStorage.pop();
+        if (this.particleStorage.length) {
+            particle = this.particleStorage.pop();
         } else {
             particle = {
                 emitter: null,
@@ -615,81 +659,81 @@ export class ParticlesController {
 
     private setLayerProps (emitter: ParticleEmitterWrapper): void {
         if (emitter.props.FilterMode === ParticleEmitter2FilterMode.AlphaKey) {
-            gl.uniform1f(shaderProgramLocations.discardAlphaLevelUniform, DISCARD_ALPHA_KEY_LEVEL);
+            this.gl.uniform1f(this.shaderProgramLocations.discardAlphaLevelUniform, DISCARD_ALPHA_KEY_LEVEL);
         } else if (emitter.props.FilterMode === ParticleEmitter2FilterMode.Modulate ||
             emitter.props.FilterMode === ParticleEmitter2FilterMode.Modulate2x) {
-            gl.uniform1f(shaderProgramLocations.discardAlphaLevelUniform, DISCARD_MODULATE_LEVEL);
+                this.gl.uniform1f(this.shaderProgramLocations.discardAlphaLevelUniform, DISCARD_MODULATE_LEVEL);
         } else {
-            gl.uniform1f(shaderProgramLocations.discardAlphaLevelUniform, 0.);
+            this.gl.uniform1f(this.shaderProgramLocations.discardAlphaLevelUniform, 0.);
         }
 
         if (emitter.props.FilterMode === ParticleEmitter2FilterMode.Blend) {
-            gl.enable(gl.BLEND);
-            gl.enable(gl.DEPTH_TEST);
-            gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
-            gl.depthMask(false);
+            this.gl.enable(this.gl.BLEND);
+            this.gl.enable(this.gl.DEPTH_TEST);
+            this.gl.blendFuncSeparate(this.gl.SRC_ALPHA, this.gl.ONE_MINUS_SRC_ALPHA, this.gl.ONE, this.gl.ONE_MINUS_SRC_ALPHA);
+            this.gl.depthMask(false);
         } else if (emitter.props.FilterMode === ParticleEmitter2FilterMode.Additive) {
-            gl.enable(gl.BLEND);
-            gl.enable(gl.DEPTH_TEST);
-            gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
-            gl.depthMask(false);
+            this.gl.enable(this.gl.BLEND);
+            this.gl.enable(this.gl.DEPTH_TEST);
+            this.gl.blendFunc(this.gl.SRC_ALPHA, this.gl.ONE);
+            this.gl.depthMask(false);
         } else if (emitter.props.FilterMode === ParticleEmitter2FilterMode.AlphaKey) {
-            gl.enable(gl.BLEND);
-            gl.enable(gl.DEPTH_TEST);
-            gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
-            gl.depthMask(false);
+            this.gl.enable(this.gl.BLEND);
+            this.gl.enable(this.gl.DEPTH_TEST);
+            this.gl.blendFunc(this.gl.SRC_ALPHA, this.gl.ONE);
+            this.gl.depthMask(false);
         } else if (emitter.props.FilterMode === ParticleEmitter2FilterMode.Modulate) {
-            gl.enable(gl.BLEND);
-            gl.enable(gl.DEPTH_TEST);
-            gl.blendFuncSeparate(gl.ZERO, gl.SRC_COLOR, gl.ZERO, gl.ONE);
-            gl.depthMask(false);
+            this.gl.enable(this.gl.BLEND);
+            this.gl.enable(this.gl.DEPTH_TEST);
+            this.gl.blendFuncSeparate(this.gl.ZERO, this.gl.SRC_COLOR, this.gl.ZERO, this.gl.ONE);
+            this.gl.depthMask(false);
         } else if (emitter.props.FilterMode === ParticleEmitter2FilterMode.Modulate2x) {
-            gl.enable(gl.BLEND);
-            gl.enable(gl.DEPTH_TEST);
-            gl.blendFuncSeparate(gl.DST_COLOR, gl.SRC_COLOR, gl.ZERO, gl.ONE);
-            gl.depthMask(false);
+            this.gl.enable(this.gl.BLEND);
+            this.gl.enable(this.gl.DEPTH_TEST);
+            this.gl.blendFuncSeparate(this.gl.DST_COLOR, this.gl.SRC_COLOR, this.gl.ZERO, this.gl.ONE);
+            this.gl.depthMask(false);
         }
 
         const texture = this.rendererData.model.Textures[emitter.props.TextureID];
         if (texture.Image) {
-            gl.activeTexture(gl.TEXTURE0);
-            gl.bindTexture(gl.TEXTURE_2D, this.rendererData.textures[texture.Image]);
-            gl.uniform1i(shaderProgramLocations.samplerUniform, 0);
-            gl.uniform1f(shaderProgramLocations.replaceableTypeUniform, 0);
+            this.gl.activeTexture(this.gl.TEXTURE0);
+            this.gl.bindTexture(this.gl.TEXTURE_2D, this.rendererData.textures[texture.Image]);
+            this.gl.uniform1i(this.shaderProgramLocations.samplerUniform, 0);
+            this.gl.uniform1f(this.shaderProgramLocations.replaceableTypeUniform, 0);
         } else if (texture.ReplaceableId === 1 || texture.ReplaceableId === 2) {
-            gl.uniform3fv(shaderProgramLocations.replaceableColorUniform, this.rendererData.teamColor);
-            gl.uniform1f(shaderProgramLocations.replaceableTypeUniform, texture.ReplaceableId);
+            this.gl.uniform3fv(this.shaderProgramLocations.replaceableColorUniform, this.rendererData.teamColor);
+            this.gl.uniform1f(this.shaderProgramLocations.replaceableTypeUniform, texture.ReplaceableId);
         }
     }
 
     private setGeneralBuffers (emitter: ParticleEmitterWrapper): void {
-        gl.bindBuffer(gl.ARRAY_BUFFER, emitter.colorBuffer);
-        gl.bufferData(gl.ARRAY_BUFFER, emitter.colors, gl.DYNAMIC_DRAW);
-        gl.vertexAttribPointer(shaderProgramLocations.colorAttribute, 4, gl.FLOAT, false, 0, 0);
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, emitter.colorBuffer);
+        this.gl.bufferData(this.gl.ARRAY_BUFFER, emitter.colors, this.gl.DYNAMIC_DRAW);
+        this.gl.vertexAttribPointer(this.shaderProgramLocations.colorAttribute, 4, this.gl.FLOAT, false, 0, 0);
 
-        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, emitter.indexBuffer);
-        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, emitter.indices, gl.DYNAMIC_DRAW);
+        this.gl.bindBuffer(this.gl.ELEMENT_ARRAY_BUFFER, emitter.indexBuffer);
+        this.gl.bufferData(this.gl.ELEMENT_ARRAY_BUFFER, emitter.indices, this.gl.DYNAMIC_DRAW);
     }
 
     private renderEmitterType (emitter: ParticleEmitterWrapper, type: ParticleEmitter2FramesFlags): void {
         if (type === ParticleEmitter2FramesFlags.Tail) {
-            gl.bindBuffer(gl.ARRAY_BUFFER, emitter.tailTexCoordBuffer);
-            gl.bufferData(gl.ARRAY_BUFFER, emitter.tailTexCoords, gl.DYNAMIC_DRAW);
+            this.gl.bindBuffer(this.gl.ARRAY_BUFFER, emitter.tailTexCoordBuffer);
+            this.gl.bufferData(this.gl.ARRAY_BUFFER, emitter.tailTexCoords, this.gl.DYNAMIC_DRAW);
         } else {
-            gl.bindBuffer(gl.ARRAY_BUFFER, emitter.headTexCoordBuffer);
-            gl.bufferData(gl.ARRAY_BUFFER, emitter.headTexCoords, gl.DYNAMIC_DRAW);
+            this.gl.bindBuffer(this.gl.ARRAY_BUFFER, emitter.headTexCoordBuffer);
+            this.gl.bufferData(this.gl.ARRAY_BUFFER, emitter.headTexCoords, this.gl.DYNAMIC_DRAW);
         }
-        gl.vertexAttribPointer(shaderProgramLocations.textureCoordAttribute, 2, gl.FLOAT, false, 0, 0);
+        this.gl.vertexAttribPointer(this.shaderProgramLocations.textureCoordAttribute, 2, this.gl.FLOAT, false, 0, 0);
 
         if (type === ParticleEmitter2FramesFlags.Tail) {
-            gl.bindBuffer(gl.ARRAY_BUFFER, emitter.tailVertexBuffer);
-            gl.bufferData(gl.ARRAY_BUFFER, emitter.tailVertices, gl.DYNAMIC_DRAW);
+            this.gl.bindBuffer(this.gl.ARRAY_BUFFER, emitter.tailVertexBuffer);
+            this.gl.bufferData(this.gl.ARRAY_BUFFER, emitter.tailVertices, this.gl.DYNAMIC_DRAW);
         } else {
-            gl.bindBuffer(gl.ARRAY_BUFFER, emitter.headVertexBuffer);
-            gl.bufferData(gl.ARRAY_BUFFER, emitter.headVertices, gl.DYNAMIC_DRAW);
+            this.gl.bindBuffer(this.gl.ARRAY_BUFFER, emitter.headVertexBuffer);
+            this.gl.bufferData(this.gl.ARRAY_BUFFER, emitter.headVertices, this.gl.DYNAMIC_DRAW);
         }
-        gl.vertexAttribPointer(shaderProgramLocations.vertexPositionAttribute, 3, gl.FLOAT, false, 0, 0);
+        this.gl.vertexAttribPointer(this.shaderProgramLocations.vertexPositionAttribute, 3, this.gl.FLOAT, false, 0, 0);
 
-        gl.drawElements(gl.TRIANGLES, emitter.particles.length * 6, gl.UNSIGNED_SHORT, 0);
+        this.gl.drawElements(this.gl.TRIANGLES, emitter.particles.length * 6, this.gl.UNSIGNED_SHORT, 0);
     }
 }

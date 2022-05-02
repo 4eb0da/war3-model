@@ -76,3 +76,7 @@ export function getShader (gl: WebGLRenderingContext, source: string, type: numb
 
     return shader;
 }
+
+export function isWebGL2 (gl: WebGLRenderingContext | WebGL2RenderingContext): gl is WebGL2RenderingContext {
+    return gl instanceof WebGL2RenderingContext;
+}

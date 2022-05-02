@@ -15,9 +15,16 @@ canvas {
 }
 
 .controls {
+    display: flex;
+    align-items: center;
     background: #fff;
     padding: 5px 10px;
     box-sizing: border-box;
+}
+
+.skeleton-group {
+    padding: 0;
+    border: none;
 }
 
 label {

@@ -3,11 +3,18 @@ import {
     TextureFlags, TVertexAnim, Geoset
 } from '../model';
 import {vec3, quat, mat3, mat4} from 'gl-matrix';
-import {mat4fromRotationOrigin, getShader} from './util';
+import parseDds from 'parse-dds';
+import {mat4fromRotationOrigin, getShader, isWebGL2} from './util';
 import {ModelInterp} from './modelInterp';
-import {ParticlesController} from './particles';
 import {RendererData, NodeWrapper} from './rendererData';
+import {ParticlesController} from './particles';
 import {RibbonsController} from './ribbons';
+
+// actually, all is number
+type DDS_FORMAT = WEBGL_compressed_texture_s3tc['COMPRESSED_RGBA_S3TC_DXT1_EXT'] | 
+    WEBGL_compressed_texture_s3tc['COMPRESSED_RGBA_S3TC_DXT3_EXT'] | 
+    WEBGL_compressed_texture_s3tc['COMPRESSED_RGBA_S3TC_DXT5_EXT'] | 
+    WEBGL_compressed_texture_s3tc['COMPRESSED_RGB_S3TC_DXT1_EXT'];
 
 const MAX_NODES = 256;
 
@@ -64,6 +71,36 @@ const vertexShaderSoftwareSkinning = `
     }
 `;
 
+const vertexShaderHDHardwareSkinning = `
+    attribute vec3 aVertexPosition;
+    attribute vec2 aTextureCoord;
+    attribute vec4 aSkin;
+    attribute vec4 aBoneWeight;
+
+    uniform mat4 uMVMatrix;
+    uniform mat4 uPMatrix;
+    uniform mat4 uNodesMatrices[${MAX_NODES}];
+
+    varying vec2 vTextureCoord;
+
+    void main(void) {
+        vec4 position = vec4(aVertexPosition, 1.0);
+        mat4 sum;
+
+        // sum += uNodesMatrices[int(aSkin[0])] * 1.;
+        sum += uNodesMatrices[int(aSkin[0])] * aBoneWeight[0];
+        sum += uNodesMatrices[int(aSkin[1])] * aBoneWeight[1];
+        sum += uNodesMatrices[int(aSkin[2])] * aBoneWeight[2];
+        sum += uNodesMatrices[int(aSkin[3])] * aBoneWeight[3];
+
+        position = sum * position;
+        position.w = 1.;
+
+        gl_Position = uPMatrix * uMVMatrix * position;
+        vTextureCoord = aTextureCoord;
+    }
+`;
+
 const fragmentShader = `
     precision mediump float;
 
@@ -106,6 +143,32 @@ const fragmentShader = `
     }
 `;
 
+const skeletonVertexShader = `
+    attribute vec3 aVertexPosition;
+    attribute vec3 aColor;
+
+    uniform mat4 uMVMatrix;
+    uniform mat4 uPMatrix;
+
+    varying vec3 vColor;
+
+    void main(void) {
+        vec4 position = vec4(aVertexPosition, 1.0);
+        gl_Position = uPMatrix * uMVMatrix * position;
+        vColor = aColor;
+    }
+`;
+
+const skeletonFragmentShader = `
+    precision mediump float;
+
+    varying vec3 vColor;
+
+    void main(void) {
+        gl_FragColor = vec4(vColor, 1.0);
+    }
+`;
+
 const translation = vec3.create();
 const rotation = quat.create();
 const scaling = vec3.create();
@@ -135,15 +198,19 @@ const texCoordMat4: mat4 = mat4.create();
 const texCoordMat3: mat3 = mat3.create();
 
 export class ModelRenderer {
-    private gl: WebGLRenderingContext;
+    private isHD: boolean;
+
+    private gl: WebGL2RenderingContext | WebGLRenderingContext;
+    private anisotropicExt: EXT_texture_filter_anisotropic | null;
     private vertexShader: WebGLShader | null;
     private fragmentShader: WebGLShader | null;
     private shaderProgram: WebGLProgram | null;
-    private anisotropicExt: EXT_texture_filter_anisotropic | null;
     private shaderProgramLocations: {
         vertexPositionAttribute: number | null;
         textureCoordAttribute: number | null;
         groupAttribute: number | null;
+        skinAttribute: number | null;
+        weightAttribute: number | null;
         pMatrixUniform: WebGLUniformLocation | null;
         mvMatrixUniform: WebGLUniformLocation | null;
         samplerUniform: WebGLUniformLocation | null;
@@ -153,6 +220,17 @@ export class ModelRenderer {
         tVertexAnimUniform: WebGLUniformLocation | null;
         nodesMatricesAttributes: (WebGLUniformLocation | null)[];
     };
+    private skeletonShaderProgram: WebGLProgram | null;
+    private skeletonVertexShader: WebGLShader | null;
+    private skeletonFragmentShader: WebGLShader | null;
+    private skeletonShaderProgramLocations: {
+        vertexPositionAttribute: number | null;
+        colorAttribute: number | null;
+        pMatrixUniform: WebGLUniformLocation | null;
+        mvMatrixUniform: WebGLUniformLocation | null;
+    };
+    private skeletonVertexBuffer: WebGLBuffer | null;
+    private skeletonColorBuffer: WebGLBuffer | null;
 
     private model: Model;
     private interp: ModelInterp;
@@ -165,13 +243,19 @@ export class ModelRenderer {
     private vertices: Float32Array[] = []; // Array per geoset for software skinning
     private texCoordBuffer: WebGLBuffer[] = [];
     private indexBuffer: WebGLBuffer[] = [];
+    private wireframeIndexBuffer: WebGLBuffer[] = [];
     private groupBuffer: WebGLBuffer[] = [];
+    private skinWeightBuffer: WebGLBuffer[] = [];
 
     constructor(model: Model) {
+        this.isHD = model.Geosets?.some(it => it.SkinWeights?.length > 0);
+
         this.shaderProgramLocations = {
             vertexPositionAttribute: null,
             textureCoordAttribute: null,
             groupAttribute: null,
+            skinAttribute: null,
+            weightAttribute: null,
             pMatrixUniform: null,
             mvMatrixUniform: null,
             samplerUniform: null,
@@ -180,6 +264,12 @@ export class ModelRenderer {
             discardAlphaLevelUniform: null,
             tVertexAnimUniform: null,
             nodesMatricesAttributes: null
+        };
+        this.skeletonShaderProgramLocations = {
+            vertexPositionAttribute: null,
+            colorAttribute: null,
+            mvMatrixUniform: null,
+            pMatrixUniform: null
         };
 
         this.model = model;
@@ -247,26 +337,48 @@ export class ModelRenderer {
         this.ribbonsController = new RibbonsController(this.interp, this.rendererData);
     }
 
-    public destroy () {
-        if (!this.shaderProgram) {
-            return;
+    public destroy (): void {
+        if (this.particlesController) {
+            this.particlesController.destroy();
+            this.particlesController = null;
+        }
+        if (this.ribbonsController) {
+            this.ribbonsController.destroy();
+            this.ribbonsController = null;
         }
 
-        if (this.vertexShader) {
-            this.gl.detachShader(this.shaderProgram, this.vertexShader);
-            this.gl.deleteShader(this.vertexShader);
-            this.vertexShader = null;
+        if (this.skeletonShaderProgram) {
+            if (this.skeletonVertexShader) {
+                this.gl.detachShader(this.skeletonShaderProgram, this.skeletonVertexShader);
+                this.gl.deleteShader(this.skeletonVertexShader);
+                this.skeletonVertexShader = null;
+            }
+            if (this.skeletonFragmentShader) {
+                this.gl.detachShader(this.skeletonShaderProgram, this.skeletonFragmentShader);
+                this.gl.deleteShader(this.skeletonFragmentShader);
+                this.skeletonFragmentShader = null;
+            }
+            this.gl.deleteProgram(this.skeletonShaderProgram);
+            this.skeletonShaderProgram = null;
         }
-        if (this.fragmentShader) {
-            this.gl.detachShader(this.shaderProgram, this.fragmentShader);
-            this.gl.deleteShader(this.fragmentShader);
-            this.fragmentShader = null;
+
+        if (this.shaderProgram) {
+            if (this.vertexShader) {
+                this.gl.detachShader(this.shaderProgram, this.vertexShader);
+                this.gl.deleteShader(this.vertexShader);
+                this.vertexShader = null;
+            }
+            if (this.fragmentShader) {
+                this.gl.detachShader(this.shaderProgram, this.fragmentShader);
+                this.gl.deleteShader(this.fragmentShader);
+                this.fragmentShader = null;
+            }
+            this.gl.deleteProgram(this.shaderProgram);
+            this.shaderProgram = null;
         }
-        this.gl.deleteProgram(this.shaderProgram);
-        this.shaderProgram = null;
     }
 
-    public initGL (glContext: WebGLRenderingContext): void {
+    public initGL (glContext: WebGL2RenderingContext | WebGLRenderingContext): void {
         this.gl = glContext;
         // Max bones + MV + P
         this.softwareSkinning = this.gl.getParameter(this.gl.MAX_VERTEX_UNIFORM_VECTORS) < 4 * (MAX_NODES + 2);
@@ -277,8 +389,8 @@ export class ModelRenderer {
         );
         this.initShaders();
         this.initBuffers();
-        ParticlesController.initGL(glContext);
-        RibbonsController.initGL(glContext);
+        this.particlesController.initGL(glContext);
+        this.ribbonsController.initGL(glContext);
     }
 
     public setTextureImage (path: string, img: HTMLImageElement, flags: TextureFlags): void {
@@ -286,7 +398,7 @@ export class ModelRenderer {
         this.gl.bindTexture(this.gl.TEXTURE_2D, this.rendererData.textures[path]);
         // this.gl.pixelStorei(this.gl.UNPACK_FLIP_Y_WEBGL, true);
         this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, this.gl.RGBA, this.gl.UNSIGNED_BYTE, img);
-        this.setTextureParameters(flags);
+        this.setTextureParameters(flags, true);
 
         this.gl.generateMipmap(this.gl.TEXTURE_2D);
         this.gl.bindTexture(this.gl.TEXTURE_2D, null);
@@ -299,7 +411,40 @@ export class ModelRenderer {
         for (let i = 0; i < imageData.length; ++i) {
             this.gl.texImage2D(this.gl.TEXTURE_2D, i, this.gl.RGBA, this.gl.RGBA, this.gl.UNSIGNED_BYTE, imageData[i]);
         }
-        this.setTextureParameters(flags);
+        this.setTextureParameters(flags, false);
+
+        this.gl.bindTexture(this.gl.TEXTURE_2D, null);
+    }
+
+    public setTextureCompressedImage (path: string, format: DDS_FORMAT, imageData: ArrayBuffer, ddsInfo: ReturnType<typeof parseDds>, flags: TextureFlags): void {
+        this.rendererData.textures[path] = this.gl.createTexture();
+        this.gl.bindTexture(this.gl.TEXTURE_2D, this.rendererData.textures[path]);
+
+        const view = new Uint8Array(imageData);
+
+        let count = 1;
+        for (let i = 1; i < ddsInfo.images.length; ++i) {
+            const image = ddsInfo.images[i];
+            if (image.shape[0] >= 2 && image.shape[1] >= 2) {
+                count = i + 1;
+            }
+        }
+
+        if (isWebGL2(this.gl)) {
+            this.gl.texStorage2D(this.gl.TEXTURE_2D, count, format, ddsInfo.images[0].shape[0], ddsInfo.images[0].shape[1]);
+            
+            for (let i = 0; i < count; ++i) {
+                const image = ddsInfo.images[i];
+                this.gl.compressedTexSubImage2D(this.gl.TEXTURE_2D, i, 0, 0, image.shape[0], image.shape[1], format, view.subarray(image.offset, image.offset + image.length));
+            }
+        } else {
+            for (let i = 0; i < count; ++i) {
+                const image = ddsInfo.images[i];
+                this.gl.compressedTexImage2D(this.gl.TEXTURE_2D, i, format, image.shape[0], image.shape[1], 0, view.subarray(image.offset, image.offset + image.length));
+            }
+        }
+
+        this.setTextureParameters(flags, isWebGL2(this.gl));
 
         this.gl.bindTexture(this.gl.TEXTURE_2D, null);
     }
@@ -342,7 +487,9 @@ export class ModelRenderer {
         }
     }
 
-    public render (mvMatrix: mat4, pMatrix: mat4): void {
+    public render (mvMatrix: mat4, pMatrix: mat4, { wireframe } : {
+        wireframe: boolean;
+    }): void {
         this.gl.useProgram(this.shaderProgram);
 
         this.gl.uniformMatrix4fv(this.shaderProgramLocations.pMatrixUniform, false, pMatrix);
@@ -350,8 +497,13 @@ export class ModelRenderer {
 
         this.gl.enableVertexAttribArray(this.shaderProgramLocations.vertexPositionAttribute);
         this.gl.enableVertexAttribArray(this.shaderProgramLocations.textureCoordAttribute);
-        if (!this.softwareSkinning) {
-            this.gl.enableVertexAttribArray(this.shaderProgramLocations.groupAttribute);
+        if (this.isHD) {
+            this.gl.enableVertexAttribArray(this.shaderProgramLocations.skinAttribute);
+            this.gl.enableVertexAttribArray(this.shaderProgramLocations.weightAttribute);
+        } else {
+            if (!this.softwareSkinning) {
+                this.gl.enableVertexAttribArray(this.shaderProgramLocations.groupAttribute);
+            }
         }
 
         if (!this.softwareSkinning) {
@@ -363,8 +515,13 @@ export class ModelRenderer {
             }
         }
 
+
         for (let i = 0; i < this.model.Geosets.length; ++i) {
+            const geoset = this.model.Geosets[i];
             if (this.rendererData.geosetAlpha[i] < 1e-6) {
+                continue;
+            }
+            if (geoset.LevelOfDetail > 0) {
                 continue;
             }
 
@@ -372,11 +529,11 @@ export class ModelRenderer {
                 this.generateGeosetVertices(i);
             }
 
-            const materialID = this.model.Geosets[i].MaterialID;
+            const materialID = geoset.MaterialID;
             const material = this.model.Materials[materialID];
 
-            for (let j = 0; j < material.Layers.length; ++j) {
-                this.setLayerProps(material.Layers[j], this.rendererData.materialLayerTextureID[materialID][j]);
+            if (this.isHD) {
+                this.setLayerProps(material.Layers[0], this.rendererData.materialLayerTextureID[materialID][0]);
 
                 this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.vertexBuffer[i]);
                 this.gl.vertexAttribPointer(this.shaderProgramLocations.vertexPositionAttribute, 3, this.gl.FLOAT, false, 0, 0);
@@ -384,24 +541,165 @@ export class ModelRenderer {
                 this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.texCoordBuffer[i]);
                 this.gl.vertexAttribPointer(this.shaderProgramLocations.textureCoordAttribute, 2, this.gl.FLOAT, false, 0, 0);
 
-                if (!this.softwareSkinning) {
-                    this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.groupBuffer[i]);
-                    this.gl.vertexAttribPointer(this.shaderProgramLocations.groupAttribute, 4, this.gl.UNSIGNED_SHORT, false, 0, 0);
+                this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.skinWeightBuffer[i]);
+                this.gl.vertexAttribPointer(this.shaderProgramLocations.skinAttribute, 4, this.gl.UNSIGNED_BYTE, false, 8, 0);
+                this.gl.vertexAttribPointer(this.shaderProgramLocations.weightAttribute, 4, this.gl.UNSIGNED_BYTE, true, 8, 4);
+
+                if (wireframe && !this.wireframeIndexBuffer[i]) {
+                    this.createWireframeBuffer(i);
                 }
 
-                this.gl.bindBuffer(this.gl.ELEMENT_ARRAY_BUFFER, this.indexBuffer[i]);
-                this.gl.drawElements(this.gl.TRIANGLES, this.model.Geosets[i].Faces.length, this.gl.UNSIGNED_SHORT, 0);
+                this.gl.bindBuffer(this.gl.ELEMENT_ARRAY_BUFFER, wireframe ? this.wireframeIndexBuffer[i] : this.indexBuffer[i]);
+                this.gl.drawElements(
+                    wireframe ? this.gl.LINES : this.gl.TRIANGLES,
+                    wireframe ? geoset.Faces.length * 2 : geoset.Faces.length,
+                    this.gl.UNSIGNED_SHORT,
+                    0
+                );
+            } else {
+                for (let j = 0; j < material.Layers.length; ++j) {
+                    this.setLayerProps(material.Layers[j], this.rendererData.materialLayerTextureID[materialID][j]);
+
+                    this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.vertexBuffer[i]);
+                    this.gl.vertexAttribPointer(this.shaderProgramLocations.vertexPositionAttribute, 3, this.gl.FLOAT, false, 0, 0);
+
+                    this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.texCoordBuffer[i]);
+                    this.gl.vertexAttribPointer(this.shaderProgramLocations.textureCoordAttribute, 2, this.gl.FLOAT, false, 0, 0);
+
+                    if (!this.softwareSkinning) {
+                        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.groupBuffer[i]);
+                        this.gl.vertexAttribPointer(this.shaderProgramLocations.groupAttribute, 4, this.gl.UNSIGNED_SHORT, false, 0, 0);
+                    }
+
+                    if (wireframe && !this.wireframeIndexBuffer[i]) {
+                        this.createWireframeBuffer(i);
+                    }
+
+                    this.gl.bindBuffer(this.gl.ELEMENT_ARRAY_BUFFER, wireframe ? this.wireframeIndexBuffer[i] : this.indexBuffer[i]);
+                    this.gl.drawElements(
+                        wireframe ? this.gl.LINES : this.gl.TRIANGLES,
+                        wireframe ? geoset.Faces.length * 2 : geoset.Faces.length,
+                        this.gl.UNSIGNED_SHORT,
+                        0
+                    );
+                }
             }
         }
 
         this.gl.disableVertexAttribArray(this.shaderProgramLocations.vertexPositionAttribute);
         this.gl.disableVertexAttribArray(this.shaderProgramLocations.textureCoordAttribute);
-        if (!this.softwareSkinning) {
-            this.gl.disableVertexAttribArray(this.shaderProgramLocations.groupAttribute);
+        if (this.isHD) {
+            this.gl.disableVertexAttribArray(this.shaderProgramLocations.skinAttribute);
+            this.gl.disableVertexAttribArray(this.shaderProgramLocations.weightAttribute);
+        } else {
+            if (!this.softwareSkinning) {
+                this.gl.disableVertexAttribArray(this.shaderProgramLocations.groupAttribute);
+            }
         }
 
         this.particlesController.render(mvMatrix, pMatrix);
         this.ribbonsController.render(mvMatrix, pMatrix);
+    }
+
+    /**
+     * @param mvMatrix 
+     * @param pMatrix 
+     * @param nodes Nodes to highlight. null means draw all
+     */
+    public renderSkeleton (mvMatrix: mat4, pMatrix: mat4, nodes: string[] | null): void {
+        if (!this.skeletonShaderProgram) {
+            this.skeletonShaderProgram = this.initSkeletonShaderProgram();
+        }
+
+        this.gl.disable(this.gl.BLEND);
+        this.gl.disable(this.gl.DEPTH_TEST);
+
+        this.gl.useProgram(this.skeletonShaderProgram);
+
+        this.gl.uniformMatrix4fv(this.skeletonShaderProgramLocations.pMatrixUniform, false, pMatrix);
+        this.gl.uniformMatrix4fv(this.skeletonShaderProgramLocations.mvMatrixUniform, false, mvMatrix);
+
+        this.gl.enableVertexAttribArray(this.skeletonShaderProgramLocations.vertexPositionAttribute);
+        this.gl.enableVertexAttribArray(this.skeletonShaderProgramLocations.colorAttribute);
+
+        if (!this.skeletonVertexBuffer) {
+            this.skeletonVertexBuffer = this.gl.createBuffer();
+        }
+        if (!this.skeletonColorBuffer) {
+            this.skeletonColorBuffer = this.gl.createBuffer();
+        }
+        const coords = [];
+        const colors = [];
+        const line = (node0: NodeWrapper, node1: NodeWrapper) => {
+            vec3.transformMat4(tempPos, node0.node.PivotPoint, node0.matrix);
+            coords.push(
+                tempPos[0],
+                tempPos[1],
+                tempPos[2]
+            );
+            vec3.transformMat4(tempPos, node1.node.PivotPoint, node1.matrix);
+            coords.push(
+                tempPos[0],
+                tempPos[1],
+                tempPos[2]
+            );
+
+            colors.push(
+                0,
+                1,
+                0,
+                0,
+                0,
+                1,
+            );
+        };
+        const updateNode = (node: NodeWrapper) => {
+            if ((node.node.Parent || node.node.Parent === 0) && (!nodes || nodes.includes(node.node.Name))) {
+                line(node, this.rendererData.nodes[node.node.Parent]);
+            }
+            for (const child of node.childs) {
+                updateNode(child);
+            }
+        };
+        updateNode(this.rendererData.rootNode);
+        const vertexBuffer = new Float32Array(coords);
+        const colorBuffer = new Float32Array(colors);
+
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.skeletonVertexBuffer);
+        this.gl.bufferData(this.gl.ARRAY_BUFFER, vertexBuffer, this.gl.DYNAMIC_DRAW);
+        this.gl.vertexAttribPointer(this.skeletonShaderProgramLocations.vertexPositionAttribute, 3, this.gl.FLOAT, false, 0, 0);
+
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.skeletonColorBuffer);
+        this.gl.bufferData(this.gl.ARRAY_BUFFER, colorBuffer, this.gl.DYNAMIC_DRAW);
+        this.gl.vertexAttribPointer(this.skeletonShaderProgramLocations.colorAttribute, 3, this.gl.FLOAT, false, 0, 0);
+
+        this.gl.drawArrays(this.gl.LINES, 0, vertexBuffer.length / 3);
+
+        this.gl.disableVertexAttribArray(this.skeletonShaderProgramLocations.vertexPositionAttribute);
+        this.gl.disableVertexAttribArray(this.skeletonShaderProgramLocations.colorAttribute);
+    }
+
+    private initSkeletonShaderProgram (): WebGLProgram {
+        const vertex = this.skeletonVertexShader = getShader(this.gl, skeletonVertexShader, this.gl.VERTEX_SHADER);
+        const fragment = this.skeletonFragmentShader = getShader(this.gl, skeletonFragmentShader, this.gl.FRAGMENT_SHADER);
+
+        const shaderProgram = this.gl.createProgram();
+        this.gl.attachShader(shaderProgram, vertex);
+        this.gl.attachShader(shaderProgram, fragment);
+        this.gl.linkProgram(shaderProgram);
+
+        if (!this.gl.getProgramParameter(shaderProgram, this.gl.LINK_STATUS)) {
+            alert('Could not initialise shaders');
+        }
+
+        this.gl.useProgram(shaderProgram);
+
+        this.skeletonShaderProgramLocations.vertexPositionAttribute = this.gl.getAttribLocation(shaderProgram, 'aVertexPosition');
+        this.skeletonShaderProgramLocations.colorAttribute = this.gl.getAttribLocation(shaderProgram, 'aColor');
+        this.skeletonShaderProgramLocations.pMatrixUniform = this.gl.getUniformLocation(shaderProgram, 'uPMatrix');
+        this.skeletonShaderProgramLocations.mvMatrixUniform = this.gl.getUniformLocation(shaderProgram, 'uMVMatrix');
+
+        return shaderProgram;
     }
 
     private generateGeosetVertices (geosetIndex: number): void {
@@ -429,7 +727,7 @@ export class ModelRenderer {
         this.gl.bufferData(this.gl.ARRAY_BUFFER, buffer, this.gl.DYNAMIC_DRAW);
     }
 
-    private setTextureParameters (flags: TextureFlags) {
+    private setTextureParameters (flags: TextureFlags, hasMipmaps: boolean) {
         if (flags & TextureFlags.WrapWidth) {
             this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_S, this.gl.REPEAT);
         } else {
@@ -441,7 +739,7 @@ export class ModelRenderer {
             this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_T, this.gl.CLAMP_TO_EDGE);
         }
         this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MAG_FILTER, this.gl.LINEAR);
-        this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MIN_FILTER, this.gl.LINEAR_MIPMAP_NEAREST);
+        this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MIN_FILTER, hasMipmaps ? this.gl.LINEAR_MIPMAP_NEAREST : this.gl.LINEAR);
 
         if (this.anisotropicExt) {
             const max = this.gl.getParameter(this.anisotropicExt.MAX_TEXTURE_MAX_ANISOTROPY_EXT);
@@ -464,8 +762,15 @@ export class ModelRenderer {
             return;
         }
 
-        const vertex = this.vertexShader = getShader(this.gl, this.softwareSkinning ? vertexShaderSoftwareSkinning : vertexShaderHardwareSkinning,
-            this.gl.VERTEX_SHADER);
+        let vertexShaderSource;
+        if (this.isHD) {
+            vertexShaderSource = vertexShaderHDHardwareSkinning;
+        } else if (this.softwareSkinning) {
+            vertexShaderSource = vertexShaderSoftwareSkinning;
+        } else {
+            vertexShaderSource = vertexShaderHardwareSkinning;
+        }
+        const vertex = this.vertexShader = getShader(this.gl, vertexShaderSource, this.gl.VERTEX_SHADER);
         const fragment = this.fragmentShader = getShader(this.gl, fragmentShader, this.gl.FRAGMENT_SHADER);
 
         const shaderProgram = this.shaderProgram = this.gl.createProgram();
@@ -481,8 +786,13 @@ export class ModelRenderer {
 
         this.shaderProgramLocations.vertexPositionAttribute = this.gl.getAttribLocation(shaderProgram, 'aVertexPosition');
         this.shaderProgramLocations.textureCoordAttribute = this.gl.getAttribLocation(shaderProgram, 'aTextureCoord');
-        if (!this.softwareSkinning) {
-            this.shaderProgramLocations.groupAttribute = this.gl.getAttribLocation(shaderProgram, 'aGroup');
+        if (this.isHD) {
+            this.shaderProgramLocations.skinAttribute = this.gl.getAttribLocation(shaderProgram, 'aSkin');
+            this.shaderProgramLocations.weightAttribute = this.gl.getAttribLocation(shaderProgram, 'aBoneWeight');
+        } else {
+            if (!this.softwareSkinning) {
+                this.shaderProgramLocations.groupAttribute = this.gl.getAttribLocation(shaderProgram, 'aGroup');
+            }
         }
 
         this.shaderProgramLocations.pMatrixUniform = this.gl.getUniformLocation(shaderProgram, 'uPMatrix');
@@ -497,43 +807,73 @@ export class ModelRenderer {
             this.shaderProgramLocations.nodesMatricesAttributes = [];
             for (let i = 0; i < MAX_NODES; ++i) {
                 this.shaderProgramLocations.nodesMatricesAttributes[i] =
-                this.gl.getUniformLocation(shaderProgram, `uNodesMatrices[${i}]`);
+                    this.gl.getUniformLocation(shaderProgram, `uNodesMatrices[${i}]`);
             }
         }
     }
 
+    private createWireframeBuffer (index: number): void {
+        const faces = this.model.Geosets[index].Faces;
+        const lines = new Uint16Array(faces.length * 2);
+
+        for (let i = 0; i < faces.length; i += 3) {
+            lines[i * 2]     = faces[i];
+            lines[i * 2 + 1] = faces[i + 1];
+            lines[i * 2 + 2] = faces[i + 1];
+            lines[i * 2 + 3] = faces[i + 2];
+            lines[i * 2 + 4] = faces[i + 2];
+            lines[i * 2 + 5] = faces[i];
+        }
+
+        this.wireframeIndexBuffer[index] = this.gl.createBuffer();
+        this.gl.bindBuffer(this.gl.ELEMENT_ARRAY_BUFFER, this.wireframeIndexBuffer[index]);
+        this.gl.bufferData(this.gl.ELEMENT_ARRAY_BUFFER, lines, this.gl.STATIC_DRAW);
+    }
+
     private initBuffers (): void {
         for (let i = 0; i < this.model.Geosets.length; ++i) {
+            const geoset = this.model.Geosets[i];
+
+            if (geoset.LevelOfDetail > 0) {
+                continue;
+            }
+
             this.vertexBuffer[i] = this.gl.createBuffer();
             if (this.softwareSkinning) {
-                this.vertices[i] = new Float32Array(this.model.Geosets[i].Vertices.length);
+                this.vertices[i] = new Float32Array(geoset.Vertices.length);
             } else {
                 this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.vertexBuffer[i]);
-                this.gl.bufferData(this.gl.ARRAY_BUFFER, this.model.Geosets[i].Vertices, this.gl.STATIC_DRAW);
+                this.gl.bufferData(this.gl.ARRAY_BUFFER, geoset.Vertices, this.gl.STATIC_DRAW);
             }
 
             this.texCoordBuffer[i] = this.gl.createBuffer();
             this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.texCoordBuffer[i]);
-            this.gl.bufferData(this.gl.ARRAY_BUFFER, this.model.Geosets[i].TVertices[0], this.gl.STATIC_DRAW);
+            this.gl.bufferData(this.gl.ARRAY_BUFFER, geoset.TVertices[0], this.gl.STATIC_DRAW);
 
-            if (!this.softwareSkinning) {
-                this.groupBuffer[i] = this.gl.createBuffer();
-                this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.groupBuffer[i]);
-                const buffer = new Uint16Array(this.model.Geosets[i].VertexGroup.length * 4);
-                for (let j = 0; j < buffer.length; j += 4) {
-                    const index = j / 4;
-                    const group = this.model.Geosets[i].Groups[this.model.Geosets[i].VertexGroup[index]];
-                    buffer[j] = group[0];
-                    buffer[j + 1] = group.length > 1 ? group[1] : MAX_NODES;
-                    buffer[j + 2] = group.length > 2 ? group[2] : MAX_NODES;
-                    buffer[j + 3] = group.length > 3 ? group[3] : MAX_NODES;
+            if (this.isHD) {
+                this.skinWeightBuffer[i] = this.gl.createBuffer();
+                this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.skinWeightBuffer[i]);
+                this.gl.bufferData(this.gl.ARRAY_BUFFER, geoset.SkinWeights, this.gl.STATIC_DRAW);
+            } else {
+                if (!this.softwareSkinning) {
+                    this.groupBuffer[i] = this.gl.createBuffer();
+                    this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.groupBuffer[i]);
+                    const buffer = new Uint16Array(geoset.VertexGroup.length * 4);
+                    for (let j = 0; j < buffer.length; j += 4) {
+                        const index = j / 4;
+                        const group = geoset.Groups[geoset.VertexGroup[index]];
+                        buffer[j] = group[0];
+                        buffer[j + 1] = group.length > 1 ? group[1] : MAX_NODES;
+                        buffer[j + 2] = group.length > 2 ? group[2] : MAX_NODES;
+                        buffer[j + 3] = group.length > 3 ? group[3] : MAX_NODES;
+                    }
+                    this.gl.bufferData(this.gl.ARRAY_BUFFER, buffer, this.gl.STATIC_DRAW);
                 }
-                this.gl.bufferData(this.gl.ARRAY_BUFFER, buffer, this.gl.STATIC_DRAW);
             }
 
             this.indexBuffer[i] = this.gl.createBuffer();
             this.gl.bindBuffer(this.gl.ELEMENT_ARRAY_BUFFER, this.indexBuffer[i]);
-            this.gl.bufferData(this.gl.ELEMENT_ARRAY_BUFFER, this.model.Geosets[i].Faces, this.gl.STATIC_DRAW);
+            this.gl.bufferData(this.gl.ELEMENT_ARRAY_BUFFER, geoset.Faces, this.gl.STATIC_DRAW);
         }
     }
 

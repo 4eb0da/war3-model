@@ -1,6 +1,8 @@
+import {vec3, mat4, quat} from 'gl-matrix';
+import parseDds from 'parse-dds';
+
 import {parse as parseMDL} from '../../mdl/parse';
 import {parse as parseMDX} from '../../mdx/parse';
-import {vec3, mat4, quat} from 'gl-matrix';
 import {Model, TextureFlags} from '../../model';
 import {ModelRenderer} from '../../renderer/modelRenderer';
 import {vec3RotateZ} from '../../renderer/util';
@@ -13,14 +15,17 @@ let canvas: HTMLCanvasElement;
 let gl: WebGLRenderingContext;
 const pMatrix = mat4.create();
 const mvMatrix = mat4.create();
-let loadedTextures = 0;
-let totalTextures = 0;
-const cleanupNameRegexp = /.*?([^\\/]+)\.\w+$/;
+const CLEANUP_NAME_REGEXP = /.*?([^\\/]+)\.\w+$/;
+let ddsExt: WEBGL_compressed_texture_s3tc | null = null;
 
 let cameraTheta = Math.PI / 4;
 let cameraPhi = 0;
 let cameraDistance = 500;
 let cameraTargetZ = 50;
+
+let wireframe = false;
+let showSkeleton = false;
+let skeletonNodes: string[] | null = null;
 
 const cameraBasePos: vec3 = vec3.create();
 const cameraPos: vec3 = vec3.create();
@@ -46,7 +51,21 @@ function initGL () {
     }
 
     try {
-        gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl') as WebGLRenderingContext;
+        const opts: WebGLContextAttributes = {
+            antialias: true,
+            alpha: false
+        };
+
+        gl = canvas.getContext('webgl2', opts) ||
+            canvas.getContext('webgl', opts) ||
+            canvas.getContext('experimental-webgl', opts) as
+            (WebGL2RenderingContext | WebGLRenderingContext);
+
+        ddsExt = (
+            gl.getExtension('WEBGL_compressed_texture_s3tc') ||
+            gl.getExtension('MOZ_WEBGL_compressed_texture_s3tc') ||
+            gl.getExtension('WEBKIT_WEBGL_compressed_texture_s3tc')
+        );
 
         gl.clearColor(0.0, 0.0, 0.0, 1.0);
         gl.enable(gl.DEPTH_TEST);
@@ -92,7 +111,13 @@ function drawScene () {
     calcCameraQuat();
 
     modelRenderer.setCamera(cameraPos, cameraQuat);
-    modelRenderer.render(mvMatrix, pMatrix);
+    modelRenderer.render(mvMatrix, pMatrix, {
+        wireframe
+    });
+
+    if (showSkeleton) {
+        modelRenderer.renderSkeleton(mvMatrix, pMatrix, skeletonNodes);
+    }
 }
 
 function tick(timestamp: number) {
@@ -112,8 +137,10 @@ function loadTexture (src: string, textureName: string, flags: TextureFlags) {
     img.src = src;
 }
 
+let started = false;
 function handleLoadedTexture (): void {
-    if (++loadedTextures === totalTextures) {
+    if (!started) {
+        started = true;
         requestAnimationFrame(tick);
     }
 }
@@ -128,8 +155,6 @@ function handleLoadedTexture (): void {
 
 function processModelLoading () {
     console.log(model);
-
-    loadedTextures = totalTextures = 0;
 
     modelRenderer = new ModelRenderer(model);
 
@@ -178,16 +203,20 @@ function init() {
     window.addEventListener('resize', updateCanvasSize);
 }
 
+function parseColor(value: string): vec3 {
+    const val = value.slice(1);
+
+    return vec3.fromValues(
+        parseInt(val.slice(0, 2), 16) / 255,
+        parseInt(val.slice(2, 4), 16) / 255,
+        parseInt(val.slice(4, 6), 16) / 255
+    );
+}
+
 function initControls () {
     const inputColor = document.getElementById('color') as HTMLInputElement;
     inputColor.addEventListener('input', () => {
-        const val = inputColor.value.slice(1);
-        const arr = vec3.fromValues(
-            parseInt(val.slice(0, 2), 16) / 255,
-            parseInt(val.slice(2, 4), 16) / 255,
-            parseInt(val.slice(4, 6), 16) / 255
-        );
-        modelRenderer.setTeamColor(arr);
+        modelRenderer.setTeamColor(parseColor(inputColor.value));
     });
 
     const select = document.getElementById('select') as HTMLSelectElement;
@@ -196,13 +225,48 @@ function initControls () {
     });
 
     const inputZ = document.getElementById('targetZ') as HTMLInputElement;
+    cameraTargetZ = parseInt(inputZ.value, 10);
     inputZ.addEventListener('input', () => {
         cameraTargetZ = parseInt(inputZ.value, 10);
     });
 
     const inputDistance = document.getElementById('distance') as HTMLInputElement;
+    cameraDistance = parseInt(inputDistance.value, 10);
     inputDistance.addEventListener('input', () => {
         cameraDistance = parseInt(inputDistance.value, 10);
+    });
+
+    const wireframeCheck = document.getElementById('wireframe') as HTMLInputElement;
+    wireframe = wireframeCheck.checked;
+    wireframeCheck.addEventListener('input', () => {
+        wireframe = wireframeCheck.checked;
+    });
+
+    const readSkeletonNodes = (value: string) => {
+        const val = value.trim();
+
+        if (val === '*') {
+            return null;
+        } else {
+            return [val];
+        }
+    };
+
+    const skeleton = document.getElementById('skeleton') as HTMLInputElement;
+    skeletonNodes = readSkeletonNodes(skeleton.value);
+    skeleton.addEventListener('input', () => {
+        skeletonNodes = readSkeletonNodes(skeleton.value);
+    });
+
+    const setShowSkeleton = (val: boolean): void => {
+        showSkeleton = val;
+        skeleton.disabled = !val;
+    };
+
+    const skeletonCheck = document.getElementById('show_skeleton') as HTMLInputElement;
+    setShowSkeleton(skeletonCheck.checked);
+    skeletonCheck.addEventListener('input', () => {
+        setShowSkeleton(skeletonCheck.checked);
     });
 }
 
@@ -307,19 +371,29 @@ function updateCanvasSize () {
     canvas.height = height * dpr;
 }
 
-function encode (html) {
-    return html.replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
-
 function setAnimationList () {
-    let list: any[] = model.Sequences.map(seq => seq.Name);
+    let list: string[] = model.Sequences.map(seq => seq.Name);
 
     if (list.length === 0) {
         list = ['None'];
     }
 
     const select = document.getElementById('select') as HTMLSelectElement;
-    select.innerHTML = list.map((item, index) => `<option value="${index}">${encode(item)}</option>`).join('');
+    select.innerHTML = '';
+    list.forEach((item, index) => {
+        const option = document.createElement('option');
+        option.textContent = item;
+        option.value = String(index);
+        select.appendChild(option);
+    });
+
+    const skeleton = document.getElementById('skeleton') as HTMLSelectElement;
+    for (const node of model.Nodes) {
+        const option = document.createElement('option');
+        option.textContent = node.Name;
+        option.value = node.Name;
+        skeleton.appendChild(option);
+    }
 }
 
 function setDragDropTextures () {
@@ -400,39 +474,72 @@ function initDragDrop () {
             reader.readAsText(file);
         }
     };
-    const dropTexture = (file, textureName: string, textureFlags: TextureFlags) => {
-        const reader = new FileReader();
-        const isBLP = file.name.indexOf('.blp') > -1;
 
-        reader.onload = () => {
-            if (isBLP) {
-                const blp = decode(reader.result as ArrayBuffer);
+    const dropTexture = (file: File, textureName: string, textureFlags: TextureFlags) => {
+        return new Promise<void>(resolve => {
+            const reader = new FileReader();
+            const isBLP = file.name.indexOf('.blp') > -1;
+            const isDDS = file.name.indexOf('.dds') > -1;
 
-                console.log(file.name, blp);
+            reader.onload = () => {
+                try {
+                    if (isDDS) {
+                        const dds = parseDds(reader.result as ArrayBuffer);
 
-                modelRenderer.setTextureImageData(
-                    textureName,
-                    blp.mipmaps.map((_mipmap, i) => getImageData(blp, i)),
-                    textureFlags
-                );
+                        console.log(dds);
+
+                        let format: GLenum;
+
+                        if (dds.format === 'dxt1') {
+                            format = ddsExt.COMPRESSED_RGB_S3TC_DXT1_EXT;
+                        } else if (dds.format === 'dxt3') {
+                            format = ddsExt.COMPRESSED_RGBA_S3TC_DXT3_EXT;
+                        } else if (dds.format === 'dxt5') {
+                            format = ddsExt.COMPRESSED_RGBA_S3TC_DXT5_EXT;
+                        }
+
+                        modelRenderer.setTextureCompressedImage(
+                            textureName,
+                            format,
+                            reader.result as ArrayBuffer,
+                            dds,
+                            textureFlags
+                        );
+                        resolve();
+                    } else if (isBLP) {
+                        const blp = decode(reader.result as ArrayBuffer);
+
+                        console.log(file.name, blp);
+
+                        modelRenderer.setTextureImageData(
+                            textureName,
+                            blp.mipmaps.map((_mipmap, i) => getImageData(blp, i)),
+                            textureFlags
+                        );
+                        resolve();
+                    } else {
+                        const img = new Image();
+
+                        img.onload = () => {
+                            console.log(file.name, img);
+                            modelRenderer.setTextureImage(textureName, img, textureFlags);
+                            resolve();
+                        };
+
+                        img.src = reader.result as string;
+                    }
+                } catch (err) {
+                    console.error(err);
+                    resolve();
+                }
+            };
+
+            if (isBLP || isDDS) {
+                reader.readAsArrayBuffer(file);
             } else {
-                const img = new Image();
-
-                img.onload = () => {
-                    console.log(file.name, img);
-                    modelRenderer.setTextureImage(textureName, img, textureFlags);
-                };
-
-                img.src = reader.result as string;
+                reader.readAsDataURL(file);
             }
-            handleLoadedTexture();
-        };
-
-        if (isBLP) {
-            reader.readAsArrayBuffer(file);
-        } else {
-            reader.readAsDataURL(file);
-        }
+        });
     };
     container.addEventListener('drop', function onDrop (event: DragEvent) {
         event.preventDefault();
@@ -450,7 +557,9 @@ function initDragDrop () {
 
         if (dropTarget.getAttribute('data-texture')) {
             dropTexture(files[0], dropTarget.getAttribute('data-texture'),
-                Number(dropTarget.getAttribute('data-texture-flags')));
+                Number(dropTarget.getAttribute('data-texture-flags'))).then(() => {
+                    handleLoadedTexture();
+                });
         } else {
             let modelFile;
 
@@ -468,7 +577,7 @@ function initDragDrop () {
 
                 for (let i = 0; i < files.length; ++i) {
                     const file = files[i],
-                        name = file.name.replace(cleanupNameRegexp, '$1');
+                        name = file.name.replace(CLEANUP_NAME_REGEXP, '$1').toLowerCase();
 
                     if (file.name.indexOf('.mdl') > -1 || file.name.indexOf('.mdx') > -1) {
                         continue;
@@ -485,18 +594,22 @@ function initDragDrop () {
 
 
     function setTextures (textures) {
+        const promises: Promise<void>[] = [];
+
         for (const texture of model.Textures) {
             if (texture.Image) {
-                ++totalTextures;
-
-                const cleanupName = texture.Image.replace(cleanupNameRegexp, '$1');
+                const cleanupName = texture.Image.replace(CLEANUP_NAME_REGEXP, '$1').toLowerCase();
                 if (cleanupName in textures) {
-                    dropTexture(textures[cleanupName], texture.Image, texture.Flags);
+                    promises.push(dropTexture(textures[cleanupName], texture.Image, texture.Flags));
                 } else {
                     loadTexture('empty.png', texture.Image, 0);
                 }
             }
         }
+
+        Promise.all(promises).then(() => {
+            handleLoadedTexture();
+        });
     }
 }
 

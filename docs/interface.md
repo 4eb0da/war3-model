@@ -22,12 +22,14 @@ class ModelRenderer {
     initGL (glContext: WebGLRenderingContext): void;
     setTextureImage (path: string, img: HTMLImageElement, flags: TextureFlags): void;
     setTextureImageData (path: string, imageData: ImageData[], flags: TextureFlags): void;
+    setTextureCompressedImage (path: string, format: number, imageData: ArrayBuffer, ddsInfo: DdsInfo, flags: TextureFlags): void;
     setCamera (cameraPos: vec3, cameraQuat: quat): void
     // Sets current animation
     setSequence (index: number): void;
     setTeamColor (color: vec3): void;
     update (delta: number): void;
-    render (mvMatrix: mat4, pMatrix: mat4): void;
+    render (mvMatrix: mat4, pMatrix: mat4, opts?: { wireframe: boolean }): void;
+    renderSkeleton (mvMatrix: mat4, pMatrix: mat4, nodes: string[] | null): void;
 }
 ```
 

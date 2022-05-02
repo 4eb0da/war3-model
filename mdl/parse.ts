@@ -3,7 +3,7 @@ import {
     CollisionShape, ParticleEmitter2, Camera, MaterialRenderMode, FilterMode, LayerShading, TextureFlags,
     GeosetAnimFlags, NodeFlags, CollisionShapeType, ParticleEmitter2Flags, ParticleEmitter2FramesFlags, Light,
     LightType, TVertexAnim, RibbonEmitter, ParticleEmitter2FilterMode, ParticleEmitter, ParticleEmitterFlags, NodeType,
-    EventObject, Sequence
+    EventObject, Sequence, ModelInfo
 } from '../model';
 
 class State {
@@ -22,6 +22,8 @@ class State {
         return this.str[this.pos];
     }
 }
+
+type IntArray = number[] | Uint8Array | Uint16Array | Uint32Array | Float32Array;
 
 function throwError (state: State, str = ''): void {
     throw new Error(`SyntaxError, near ${state.pos}` + (str ? ', ' + str : ''));
@@ -121,7 +123,7 @@ function parseNumber (state: State): number|null {
     return null;
 }
 
-function parseArray (state: State, arr?: number[]|Uint8Array|Uint16Array|Uint32Array|Float32Array, pos?: number): typeof arr|null {
+function parseArray (state: State, arr?: IntArray, pos?: number): typeof arr|null {
     if (state.char() !== '{') {
         return null;
     }
@@ -178,9 +180,9 @@ function parseArrayOrSingleItem<ArrType extends Uint16Array|Uint32Array|Int32Arr
     return arr;
 }
 
-function parseObject (state: State): [string|number|null, any] {
+function parseObject (state: State): [string|number|null, Record<string, number | string | boolean | IntArray>] {
     let prefix: string|number|null = null;
-    const obj = {};
+    const obj: Record<string, number | string | IntArray> = {};
 
     if (state.char() !== '{') {
         prefix = parseString(state);
@@ -226,14 +228,14 @@ function parseVersion (state: State, model: Model): void {
     const [_unused, obj] = parseObject(state);
 
     if (obj.FormatVersion) {
-        model.Version = obj.FormatVersion;
+        model.Version = obj.FormatVersion as number;
     }
 }
 
 function parseModelInfo (state: State, model: Model): void {
     const [name, obj] = parseObject(state);
 
-    model.Info = obj;
+    model.Info = obj as unknown as ModelInfo;
     model.Info.Name = name as string;
 }
 
@@ -251,7 +253,7 @@ function parseSequences (state: State, model: Model): void {
         obj.Name = name;
         obj.NonLooping = 'NonLooping' in obj;
 
-        res.push(obj);
+        res.push(obj as unknown as Sequence);
     }
 
     strictParseSymbol(state, '}');
