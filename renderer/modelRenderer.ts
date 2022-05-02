@@ -143,6 +143,36 @@ const fragmentShader = `
     }
 `;
 
+const fragmentShaderHD = `
+    precision mediump float;
+
+    varying vec2 vTextureCoord;
+
+    uniform sampler2D uSampler;
+    uniform sampler2D uOrmSampler;
+    uniform vec3 uReplaceableColor;
+    uniform float uDiscardAlphaLevel;
+    uniform mat3 uTVextexAnim;
+
+    void main(void) {
+        vec2 texCoord = (uTVextexAnim * vec3(vTextureCoord.s, vTextureCoord.t, 1.)).st;
+        vec4 resultColor = texture2D(uSampler, texCoord);
+
+        float teamColorFactor = texture2D(uOrmSampler, texCoord).a;
+
+        if (teamColorFactor > .1) {
+            resultColor.rgb *= uReplaceableColor * teamColorFactor;
+        }
+
+        gl_FragColor = resultColor;
+
+        // hand-made alpha-test
+        if (gl_FragColor[3] < uDiscardAlphaLevel) {
+            discard;
+        }
+    }
+`;
+
 const skeletonVertexShader = `
     attribute vec3 aVertexPosition;
     attribute vec3 aColor;
@@ -214,6 +244,7 @@ export class ModelRenderer {
         pMatrixUniform: WebGLUniformLocation | null;
         mvMatrixUniform: WebGLUniformLocation | null;
         samplerUniform: WebGLUniformLocation | null;
+        ormSamplerUniform: WebGLUniformLocation | null;
         replaceableColorUniform: WebGLUniformLocation | null;
         replaceableTypeUniform: WebGLUniformLocation | null;
         discardAlphaLevelUniform: WebGLUniformLocation | null;
@@ -259,6 +290,7 @@ export class ModelRenderer {
             pMatrixUniform: null,
             mvMatrixUniform: null,
             samplerUniform: null,
+            ormSamplerUniform: null,
             replaceableColorUniform: null,
             replaceableTypeUniform: null,
             discardAlphaLevelUniform: null,
@@ -537,7 +569,7 @@ export class ModelRenderer {
             const material = this.model.Materials[materialID];
 
             if (this.isHD) {
-                this.setLayerProps(material.Layers[0], this.rendererData.materialLayerTextureID[materialID][0]);
+                this.setLayerPropsHD(materialID, material.Layers);
 
                 this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.vertexBuffer[i]);
                 this.gl.vertexAttribPointer(this.shaderProgramLocations.vertexPositionAttribute, 3, this.gl.FLOAT, false, 0, 0);
@@ -774,8 +806,16 @@ export class ModelRenderer {
         } else {
             vertexShaderSource = vertexShaderHardwareSkinning;
         }
+
+        let fragmentShaderSource;
+        if (this.isHD) {
+            fragmentShaderSource = fragmentShaderHD;
+        } else {
+            fragmentShaderSource = fragmentShader;
+        }
+
         const vertex = this.vertexShader = getShader(this.gl, vertexShaderSource, this.gl.VERTEX_SHADER);
-        const fragment = this.fragmentShader = getShader(this.gl, fragmentShader, this.gl.FRAGMENT_SHADER);
+        const fragment = this.fragmentShader = getShader(this.gl, fragmentShaderSource, this.gl.FRAGMENT_SHADER);
 
         const shaderProgram = this.shaderProgram = this.gl.createProgram();
         this.gl.attachShader(shaderProgram, vertex);
@@ -803,7 +843,11 @@ export class ModelRenderer {
         this.shaderProgramLocations.mvMatrixUniform = this.gl.getUniformLocation(shaderProgram, 'uMVMatrix');
         this.shaderProgramLocations.samplerUniform = this.gl.getUniformLocation(shaderProgram, 'uSampler');
         this.shaderProgramLocations.replaceableColorUniform = this.gl.getUniformLocation(shaderProgram, 'uReplaceableColor');
-        this.shaderProgramLocations.replaceableTypeUniform = this.gl.getUniformLocation(shaderProgram, 'uReplaceableType');
+        if (this.isHD) {
+            this.shaderProgramLocations.ormSamplerUniform = this.gl.getUniformLocation(shaderProgram, 'uOrmSampler');
+        } else {
+            this.shaderProgramLocations.replaceableTypeUniform = this.gl.getUniformLocation(shaderProgram, 'uReplaceableType');
+        }
         this.shaderProgramLocations.discardAlphaLevelUniform = this.gl.getUniformLocation(shaderProgram, 'uDiscardAlphaLevel');
         this.shaderProgramLocations.tVertexAnimUniform = this.gl.getUniformLocation(shaderProgram, 'uTVextexAnim');
 
@@ -1089,5 +1133,102 @@ export class ModelRenderer {
         } else {
             this.gl.uniformMatrix3fv(this.shaderProgramLocations.tVertexAnimUniform, false, identifyMat3);
         }
+    }
+
+    private setLayerPropsHD (materialID: number, layers: Layer[]): void {
+        const baseLayer = layers[0];
+        const diffuseTextureID = this.rendererData.materialLayerTextureID[materialID][0];
+        const diffuseTexture = this.model.Textures[diffuseTextureID];
+        const ormTextureID = this.rendererData.materialLayerTextureID[materialID][2];
+        const ormTexture = this.model.Textures[ormTextureID];
+
+        if (baseLayer.Shading & LayerShading.TwoSided) {
+            this.gl.disable(this.gl.CULL_FACE);
+        } else {
+            this.gl.enable(this.gl.CULL_FACE);
+        }
+
+        if (baseLayer.FilterMode === FilterMode.Transparent) {
+            this.gl.uniform1f(this.shaderProgramLocations.discardAlphaLevelUniform, 0.75);
+        } else {
+            this.gl.uniform1f(this.shaderProgramLocations.discardAlphaLevelUniform, 0.);
+        }
+
+        if (baseLayer.FilterMode === FilterMode.None) {
+            this.gl.disable(this.gl.BLEND);
+            this.gl.enable(this.gl.DEPTH_TEST);
+            // this.gl.blendFunc(this.gl.SRC_ALPHA, this.gl.ONE_MINUS_SRC_ALPHA);
+            this.gl.depthMask(true);
+        } else if (baseLayer.FilterMode === FilterMode.Transparent) {
+            this.gl.enable(this.gl.BLEND);
+            this.gl.enable(this.gl.DEPTH_TEST);
+            this.gl.blendFuncSeparate(this.gl.SRC_ALPHA, this.gl.ONE_MINUS_SRC_ALPHA, this.gl.ONE, this.gl.ONE_MINUS_SRC_ALPHA);
+            this.gl.depthMask(true);
+        } else if (baseLayer.FilterMode === FilterMode.Blend) {
+            this.gl.enable(this.gl.BLEND);
+            this.gl.enable(this.gl.DEPTH_TEST);
+            this.gl.blendFuncSeparate(this.gl.SRC_ALPHA, this.gl.ONE_MINUS_SRC_ALPHA, this.gl.ONE, this.gl.ONE_MINUS_SRC_ALPHA);
+            this.gl.depthMask(false);
+        } else if (baseLayer.FilterMode === FilterMode.Additive) {
+            this.gl.enable(this.gl.BLEND);
+            this.gl.enable(this.gl.DEPTH_TEST);
+            this.gl.blendFunc(this.gl.SRC_COLOR, this.gl.ONE);
+            this.gl.depthMask(false);
+        } else if (baseLayer.FilterMode === FilterMode.AddAlpha) {
+            this.gl.enable(this.gl.BLEND);
+            this.gl.enable(this.gl.DEPTH_TEST);
+            this.gl.blendFunc(this.gl.SRC_ALPHA, this.gl.ONE);
+            this.gl.depthMask(false);
+        } else if (baseLayer.FilterMode === FilterMode.Modulate) {
+            this.gl.enable(this.gl.BLEND);
+            this.gl.enable(this.gl.DEPTH_TEST);
+            this.gl.blendFuncSeparate(this.gl.ZERO, this.gl.SRC_COLOR, this.gl.ZERO, this.gl.ONE);
+            this.gl.depthMask(false);
+        } else if (baseLayer.FilterMode === FilterMode.Modulate2x) {
+            this.gl.enable(this.gl.BLEND);
+            this.gl.enable(this.gl.DEPTH_TEST);
+            this.gl.blendFuncSeparate(this.gl.DST_COLOR, this.gl.SRC_COLOR, this.gl.ZERO, this.gl.ONE);
+            this.gl.depthMask(false);
+        }
+
+        this.gl.activeTexture(this.gl.TEXTURE0);
+        this.gl.bindTexture(this.gl.TEXTURE_2D, this.rendererData.textures[diffuseTexture.Image]);
+        this.gl.uniform1i(this.shaderProgramLocations.samplerUniform, 0);
+
+        if (baseLayer.Shading & LayerShading.NoDepthTest) {
+            this.gl.disable(this.gl.DEPTH_TEST);
+        }
+        if (baseLayer.Shading & LayerShading.NoDepthSet) {
+            this.gl.depthMask(false);
+        }
+
+        if (typeof baseLayer.TVertexAnimId === 'number') {
+            const anim: TVertexAnim = this.rendererData.model.TextureAnims[baseLayer.TVertexAnimId];
+            const translationRes = this.interp.vec3(translation, anim.Translation);
+            const rotationRes = this.interp.quat(rotation, anim.Rotation);
+            const scalingRes = this.interp.vec3(scaling, anim.Scaling);
+            mat4.fromRotationTranslationScale(
+                texCoordMat4,
+                rotationRes || defaultRotation,
+                translationRes || defaultTranslation,
+                scalingRes || defaultScaling
+            );
+            mat3.set(
+                texCoordMat3,
+                texCoordMat4[0], texCoordMat4[1], 0,
+                texCoordMat4[4], texCoordMat4[5], 0,
+                texCoordMat4[12], texCoordMat4[13], 0
+            );
+
+            this.gl.uniformMatrix3fv(this.shaderProgramLocations.tVertexAnimUniform, false, texCoordMat3);
+        } else {
+            this.gl.uniformMatrix3fv(this.shaderProgramLocations.tVertexAnimUniform, false, identifyMat3);
+        }
+
+        this.gl.activeTexture(this.gl.TEXTURE2);
+        this.gl.bindTexture(this.gl.TEXTURE_2D, this.rendererData.textures[ormTexture.Image]);
+        this.gl.uniform1i(this.shaderProgramLocations.ormSamplerUniform, 2);
+
+        this.gl.uniform3fv(this.shaderProgramLocations.replaceableColorUniform, this.rendererData.teamColor);
     }
 }

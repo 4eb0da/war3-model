@@ -157,6 +157,7 @@ function processModelLoading () {
     console.log(model);
 
     modelRenderer = new ModelRenderer(model);
+    modelRenderer.setTeamColor(parseColor(inputColor.value));
 
     initGL();
     modelRenderer.initGL(gl);
@@ -213,8 +214,9 @@ function parseColor(value: string): vec3 {
     );
 }
 
+const inputColor = document.getElementById('color') as HTMLInputElement;
+
 function initControls () {
-    const inputColor = document.getElementById('color') as HTMLInputElement;
     inputColor.addEventListener('input', () => {
         modelRenderer.setTeamColor(parseColor(inputColor.value));
     });
