@@ -389,10 +389,12 @@ function setAnimationList () {
 
     const skeleton = document.getElementById('skeleton') as HTMLSelectElement;
     for (const node of model.Nodes) {
-        const option = document.createElement('option');
-        option.textContent = node.Name;
-        option.value = node.Name;
-        skeleton.appendChild(option);
+        if (node) {
+            const option = document.createElement('option');
+            option.textContent = node.Name;
+            option.value = node.Name;
+            skeleton.appendChild(option);
+        }
     }
 }
 

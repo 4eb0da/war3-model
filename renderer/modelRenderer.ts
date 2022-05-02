@@ -304,17 +304,21 @@ export class ModelRenderer {
             childs: []
         };
         for (const node of model.Nodes) {
-            this.rendererData.nodes[node.ObjectId] = {
-                node,
-                matrix: mat4.create(),
-                childs: []
-            };
+            if (node) {
+                this.rendererData.nodes[node.ObjectId] = {
+                    node,
+                    matrix: mat4.create(),
+                    childs: []
+                };
+            }
         }
         for (const node of model.Nodes) {
-            if (!node.Parent && node.Parent !== 0) {
-                this.rendererData.rootNode.childs.push(this.rendererData.nodes[node.ObjectId]);
-            } else {
-                this.rendererData.nodes[node.Parent].childs.push(this.rendererData.nodes[node.ObjectId]);
+            if (node) {
+                if (!node.Parent && node.Parent !== 0) {
+                    this.rendererData.rootNode.childs.push(this.rendererData.nodes[node.ObjectId]);
+                } else {
+                    this.rendererData.nodes[node.Parent].childs.push(this.rendererData.nodes[node.ObjectId]);
+                }
             }
         }
 
