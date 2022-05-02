@@ -594,7 +594,7 @@ function initDragDrop () {
 
 
     function setTextures (textures) {
-        let promises: Promise<void>[] = [];
+        const promises: Promise<void>[] = [];
 
         for (const texture of model.Textures) {
             if (texture.Image) {

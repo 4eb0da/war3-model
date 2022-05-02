@@ -6,8 +6,8 @@ import {vec3, quat, mat3, mat4} from 'gl-matrix';
 import parseDds from 'parse-dds';
 import {mat4fromRotationOrigin, getShader, isWebGL2} from './util';
 import {ModelInterp} from './modelInterp';
-import {ParticlesController} from './particles';
 import {RendererData, NodeWrapper} from './rendererData';
+import {ParticlesController} from './particles';
 import {RibbonsController} from './ribbons';
 
 // actually, all is number
@@ -338,6 +338,15 @@ export class ModelRenderer {
     }
 
     public destroy (): void {
+        if (this.particlesController) {
+            this.particlesController.destroy();
+            this.particlesController = null;
+        }
+        if (this.ribbonsController) {
+            this.ribbonsController.destroy();
+            this.ribbonsController = null;
+        }
+
         if (this.skeletonShaderProgram) {
             if (this.skeletonVertexShader) {
                 this.gl.detachShader(this.skeletonShaderProgram, this.skeletonVertexShader);
@@ -369,7 +378,7 @@ export class ModelRenderer {
         }
     }
 
-    public initGL (glContext: WebGLRenderingContext): void {
+    public initGL (glContext: WebGL2RenderingContext | WebGLRenderingContext): void {
         this.gl = glContext;
         // Max bones + MV + P
         this.softwareSkinning = this.gl.getParameter(this.gl.MAX_VERTEX_UNIFORM_VECTORS) < 4 * (MAX_NODES + 2);
@@ -380,8 +389,8 @@ export class ModelRenderer {
         );
         this.initShaders();
         this.initBuffers();
-        ParticlesController.initGL(glContext);
-        RibbonsController.initGL(glContext);
+        this.particlesController.initGL(glContext);
+        this.ribbonsController.initGL(glContext);
     }
 
     public setTextureImage (path: string, img: HTMLImageElement, flags: TextureFlags): void {

@@ -3,29 +3,6 @@ import {RendererData} from './rendererData';
 import {ModelInterp} from './modelInterp';
 import {FilterMode, Layer, LayerShading, Material, RibbonEmitter} from '../model';
 import {mat4, vec3} from 'gl-matrix';
-let gl: WebGLRenderingContext;
-let shaderProgram: WebGLProgram;
-const shaderProgramLocations: {
-    vertexPositionAttribute: number,
-    textureCoordAttribute: number,
-    pMatrixUniform: WebGLUniformLocation | null,
-    mvMatrixUniform: WebGLUniformLocation | null,
-    samplerUniform: WebGLUniformLocation | null,
-    replaceableColorUniform: WebGLUniformLocation | null,
-    replaceableTypeUniform: WebGLUniformLocation | null,
-    discardAlphaLevelUniform: WebGLUniformLocation | null,
-    colorUniform: WebGLUniformLocation | null
-} = {
-    vertexPositionAttribute: null,
-    textureCoordAttribute: null,
-    pMatrixUniform: null,
-    mvMatrixUniform: null,
-    samplerUniform: null,
-    replaceableColorUniform: null,
-    replaceableTypeUniform: null,
-    discardAlphaLevelUniform: null,
-    colorUniform: null
-};
 
 const vertexShader = `
     attribute vec3 aVertexPosition;
@@ -100,75 +77,40 @@ interface RibbonEmitterWrapper {
 }
 
 export class RibbonsController {
-    public static initGL (glContext: WebGLRenderingContext): void {
-        gl = glContext;
+    private gl: WebGL2RenderingContext | WebGLRenderingContext;
+    private shaderProgram: WebGLProgram;
+    private vertexShader: WebGLShader;
+    private fragmentShader: WebGLShader;
 
-        RibbonsController.initShaders();
-    }
-
-    private static initShaders (): void {
-        const vertex = getShader(gl, vertexShader, gl.VERTEX_SHADER);
-        const fragment = getShader(gl, fragmentShader, gl.FRAGMENT_SHADER);
-
-        shaderProgram = gl.createProgram();
-        gl.attachShader(shaderProgram, vertex);
-        gl.attachShader(shaderProgram, fragment);
-        gl.linkProgram(shaderProgram);
-
-        if (!gl.getProgramParameter(shaderProgram, gl.LINK_STATUS)) {
-            alert('Could not initialise shaders');
-        }
-
-        gl.useProgram(shaderProgram);
-
-        shaderProgramLocations.vertexPositionAttribute =
-            gl.getAttribLocation(shaderProgram, 'aVertexPosition');
-        shaderProgramLocations.textureCoordAttribute =
-            gl.getAttribLocation(shaderProgram, 'aTextureCoord');
-
-        shaderProgramLocations.pMatrixUniform = gl.getUniformLocation(shaderProgram, 'uPMatrix');
-        shaderProgramLocations.mvMatrixUniform = gl.getUniformLocation(shaderProgram, 'uMVMatrix');
-        shaderProgramLocations.samplerUniform = gl.getUniformLocation(shaderProgram, 'uSampler');
-        shaderProgramLocations.replaceableColorUniform =
-            gl.getUniformLocation(shaderProgram, 'uReplaceableColor');
-        shaderProgramLocations.replaceableTypeUniform =
-            gl.getUniformLocation(shaderProgram, 'uReplaceableType');
-        shaderProgramLocations.discardAlphaLevelUniform =
-            gl.getUniformLocation(shaderProgram, 'uDiscardAlphaLevel');
-        shaderProgramLocations.colorUniform =
-            gl.getUniformLocation(shaderProgram, 'uColor');
-    }
-
-    private static resizeEmitterBuffers (emitter: RibbonEmitterWrapper, size: number): void {
-        if (size <= emitter.capacity) {
-            return;
-        }
-
-        size = Math.min(size, emitter.baseCapacity);
-
-        const vertices = new Float32Array(size * 2 * 3);  // 2 vertices * xyz
-        const texCoords = new Float32Array(size * 2 * 2); // 2 vertices * xy
-
-        if (emitter.vertices) {
-            vertices.set(emitter.vertices);
-        }
-
-        emitter.vertices = vertices;
-        emitter.texCoords = texCoords;
-
-        emitter.capacity = size;
-
-        if (!emitter.vertexBuffer) {
-            emitter.vertexBuffer = gl.createBuffer();
-            emitter.texCoordBuffer = gl.createBuffer();
-        }
-    }
+    private shaderProgramLocations: {
+        vertexPositionAttribute: number,
+        textureCoordAttribute: number,
+        pMatrixUniform: WebGLUniformLocation | null,
+        mvMatrixUniform: WebGLUniformLocation | null,
+        samplerUniform: WebGLUniformLocation | null,
+        replaceableColorUniform: WebGLUniformLocation | null,
+        replaceableTypeUniform: WebGLUniformLocation | null,
+        discardAlphaLevelUniform: WebGLUniformLocation | null,
+        colorUniform: WebGLUniformLocation | null
+    };
 
     private interp: ModelInterp;
     private rendererData: RendererData;
     private emitters: RibbonEmitterWrapper[];
 
     constructor (interp: ModelInterp, rendererData: RendererData) {
+        this.shaderProgramLocations = {
+            vertexPositionAttribute: null,
+            textureCoordAttribute: null,
+            pMatrixUniform: null,
+            mvMatrixUniform: null,
+            samplerUniform: null,
+            replaceableColorUniform: null,
+            replaceableTypeUniform: null,
+            discardAlphaLevelUniform: null,
+            colorUniform: null
+        };
+
         this.interp = interp;
         this.rendererData = rendererData;
         this.emitters = [];
@@ -196,6 +138,30 @@ export class RibbonsController {
         }
     }
 
+    public destroy (): void {
+        if (this.shaderProgram) {
+            if (this.vertexShader) {
+                this.gl.detachShader(this.shaderProgram, this.vertexShader);
+                this.gl.deleteShader(this.vertexShader);
+                this.vertexShader = null;
+            }
+            if (this.fragmentShader) {
+                this.gl.detachShader(this.shaderProgram, this.fragmentShader);
+                this.gl.deleteShader(this.fragmentShader);
+                this.fragmentShader = null;
+            }
+            this.gl.deleteProgram(this.shaderProgram);
+            this.shaderProgram = null;
+        }
+        this.emitters = [];
+    }
+
+    public initGL (glContext: WebGLRenderingContext): void {
+        this.gl = glContext;
+
+        this.initShaders();
+    }
+
     public update (delta: number): void {
         for (const emitter of this.emitters) {
             this.updateEmitter(emitter, delta);
@@ -203,20 +169,20 @@ export class RibbonsController {
     }
 
     public render (mvMatrix: mat4, pMatrix: mat4): void {
-        gl.useProgram(shaderProgram);
+        this.gl.useProgram(this.shaderProgram);
 
-        gl.uniformMatrix4fv(shaderProgramLocations.pMatrixUniform, false, pMatrix);
-        gl.uniformMatrix4fv(shaderProgramLocations.mvMatrixUniform, false, mvMatrix);
+        this.gl.uniformMatrix4fv(this.shaderProgramLocations.pMatrixUniform, false, pMatrix);
+        this.gl.uniformMatrix4fv(this.shaderProgramLocations.mvMatrixUniform, false, mvMatrix);
 
-        gl.enableVertexAttribArray(shaderProgramLocations.vertexPositionAttribute);
-        gl.enableVertexAttribArray(shaderProgramLocations.textureCoordAttribute);
+        this.gl.enableVertexAttribArray(this.shaderProgramLocations.vertexPositionAttribute);
+        this.gl.enableVertexAttribArray(this.shaderProgramLocations.textureCoordAttribute);
 
         for (const emitter of this.emitters) {
             if (emitter.creationTimes.length < 2) {
                 continue;
             }
 
-            gl.uniform4f(shaderProgramLocations.colorUniform,
+            this.gl.uniform4f(this.shaderProgramLocations.colorUniform,
                 emitter.props.Color[0], emitter.props.Color[1], emitter.props.Color[2],
                 this.interp.animVectorVal(emitter.props.Alpha, 1)
             );
@@ -230,8 +196,66 @@ export class RibbonsController {
             }
         }
 
-        gl.disableVertexAttribArray(shaderProgramLocations.vertexPositionAttribute);
-        gl.disableVertexAttribArray(shaderProgramLocations.textureCoordAttribute);
+        this.gl.disableVertexAttribArray(this.shaderProgramLocations.vertexPositionAttribute);
+        this.gl.disableVertexAttribArray(this.shaderProgramLocations.textureCoordAttribute);
+    }
+
+    private initShaders (): void {
+        const vertex = this.vertexShader = getShader(this.gl, vertexShader, this.gl.VERTEX_SHADER);
+        const fragment = this.fragmentShader = getShader(this.gl, fragmentShader, this.gl.FRAGMENT_SHADER);
+
+        const shaderProgram = this.shaderProgram = this.gl.createProgram();
+        this.gl.attachShader(shaderProgram, vertex);
+        this.gl.attachShader(shaderProgram, fragment);
+        this.gl.linkProgram(shaderProgram);
+
+        if (!this.gl.getProgramParameter(shaderProgram, this.gl.LINK_STATUS)) {
+            alert('Could not initialise shaders');
+        }
+
+        this.gl.useProgram(shaderProgram);
+
+        this.shaderProgramLocations.vertexPositionAttribute =
+            this.gl.getAttribLocation(shaderProgram, 'aVertexPosition');
+        this.shaderProgramLocations.textureCoordAttribute =
+            this.gl.getAttribLocation(shaderProgram, 'aTextureCoord');
+
+        this.shaderProgramLocations.pMatrixUniform = this.gl.getUniformLocation(shaderProgram, 'uPMatrix');
+        this.shaderProgramLocations.mvMatrixUniform = this.gl.getUniformLocation(shaderProgram, 'uMVMatrix');
+        this.shaderProgramLocations.samplerUniform = this.gl.getUniformLocation(shaderProgram, 'uSampler');
+        this.shaderProgramLocations.replaceableColorUniform =
+            this.gl.getUniformLocation(shaderProgram, 'uReplaceableColor');
+        this.shaderProgramLocations.replaceableTypeUniform =
+            this.gl.getUniformLocation(shaderProgram, 'uReplaceableType');
+        this.shaderProgramLocations.discardAlphaLevelUniform =
+            this.gl.getUniformLocation(shaderProgram, 'uDiscardAlphaLevel');
+        this.shaderProgramLocations.colorUniform =
+            this.gl.getUniformLocation(shaderProgram, 'uColor');
+    }
+
+    private resizeEmitterBuffers (emitter: RibbonEmitterWrapper, size: number): void {
+        if (size <= emitter.capacity) {
+            return;
+        }
+
+        size = Math.min(size, emitter.baseCapacity);
+
+        const vertices = new Float32Array(size * 2 * 3);  // 2 vertices * xyz
+        const texCoords = new Float32Array(size * 2 * 2); // 2 vertices * xy
+
+        if (emitter.vertices) {
+            vertices.set(emitter.vertices);
+        }
+
+        emitter.vertices = vertices;
+        emitter.texCoords = texCoords;
+
+        emitter.capacity = size;
+
+        if (!emitter.vertexBuffer) {
+            emitter.vertexBuffer = this.gl.createBuffer();
+            emitter.texCoordBuffer = this.gl.createBuffer();
+        }
     }
 
     private updateEmitter (emitter: RibbonEmitterWrapper, delta: number): void {
@@ -248,7 +272,7 @@ export class RibbonsController {
                 emitter.emission = emitter.emission % 1000;
 
                 if (emitter.creationTimes.length + 1 > emitter.capacity) {
-                    RibbonsController.resizeEmitterBuffers(emitter, emitter.creationTimes.length + 1);
+                    this.resizeEmitterBuffers(emitter, emitter.creationTimes.length + 1);
                 }
 
                 this.appendVertices(emitter);
@@ -320,69 +344,69 @@ export class RibbonsController {
         const texture = this.rendererData.model.Textures[textureID];
 
         if (layer.Shading & LayerShading.TwoSided) {
-            gl.disable(gl.CULL_FACE);
+            this.gl.disable(this.gl.CULL_FACE);
         } else {
-            gl.enable(gl.CULL_FACE);
+            this.gl.enable(this.gl.CULL_FACE);
         }
 
         if (layer.FilterMode === FilterMode.Transparent) {
-            gl.uniform1f(shaderProgramLocations.discardAlphaLevelUniform, 0.75);
+            this.gl.uniform1f(this.shaderProgramLocations.discardAlphaLevelUniform, 0.75);
         } else {
-            gl.uniform1f(shaderProgramLocations.discardAlphaLevelUniform, 0.);
+            this.gl.uniform1f(this.shaderProgramLocations.discardAlphaLevelUniform, 0.);
         }
 
         if (layer.FilterMode === FilterMode.None) {
-            gl.disable(gl.BLEND);
-            gl.enable(gl.DEPTH_TEST);
-            // gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-            gl.depthMask(true);
+            this.gl.disable(this.gl.BLEND);
+            this.gl.enable(this.gl.DEPTH_TEST);
+            // this.gl.blendFunc(this.gl.SRC_ALPHA, this.gl.ONE_MINUS_SRC_ALPHA);
+            this.gl.depthMask(true);
         } else if (layer.FilterMode === FilterMode.Transparent) {
-            gl.enable(gl.BLEND);
-            gl.enable(gl.DEPTH_TEST);
-            gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
-            gl.depthMask(true);
+            this.gl.enable(this.gl.BLEND);
+            this.gl.enable(this.gl.DEPTH_TEST);
+            this.gl.blendFuncSeparate(this.gl.SRC_ALPHA, this.gl.ONE_MINUS_SRC_ALPHA, this.gl.ONE, this.gl.ONE_MINUS_SRC_ALPHA);
+            this.gl.depthMask(true);
         } else if (layer.FilterMode === FilterMode.Blend) {
-            gl.enable(gl.BLEND);
-            gl.enable(gl.DEPTH_TEST);
-            gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
-            gl.depthMask(false);
+            this.gl.enable(this.gl.BLEND);
+            this.gl.enable(this.gl.DEPTH_TEST);
+            this.gl.blendFuncSeparate(this.gl.SRC_ALPHA, this.gl.ONE_MINUS_SRC_ALPHA, this.gl.ONE, this.gl.ONE_MINUS_SRC_ALPHA);
+            this.gl.depthMask(false);
         } else if (layer.FilterMode === FilterMode.Additive) {
-            gl.enable(gl.BLEND);
-            gl.enable(gl.DEPTH_TEST);
-            gl.blendFunc(gl.SRC_COLOR, gl.ONE);
-            gl.depthMask(false);
+            this.gl.enable(this.gl.BLEND);
+            this.gl.enable(this.gl.DEPTH_TEST);
+            this.gl.blendFunc(this.gl.SRC_COLOR, this.gl.ONE);
+            this.gl.depthMask(false);
         } else if (layer.FilterMode === FilterMode.AddAlpha) {
-            gl.enable(gl.BLEND);
-            gl.enable(gl.DEPTH_TEST);
-            gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
-            gl.depthMask(false);
+            this.gl.enable(this.gl.BLEND);
+            this.gl.enable(this.gl.DEPTH_TEST);
+            this.gl.blendFunc(this.gl.SRC_ALPHA, this.gl.ONE);
+            this.gl.depthMask(false);
         } else if (layer.FilterMode === FilterMode.Modulate) {
-            gl.enable(gl.BLEND);
-            gl.enable(gl.DEPTH_TEST);
-            gl.blendFuncSeparate(gl.ZERO, gl.SRC_COLOR, gl.ZERO, gl.ONE);
-            gl.depthMask(false);
+            this.gl.enable(this.gl.BLEND);
+            this.gl.enable(this.gl.DEPTH_TEST);
+            this.gl.blendFuncSeparate(this.gl.ZERO, this.gl.SRC_COLOR, this.gl.ZERO, this.gl.ONE);
+            this.gl.depthMask(false);
         } else if (layer.FilterMode === FilterMode.Modulate2x) {
-            gl.enable(gl.BLEND);
-            gl.enable(gl.DEPTH_TEST);
-            gl.blendFuncSeparate(gl.DST_COLOR, gl.SRC_COLOR, gl.ZERO, gl.ONE);
-            gl.depthMask(false);
+            this.gl.enable(this.gl.BLEND);
+            this.gl.enable(this.gl.DEPTH_TEST);
+            this.gl.blendFuncSeparate(this.gl.DST_COLOR, this.gl.SRC_COLOR, this.gl.ZERO, this.gl.ONE);
+            this.gl.depthMask(false);
         }
 
         if (texture.Image) {
-            gl.activeTexture(gl.TEXTURE0);
-            gl.bindTexture(gl.TEXTURE_2D, this.rendererData.textures[texture.Image]);
-            gl.uniform1i(shaderProgramLocations.samplerUniform, 0);
-            gl.uniform1f(shaderProgramLocations.replaceableTypeUniform, 0);
+            this.gl.activeTexture(this.gl.TEXTURE0);
+            this.gl.bindTexture(this.gl.TEXTURE_2D, this.rendererData.textures[texture.Image]);
+            this.gl.uniform1i(this.shaderProgramLocations.samplerUniform, 0);
+            this.gl.uniform1f(this.shaderProgramLocations.replaceableTypeUniform, 0);
         } else if (texture.ReplaceableId === 1 || texture.ReplaceableId === 2) {
-            gl.uniform3fv(shaderProgramLocations.replaceableColorUniform, this.rendererData.teamColor);
-            gl.uniform1f(shaderProgramLocations.replaceableTypeUniform, texture.ReplaceableId);
+            this.gl.uniform3fv(this.shaderProgramLocations.replaceableColorUniform, this.rendererData.teamColor);
+            this.gl.uniform1f(this.shaderProgramLocations.replaceableTypeUniform, texture.ReplaceableId);
         }
 
         if (layer.Shading & LayerShading.NoDepthTest) {
-            gl.disable(gl.DEPTH_TEST);
+            this.gl.disable(this.gl.DEPTH_TEST);
         }
         if (layer.Shading & LayerShading.NoDepthSet) {
-            gl.depthMask(false);
+            this.gl.depthMask(false);
         }
 
         /*if (typeof layer.TVertexAnimId === 'number') {
@@ -403,23 +427,23 @@ export class RibbonsController {
                 texCoordMat4[12], texCoordMat4[13], 0
             );
 
-            gl.uniformMatrix3fv(shaderProgramLocations.tVertexAnimUniform, false, texCoordMat3);
+            this.gl.uniformMatrix3fv(this.shaderProgramLocations.tVertexAnimUniform, false, texCoordMat3);
         } else {
-            gl.uniformMatrix3fv(shaderProgramLocations.tVertexAnimUniform, false, identifyMat3);
+            this.gl.uniformMatrix3fv(this.shaderProgramLocations.tVertexAnimUniform, false, identifyMat3);
         }*/
     }
 
     private setGeneralBuffers (emitter: RibbonEmitterWrapper): void {
-        gl.bindBuffer(gl.ARRAY_BUFFER, emitter.texCoordBuffer);
-        gl.bufferData(gl.ARRAY_BUFFER, emitter.texCoords, gl.DYNAMIC_DRAW);
-        gl.vertexAttribPointer(shaderProgramLocations.textureCoordAttribute, 2, gl.FLOAT, false, 0, 0);
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, emitter.texCoordBuffer);
+        this.gl.bufferData(this.gl.ARRAY_BUFFER, emitter.texCoords, this.gl.DYNAMIC_DRAW);
+        this.gl.vertexAttribPointer(this.shaderProgramLocations.textureCoordAttribute, 2, this.gl.FLOAT, false, 0, 0);
 
-        gl.bindBuffer(gl.ARRAY_BUFFER, emitter.vertexBuffer);
-        gl.bufferData(gl.ARRAY_BUFFER, emitter.vertices, gl.DYNAMIC_DRAW);
-        gl.vertexAttribPointer(shaderProgramLocations.vertexPositionAttribute, 3, gl.FLOAT, false, 0, 0);
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, emitter.vertexBuffer);
+        this.gl.bufferData(this.gl.ARRAY_BUFFER, emitter.vertices, this.gl.DYNAMIC_DRAW);
+        this.gl.vertexAttribPointer(this.shaderProgramLocations.vertexPositionAttribute, 3, this.gl.FLOAT, false, 0, 0);
     }
 
     private renderEmitter (emitter: RibbonEmitterWrapper): void {
-        gl.drawArrays(gl.TRIANGLE_STRIP, 0, emitter.creationTimes.length * 2);
+        this.gl.drawArrays(this.gl.TRIANGLE_STRIP, 0, emitter.creationTimes.length * 2);
     }
 }
