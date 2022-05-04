@@ -1,7 +1,7 @@
 import {
     Model, Material, Layer, AnimVector, LineType, TVertexAnim, Geoset, GeosetAnim, Node,
     Bone, Light, Attachment, ParticleEmitter2, ParticleEmitter2FramesFlags, RibbonEmitter, Camera, EventObject,
-    CollisionShape, CollisionShapeType, ParticleEmitter
+    CollisionShape, CollisionShapeType, ParticleEmitter, BindPose
 } from '../model';
 
 const BIG_ENDIAN = true;
@@ -263,7 +263,7 @@ function generateGlobalSequences (model: Model, stream: Stream): void {
 }
 
 
-function byteLengthLayer (layer: Layer): number {
+function byteLengthLayer (model: Model, layer: Layer): number {
     return 4 /* size */ +
         4 /* FilterMode */ +
         4 /* Shading */ +
@@ -271,6 +271,13 @@ function byteLengthLayer (layer: Layer): number {
         4 /* TVertexAnimId */ +
         4 +
         4 /* static Alpha */ +
+        (model.Version >= 900 ? 4 : 0) /* EmissiveGain */ +
+        (model.Version >= 1000 ?
+            4 * 3 /* FresnelColor */ +
+            4 /* FresnelOpacity */ +
+            4 /* FresnelTeamColor */ :
+            0
+        ) +
         (layer.Alpha !== null && typeof layer.Alpha !== 'number' ?
             4 /* keyword */ + byteLengthAnimVector(layer.Alpha as AnimVector, AnimVectorType.FLOAT1) :
             0
@@ -281,13 +288,14 @@ function byteLengthLayer (layer: Layer): number {
         );
 }
 
-function byteLengthMaterial (material: Material): number {
+function byteLengthMaterial (model: Model, material: Material): number {
     return 4 /* size */ +
         4 /* PriorityPlane */ +
         4 /* RenderMode */ +
         4 /* LAYS keyword */ +
         4 /* layer count */ +
-        sum(material.Layers.map(layer => byteLengthLayer(layer)));
+        (model.Version >= 900 ? 80 : 0) /* Shader */ +
+        sum(material.Layers.map(layer => byteLengthLayer(model, layer)));
 }
 
 function byteLengthMaterials (model: Model): number {
@@ -297,7 +305,7 @@ function byteLengthMaterials (model: Model): number {
 
     return 4 /* keyword */ +
         4 /* size */ +
-        sum(model.Materials.map(material => byteLengthMaterial(material)));
+        sum(model.Materials.map(material => byteLengthMaterial(model, material)));
 }
 
 function generateMaterials (model: Model, stream: Stream): void {
@@ -309,20 +317,33 @@ function generateMaterials (model: Model, stream: Stream): void {
     stream.int32(byteLengthMaterials(model) - 8);
 
     for (const material of model.Materials) {
-        stream.int32(byteLengthMaterial(material));
+        stream.int32(byteLengthMaterial(model, material));
         stream.int32(material.PriorityPlane);
         stream.int32(material.RenderMode);
+        if (model.Version >= 900) {
+            stream.str(material.Shader || '', 80);
+        }
         stream.keyword('LAYS');
         stream.int32(material.Layers.length);
 
         for (const layer of material.Layers) {
-            stream.int32(byteLengthLayer(layer));
+            stream.int32(byteLengthLayer(model, layer));
             stream.int32(layer.FilterMode);
             stream.int32(layer.Shading);
             stream.int32(typeof layer.TextureID === 'number' ? layer.TextureID : 0);
             stream.int32(layer.TVertexAnimId !== null ? layer.TVertexAnimId : NONE);
             stream.int32(layer.CoordId);
             stream.float32(typeof layer.Alpha === 'number' ? layer.Alpha : 1);
+
+            if (model.Version >= 900) {
+                stream.float32(layer.EmissiveGain || 1);
+
+                if (model.Version >= 1000) {
+                    stream.float32Array(layer.FresnelColor || new Float32Array([1, 1, 1]));
+                    stream.float32(typeof layer.FresnelOpacity === 'number' ? layer.FresnelOpacity : 0);
+                    stream.float32(typeof layer.FresnelTeamColor === 'number' ? layer.FresnelTeamColor : 0);
+                }
+            }
 
             if (layer.Alpha && typeof layer.Alpha !== 'number') {
                 stream.keyword('KMTA');
@@ -416,7 +437,7 @@ function generateTextureAnims (model: Model, stream: Stream): void {
 }
 
 
-function byteLengthGeoset (geoset: Geoset): number {
+function byteLengthGeoset (model: Model, geoset: Geoset): number {
     return 4 /* size */ +
         4 /* VRTX keyword */ +
         4 /* vertices count */ +
@@ -445,6 +466,23 @@ function byteLengthGeoset (geoset: Geoset): number {
         4 /* MaterialID */ +
         4 /* SelectionGroup */ +
         4 /* Unselectable */ +
+        (model.Version >= 900 ?
+            4 /* LevelOfDetail */ +
+            80 /* Name */ :
+            0
+        ) +
+        ((model.Version >= 900 && geoset.Tangents?.length) ?
+            4 /* TANG keyword */ +
+            4 /* Tangents count */ +
+            4 * geoset.Tangents.length /* Tangents data */ :
+            0
+        ) +
+        ((model.Version >= 900 && geoset.SkinWeights?.length) ?
+            4 /* SKIN keyword */ +
+            4 /* SkinWeights count */ +
+            geoset.SkinWeights.length /* SkinWeights data */ :
+            0
+        ) +
         4 * 7 /* extent */ +
         4 /* geoset anim count */ +
         4 * 7 * geoset.Anims.length /* geoset anim data */ +
@@ -464,7 +502,7 @@ function byteLengthGeosets (model: Model): number {
 
     return 4 /* keyword */ +
         4 /* size */ +
-        sum(model.Geosets.map(geoset => byteLengthGeoset(geoset)));
+        sum(model.Geosets.map(geoset => byteLengthGeoset(model, geoset)));
 }
 
 function generateGeosets (model: Model, stream: Stream): void {
@@ -476,7 +514,7 @@ function generateGeosets (model: Model, stream: Stream): void {
     stream.int32(byteLengthGeosets(model) - 8);
 
     for (const geoset of model.Geosets) {
-        stream.int32(byteLengthGeoset(geoset));
+        stream.int32(byteLengthGeoset(model, geoset));
 
         stream.keyword('VRTX');
         stream.int32(geoset.Vertices.length / 3);
@@ -520,11 +558,29 @@ function generateGeosets (model: Model, stream: Stream): void {
         stream.int32(geoset.SelectionGroup);
         stream.int32(geoset.Unselectable ? 4 : 0);
 
+        if (model.Version >= 900) {
+            stream.int32(typeof geoset.LevelOfDetail === 'number' ? geoset.LevelOfDetail : -1);
+            stream.str(geoset.Name || '', 80);
+        }
+
         generateExtent(geoset, stream);
 
         stream.int32(geoset.Anims.length);
         for (const anim of geoset.Anims) {
             generateExtent(anim, stream);
+        }
+
+        if (model.Version >= 900) {
+            if (geoset.Tangents && geoset.Tangents.length) {
+                stream.keyword('TANG');
+                stream.int32(geoset.Tangents.length / 4);
+                stream.float32Array(geoset.Tangents);
+            }
+            if (geoset.SkinWeights && geoset.SkinWeights.length) {
+                stream.keyword('SKIN');
+                stream.int32(geoset.SkinWeights.length);
+                stream.uint8Array(geoset.SkinWeights);
+            }
         }
 
         stream.keyword('UVAS');
@@ -1384,6 +1440,69 @@ function generateCollisionShapes (model: Model, stream: Stream): void {
     }
 }
 
+function byteLengthFaceFX (model: Model): number {
+    if (model.Version < 900 || !model.FaceFX) {
+        return 0;
+    }
+
+    return 4 /* keyword */ +
+        4 /* size */ +
+    (
+        80 /* Name */ +
+        260 /* Path */
+    ) * model.FaceFX.length;
+}
+
+function generateFaceFX (model: Model, stream: Stream): void {
+    if (model.Version < 900 || !model.FaceFX) {
+        return;
+    }
+
+    stream.keyword('FAFX');
+    stream.int32(byteLengthFaceFX(model) - 8);
+
+    for (const faceFx of model.FaceFX) {
+        stream.str(faceFx.Name, 80);
+        stream.str(faceFx.Path, 260);
+    }
+}
+
+function byteLengthBindPoseObject (bindPose: BindPose): number {
+    return 4 * 12 /* Matrices */ * bindPose.Matrices.length;
+}
+
+function byteLengthBindPose (model: Model): number {
+    if (model.Version < 900 || !model.BindPose) {
+        return 0;
+    }
+
+    return 4 /* keyword */ +
+        4 /* size */ +
+        4 /* count */ +
+        sum(model.BindPose.map(byteLengthBindPoseObject));
+}
+
+function generateBindPose (model: Model, stream: Stream): void {
+    if (model.Version < 900 || !model.BindPose) {
+        return;
+    }
+
+    stream.keyword('BPOS');
+    stream.int32(byteLengthBindPose(model) - 8);
+
+    const totalCount = model.BindPose.reduce((acc, bindPose) => {
+        return acc + bindPose.Matrices.length;
+    }, 0);
+
+    stream.int32(totalCount);
+
+    for (const bindPose of model.BindPose) {
+        for (const matrix of bindPose.Matrices) {
+            stream.float32Array(matrix);
+        }
+    }
+}
+
 
 const byteLength: ((model: Model) => number)[] = [
     byteLengthVersion,
@@ -1405,7 +1524,9 @@ const byteLength: ((model: Model) => number)[] = [
     byteLengthRibbonEmitters,
     byteLengthCameras,
     byteLengthEventObjects,
-    byteLengthCollisionShapes
+    byteLengthCollisionShapes,
+    byteLengthFaceFX,
+    byteLengthBindPose
 ];
 
 const generators: ((model: Model, stream: Stream) => void)[] = [
@@ -1428,7 +1549,9 @@ const generators: ((model: Model, stream: Stream) => void)[] = [
     generateRibbonEmitters,
     generateCameras,
     generateEventObjects,
-    generateCollisionShapes
+    generateCollisionShapes,
+    generateFaceFX,
+    generateBindPose
 ];
 
 export function generate (model: Model): ArrayBuffer {
@@ -1437,6 +1560,8 @@ export function generate (model: Model): ArrayBuffer {
     for (const lenFunc of byteLength) {
         totalLength += lenFunc(model);
     }
+
+    // totalLength = 4158774;;;;
 
     const res = new ArrayBuffer(totalLength);
     const stream = new Stream(res);

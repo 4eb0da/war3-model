@@ -160,9 +160,7 @@ const fragmentShaderHD = `
 
         float teamColorFactor = texture2D(uOrmSampler, texCoord).a;
 
-        if (teamColorFactor > .1) {
-            resultColor.rgb *= uReplaceableColor * teamColorFactor;
-        }
+        resultColor.rgb = mix(resultColor.rgb, resultColor.rgb * uReplaceableColor, teamColorFactor);
 
         gl_FragColor = resultColor;
 
