@@ -326,6 +326,18 @@ export interface BindPose {
     Matrices: Float32Array[];
 }
 
+export interface ParticleEmitterPopcorn extends Node {
+    LifeSpan?: AnimVector|number;
+    EmissionRate?: AnimVector|number;
+    Speed?: AnimVector|number;
+    Color?: AnimVector|Float32Array;
+    Alpha?: AnimVector|number;
+    ReplaceableId?: number;
+    Path?: string;
+    AnimationVisiblityGuide?: string;
+    Visibility?: AnimVector;
+}
+
 export interface Model {
     Version: number;
     Info: ModelInfo;
@@ -349,5 +361,6 @@ export interface Model {
     RibbonEmitters: RibbonEmitter[];
     TextureAnims: TVertexAnim[];
     FaceFX?: FaceFX[];
-    BindPose?: BindPose[];
+    BindPoses?: BindPose[];
+    ParticleEmitterPopcorns?: ParticleEmitterPopcorn[];
 }

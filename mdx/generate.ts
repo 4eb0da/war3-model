@@ -1472,31 +1472,31 @@ function byteLengthBindPoseObject (bindPose: BindPose): number {
 }
 
 function byteLengthBindPose (model: Model): number {
-    if (model.Version < 900 || !model.BindPose) {
+    if (model.Version < 900 || !model.BindPoses) {
         return 0;
     }
 
     return 4 /* keyword */ +
         4 /* size */ +
         4 /* count */ +
-        sum(model.BindPose.map(byteLengthBindPoseObject));
+        sum(model.BindPoses.map(byteLengthBindPoseObject));
 }
 
 function generateBindPose (model: Model, stream: Stream): void {
-    if (model.Version < 900 || !model.BindPose) {
+    if (model.Version < 900 || !model.BindPoses) {
         return;
     }
 
     stream.keyword('BPOS');
     stream.int32(byteLengthBindPose(model) - 8);
 
-    const totalCount = model.BindPose.reduce((acc, bindPose) => {
+    const totalCount = model.BindPoses.reduce((acc, bindPose) => {
         return acc + bindPose.Matrices.length;
     }, 0);
 
     stream.int32(totalCount);
 
-    for (const bindPose of model.BindPose) {
+    for (const bindPose of model.BindPoses) {
         for (const matrix of bindPose.Matrices) {
             stream.float32Array(matrix);
         }
