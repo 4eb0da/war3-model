@@ -1,7 +1,7 @@
 import {
     Model, Material, Layer, AnimVector, LineType, TVertexAnim, Geoset, GeosetAnim, Node,
     Bone, Light, Attachment, ParticleEmitter2, ParticleEmitter2FramesFlags, RibbonEmitter, Camera, EventObject,
-    CollisionShape, CollisionShapeType, ParticleEmitter, BindPose
+    CollisionShape, CollisionShapeType, ParticleEmitter, BindPose, ParticleEmitterPopcorn
 } from '../model';
 
 const BIG_ENDIAN = true;
@@ -1440,6 +1440,7 @@ function generateCollisionShapes (model: Model, stream: Stream): void {
     }
 }
 
+
 function byteLengthFaceFX (model: Model): number {
     if (model.Version < 900 || !model.FaceFX) {
         return 0;
@@ -1467,11 +1468,12 @@ function generateFaceFX (model: Model, stream: Stream): void {
     }
 }
 
+
 function byteLengthBindPoseObject (bindPose: BindPose): number {
     return 4 * 12 /* Matrices */ * bindPose.Matrices.length;
 }
 
-function byteLengthBindPose (model: Model): number {
+function byteLengthBindPoses (model: Model): number {
     if (model.Version < 900 || !model.BindPoses) {
         return 0;
     }
@@ -1482,13 +1484,13 @@ function byteLengthBindPose (model: Model): number {
         sum(model.BindPoses.map(byteLengthBindPoseObject));
 }
 
-function generateBindPose (model: Model, stream: Stream): void {
-    if (model.Version < 900 || !model.BindPoses) {
+function generateBindPoses (model: Model, stream: Stream): void {
+    if (model.Version < 900 || !model.BindPoses?.length) {
         return;
     }
 
     stream.keyword('BPOS');
-    stream.int32(byteLengthBindPose(model) - 8);
+    stream.int32(byteLengthBindPoses(model) - 8);
 
     const totalCount = model.BindPoses.reduce((acc, bindPose) => {
         return acc + bindPose.Matrices.length;
@@ -1499,6 +1501,107 @@ function generateBindPose (model: Model, stream: Stream): void {
     for (const bindPose of model.BindPoses) {
         for (const matrix of bindPose.Matrices) {
             stream.float32Array(matrix);
+        }
+    }
+}
+
+function byteLengthParticleEmitterPopcorn (emitter: ParticleEmitterPopcorn): number {
+    return 4 /* size */ +
+        byteLengthNode(emitter) +
+        4 /* static LifeSpan */ +
+        4 /* static EmissionRate */ +
+        4 /* static Speed */ +
+        4 * 3 /* static Color */ +
+        4 /* static Alpha */ +
+        4 /* ReplaceableId */ +
+        260 /* Path */ +
+        260 /* AnimationVisiblityGuide */ +
+        (emitter.Visibility && typeof emitter.Visibility !== 'number' ?
+            4 /* keyword */ + byteLengthAnimVector(emitter.Visibility, AnimVectorType.FLOAT1) :
+            0
+        ) +
+        (emitter.EmissionRate && typeof emitter.EmissionRate !== 'number' ?
+            4 /* keyword */ + byteLengthAnimVector(emitter.EmissionRate, AnimVectorType.FLOAT1) :
+            0
+        ) +
+        (emitter.Color && !(emitter.Color instanceof Float32Array) ?
+            4 /* keyword */ + byteLengthAnimVector(emitter.Color, AnimVectorType.FLOAT3) :
+            0
+        ) +
+        (emitter.LifeSpan && typeof emitter.LifeSpan !== 'number' ?
+            4 /* keyword */ + byteLengthAnimVector(emitter.LifeSpan, AnimVectorType.FLOAT1) :
+            0
+        ) +
+        (emitter.Speed && typeof emitter.Speed !== 'number' ?
+            4 /* keyword */ + byteLengthAnimVector(emitter.Speed, AnimVectorType.FLOAT1) :
+            0
+        );
+}
+
+function byteLengthParticleEmitterPopcorns (model: Model): number {
+    if (model.Version < 900 || !model.ParticleEmitterPopcorns?.length) {
+        return 0;
+    }
+
+    return 4 /* keyword */ +
+        4 /* size */ +
+        sum(model.ParticleEmitterPopcorns.map(byteLengthParticleEmitterPopcorn));
+}
+
+function generateParticleEmitterPopcorns (model: Model, stream: Stream): void {
+    if (model.Version < 900 || !model.ParticleEmitterPopcorns?.length) {
+        return;
+    }
+
+    stream.keyword('CORN');
+    stream.int32(byteLengthParticleEmitterPopcorns(model) - 8);
+
+    for (const emitter of model.ParticleEmitterPopcorns) {
+        stream.int32(byteLengthParticleEmitterPopcorn(emitter));
+        generateNode(emitter, stream);
+
+        stream.float32(typeof emitter.LifeSpan === 'number' ? emitter.LifeSpan : 0);
+        stream.float32(typeof emitter.EmissionRate === 'number' ? emitter.EmissionRate : 0);
+        stream.float32(typeof emitter.Speed === 'number' ? emitter.Speed : 0);
+        
+        if (emitter.Color instanceof Float32Array) {
+            stream.float32(emitter.Color[0]);
+            stream.float32(emitter.Color[1]);
+            stream.float32(emitter.Color[2]);
+        } else {
+            stream.float32(1);
+            stream.float32(1);
+            stream.float32(1);
+        }
+
+        stream.float32(typeof emitter.Alpha === 'number' ? emitter.Alpha : 1);
+        stream.int32(typeof emitter.ReplaceableId === 'number' ? emitter.ReplaceableId : 0);
+        stream.str(emitter.Path, 260);
+        stream.str(emitter.AnimationVisiblityGuide, 260);
+
+        if (emitter.Alpha && typeof emitter.Alpha !== 'number') {
+            stream.keyword('KPPA');
+            stream.animVector(emitter.Alpha, AnimVectorType.FLOAT1);
+        }
+        if (emitter.Color && !(emitter.Color instanceof Float32Array)) {
+            stream.keyword('KPPC');
+            stream.animVector(emitter.Color, AnimVectorType.FLOAT3);
+        }
+        if (emitter.EmissionRate && typeof emitter.EmissionRate !== 'number') {
+            stream.keyword('KPPE');
+            stream.animVector(emitter.EmissionRate, AnimVectorType.FLOAT1);
+        }
+        if (emitter.LifeSpan && typeof emitter.LifeSpan !== 'number') {
+            stream.keyword('KPPL');
+            stream.animVector(emitter.LifeSpan, AnimVectorType.FLOAT1);
+        }
+        if (emitter.Speed && typeof emitter.Speed !== 'number') {
+            stream.keyword('KPPS');
+            stream.animVector(emitter.Speed, AnimVectorType.FLOAT1);
+        }
+        if (emitter.Visibility && typeof emitter.Visibility !== 'number') {
+            stream.keyword('KPPV');
+            stream.animVector(emitter.Visibility, AnimVectorType.FLOAT1);
         }
     }
 }
@@ -1521,12 +1624,13 @@ const byteLength: ((model: Model) => number)[] = [
     byteLengthPivotPoints,
     byteLengthParticleEmitters,
     byteLengthParticleEmitters2,
+    byteLengthParticleEmitterPopcorns,
     byteLengthRibbonEmitters,
     byteLengthCameras,
     byteLengthEventObjects,
     byteLengthCollisionShapes,
     byteLengthFaceFX,
-    byteLengthBindPose
+    byteLengthBindPoses
 ];
 
 const generators: ((model: Model, stream: Stream) => void)[] = [
@@ -1546,12 +1650,13 @@ const generators: ((model: Model, stream: Stream) => void)[] = [
     generatePivotPoints,
     generateParticleEmitters,
     generateParticleEmitters2,
+    generateParticleEmitterPopcorns,
     generateRibbonEmitters,
     generateCameras,
     generateEventObjects,
     generateCollisionShapes,
     generateFaceFX,
-    generateBindPose
+    generateBindPoses
 ];
 
 export function generate (model: Model): ArrayBuffer {
@@ -1560,8 +1665,6 @@ export function generate (model: Model): ArrayBuffer {
     for (const lenFunc of byteLength) {
         totalLength += lenFunc(model);
     }
-
-    // totalLength = 4158774;;;;
 
     const res = new ArrayBuffer(totalLength);
     const stream = new Stream(res);
