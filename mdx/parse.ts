@@ -292,6 +292,14 @@ function parseMaterials (model: Model, state: State, size: number): void {
                     layer.Alpha = state.animVector(AnimVectorType.FLOAT1);
                 } else if (keyword === 'KMTF') {
                     layer.TextureID = state.animVector(AnimVectorType.INT1);
+                } else if (keyword === 'KMTE' && model.Version >= 900) {
+                    layer.EmissiveGain = state.animVector(AnimVectorType.FLOAT1);
+                } else if (keyword === 'KFC3' && model.Version >= 1000) {
+                    layer.FresnelColor = state.animVector(AnimVectorType.FLOAT3);
+                } else if (keyword === 'KFCA' && model.Version >= 1000) {
+                    layer.FresnelOpacity = state.animVector(AnimVectorType.FLOAT1);
+                } else if (keyword === 'KFTC' && model.Version >= 1000) {
+                    layer.FresnelTeamColor = state.animVector(AnimVectorType.FLOAT1);
                 } else {
                     throw new Error('Unknown layer chunk data ' + keyword);
                 }

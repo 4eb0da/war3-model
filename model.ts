@@ -74,10 +74,10 @@ export interface Layer {
     TVertexAnimId?: number;
     CoordId: number;
     Alpha?: AnimVector|number;
-    EmissiveGain?: number;
-    FresnelColor?: Float32Array;
-    FresnelOpacity?: number;
-    FresnelTeamColor?: number;
+    EmissiveGain?: AnimVector|number;
+    FresnelColor?: AnimVector|Float32Array;
+    FresnelOpacity?: AnimVector|number;
+    FresnelTeamColor?: AnimVector|number;
 }
 
 export enum MaterialRenderMode {

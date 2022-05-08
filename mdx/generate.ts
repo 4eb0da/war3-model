@@ -285,6 +285,22 @@ function byteLengthLayer (model: Model, layer: Layer): number {
         (layer.TextureID !== null && typeof layer.TextureID !== 'number' ?
             4 /* keyword */ + byteLengthAnimVector(layer.TextureID as AnimVector, AnimVectorType.INT1) :
             0
+        ) +
+        (model.Version >= 900 && layer.EmissiveGain !== null && typeof layer.EmissiveGain !== 'number' ?
+            4 /* keyword */ + byteLengthAnimVector(layer.EmissiveGain as AnimVector, AnimVectorType.FLOAT1) :
+            0
+        ) +
+        (model.Version >= 1000 && layer.FresnelColor !== null && !(layer.FresnelColor instanceof Float32Array) ?
+            4 /* keyword */ + byteLengthAnimVector(layer.FresnelColor as AnimVector, AnimVectorType.FLOAT3) :
+            0
+        ) +
+        (model.Version >= 1000 && layer.FresnelOpacity !== null && typeof layer.FresnelOpacity !== 'number' ?
+            4 /* keyword */ + byteLengthAnimVector(layer.FresnelOpacity as AnimVector, AnimVectorType.FLOAT1) :
+            0
+        ) +
+        (model.Version >= 1000 && layer.FresnelTeamColor !== null && typeof layer.FresnelTeamColor !== 'number' ?
+            4 /* keyword */ + byteLengthAnimVector(layer.FresnelTeamColor as AnimVector, AnimVectorType.FLOAT1) :
+            0
         );
 }
 
@@ -336,10 +352,10 @@ function generateMaterials (model: Model, stream: Stream): void {
             stream.float32(typeof layer.Alpha === 'number' ? layer.Alpha : 1);
 
             if (model.Version >= 900) {
-                stream.float32(layer.EmissiveGain || 1);
+                stream.float32(typeof layer.EmissiveGain === 'number' ? layer.EmissiveGain : 1);
 
                 if (model.Version >= 1000) {
-                    stream.float32Array(layer.FresnelColor || new Float32Array([1, 1, 1]));
+                    stream.float32Array(layer.FresnelColor instanceof Float32Array ? layer.FresnelColor : new Float32Array([1, 1, 1]));
                     stream.float32(typeof layer.FresnelOpacity === 'number' ? layer.FresnelOpacity : 0);
                     stream.float32(typeof layer.FresnelTeamColor === 'number' ? layer.FresnelTeamColor : 0);
                 }
@@ -352,6 +368,22 @@ function generateMaterials (model: Model, stream: Stream): void {
             if (layer.TextureID && typeof layer.TextureID !== 'number') {
                 stream.keyword('KMTF');
                 stream.animVector(layer.TextureID, AnimVectorType.INT1);
+            }
+            if (model.Version >= 900 && layer.EmissiveGain && typeof layer.EmissiveGain !== 'number') {
+                stream.keyword('KMTE');
+                stream.animVector(layer.EmissiveGain, AnimVectorType.FLOAT1);
+            }
+            if (model.Version >= 1000 && layer.FresnelColor && !(layer.FresnelColor instanceof Float32Array)) {
+                stream.keyword('KFC3');
+                stream.animVector(layer.FresnelColor, AnimVectorType.FLOAT3);
+            }
+            if (model.Version >= 1000 && layer.FresnelOpacity && typeof layer.FresnelOpacity !== 'number') {
+                stream.keyword('KFCA');
+                stream.animVector(layer.FresnelOpacity, AnimVectorType.FLOAT1);
+            }
+            if (model.Version >= 1000 && layer.FresnelTeamColor && typeof layer.FresnelTeamColor !== 'number') {
+                stream.keyword('KFTC');
+                stream.animVector(layer.FresnelTeamColor, AnimVectorType.FLOAT1);
             }
         }
     }
@@ -1516,6 +1548,10 @@ function byteLengthParticleEmitterPopcorn (emitter: ParticleEmitterPopcorn): num
         4 /* ReplaceableId */ +
         260 /* Path */ +
         260 /* AnimationVisiblityGuide */ +
+        (emitter.Alpha && typeof emitter.Alpha !== 'number' ?
+            4 /* keyword */ + byteLengthAnimVector(emitter.Alpha, AnimVectorType.FLOAT1) :
+            0
+        ) +
         (emitter.Visibility && typeof emitter.Visibility !== 'number' ?
             4 /* keyword */ + byteLengthAnimVector(emitter.Visibility, AnimVectorType.FLOAT1) :
             0
@@ -1561,7 +1597,7 @@ function generateParticleEmitterPopcorns (model: Model, stream: Stream): void {
         generateNode(emitter, stream);
 
         stream.float32(typeof emitter.LifeSpan === 'number' ? emitter.LifeSpan : 0);
-        stream.float32(typeof emitter.EmissionRate === 'number' ? emitter.EmissionRate : 0);
+        stream.float32(typeof emitter.EmissionRate === 'number' ? emitter.EmissionRate : 1);
         stream.float32(typeof emitter.Speed === 'number' ? emitter.Speed : 0);
         
         if (emitter.Color instanceof Float32Array) {
