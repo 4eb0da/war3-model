@@ -3,6 +3,7 @@ node_modules
 /docs/*/dist
 *.js
 *.js.map
+*.d.ts
 !samples.webpack.config.js
 !third_party/decoder.js
 !docs/*/dist/*.js

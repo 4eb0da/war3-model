@@ -326,6 +326,12 @@ export interface BindPose {
     Matrices: Float32Array[];
 }
 
+export enum ParticleEmitterPopcornFlags {
+    Unshaded = 32768,
+    SortPrimsFarZ = 65536,
+    Unfogged = 262144
+}
+
 export interface ParticleEmitterPopcorn extends Node {
     LifeSpan?: AnimVector|number;
     EmissionRate?: AnimVector|number;
