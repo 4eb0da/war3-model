@@ -340,7 +340,7 @@ function initCameraMove () {
     }
 
     function wheel (event) {
-        updateCameraDistance(cameraDistance * (1 + event.wheelDelta / 600));
+        updateCameraDistance(cameraDistance * (1 - event.wheelDelta / 600));
     }
 
     let startCameraDistance: number;

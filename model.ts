@@ -4,6 +4,15 @@ export interface ModelInfo {
     MaximumExtent: Float32Array;
     BoundsRadius: number;
     BlendTime: number;
+    NumGeosets?: number;
+    NumGeosetAnims?: number;
+    NumBones?: number;
+    NumLights?: number;
+    NumAttachments?: number;
+    NumEvents?: number;
+    NumParticleEmitters?: number;
+    NumParticleEmitters2?: number;
+    NumRibbonEmitters?: number;
 }
 
 export interface Sequence {
@@ -149,7 +158,7 @@ export enum NodeType {
     Light = 512,
     EventObject = 1024,
     Attachment = 2048,
-    ParticleEmitter = 4096,
+    ParticleEmitter = 4096, // ParticleEmitter | ParticleEmitter2 | ParticleEmitterPopcorn
     CollisionShape = 8192,
     RibbonEmitter = 16384
 }
@@ -340,7 +349,7 @@ export interface ParticleEmitterPopcorn extends Node {
     Alpha?: AnimVector|number;
     ReplaceableId?: number;
     Path?: string;
-    AnimationVisiblityGuide?: string;
+    AnimVisibilityGuide?: string;
     Visibility?: AnimVector;
 }
 

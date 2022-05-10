@@ -893,7 +893,7 @@ function generateParticleEmitterPopcornChunk (emitter: ParticleEmitterPopcorn): 
         generateAnimVectorProp('Alpha', emitter.Alpha, 1) +
         generateIntPropIfNotEmpty('ReplaceableId', emitter.ReplaceableId, 0, null) +
         generateWrappedStringProp('Path', emitter.Path, false) +
-        generateWrappedStringProp('AnimVisibilityGuide', emitter.AnimationVisiblityGuide, false) +
+        generateWrappedStringProp('AnimVisibilityGuide', emitter.AnimVisibilityGuide, false) +
         generateAnimVectorProp('Visibility', emitter.Visibility) +
         generateBlockEnd();
 }

@@ -1060,7 +1060,7 @@ function parseParticleEmitterPopcorn (model: Model, state: State, size: number):
         emitter.Alpha = state.float32();
         emitter.ReplaceableId = state.int32();
         emitter.Path = state.str(260);
-        emitter.AnimationVisiblityGuide = state.str(260);
+        emitter.AnimVisibilityGuide = state.str(260);
 
         while (state.pos < emitterStart + emitterSize) {
             const keyword = state.keyword();
@@ -1167,6 +1167,16 @@ export function parse (arrayBuffer: ArrayBuffer): Model {
             model.Nodes[i].PivotPoint = model.PivotPoints[i];
         }
     }
+
+    model.Info.NumGeosets = model.Geosets.length;
+    model.Info.NumGeosetAnims = model.GeosetAnims.length;
+    model.Info.NumBones = model.Bones.length;
+    model.Info.NumLights = model.Lights.length;
+    model.Info.NumAttachments = model.Attachments.length;
+    model.Info.NumEvents = model.EventObjects.length;
+    model.Info.NumParticleEmitters = model.ParticleEmitters.length;
+    model.Info.NumParticleEmitters2 = model.ParticleEmitters2.length;
+    model.Info.NumRibbonEmitters = model.RibbonEmitters.length;
 
     return model;
 }

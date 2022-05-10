@@ -286,19 +286,19 @@ function byteLengthLayer (model: Model, layer: Layer): number {
             4 /* keyword */ + byteLengthAnimVector(layer.TextureID as AnimVector, AnimVectorType.INT1) :
             0
         ) +
-        (model.Version >= 900 && layer.EmissiveGain !== null && typeof layer.EmissiveGain !== 'number' ?
+        (model.Version >= 900 && layer.EmissiveGain !== undefined && layer.EmissiveGain !== null && typeof layer.EmissiveGain !== 'number' ?
             4 /* keyword */ + byteLengthAnimVector(layer.EmissiveGain as AnimVector, AnimVectorType.FLOAT1) :
             0
         ) +
-        (model.Version >= 1000 && layer.FresnelColor !== null && !(layer.FresnelColor instanceof Float32Array) ?
+        (model.Version >= 1000 && layer.FresnelColor !== undefined && layer.FresnelColor !== null && !(layer.FresnelColor instanceof Float32Array) ?
             4 /* keyword */ + byteLengthAnimVector(layer.FresnelColor as AnimVector, AnimVectorType.FLOAT3) :
             0
         ) +
-        (model.Version >= 1000 && layer.FresnelOpacity !== null && typeof layer.FresnelOpacity !== 'number' ?
+        (model.Version >= 1000 && layer.FresnelOpacity !== undefined && layer.FresnelOpacity !== null && typeof layer.FresnelOpacity !== 'number' ?
             4 /* keyword */ + byteLengthAnimVector(layer.FresnelOpacity as AnimVector, AnimVectorType.FLOAT1) :
             0
         ) +
-        (model.Version >= 1000 && layer.FresnelTeamColor !== null && typeof layer.FresnelTeamColor !== 'number' ?
+        (model.Version >= 1000 && layer.FresnelTeamColor !== undefined && layer.FresnelTeamColor !== null && typeof layer.FresnelTeamColor !== 'number' ?
             4 /* keyword */ + byteLengthAnimVector(layer.FresnelTeamColor as AnimVector, AnimVectorType.FLOAT1) :
             0
         );
@@ -1547,7 +1547,7 @@ function byteLengthParticleEmitterPopcorn (emitter: ParticleEmitterPopcorn): num
         4 /* static Alpha */ +
         4 /* ReplaceableId */ +
         260 /* Path */ +
-        260 /* AnimationVisiblityGuide */ +
+        260 /* AnimVisibilityGuide */ +
         (emitter.Alpha && typeof emitter.Alpha !== 'number' ?
             4 /* keyword */ + byteLengthAnimVector(emitter.Alpha, AnimVectorType.FLOAT1) :
             0
@@ -1613,7 +1613,7 @@ function generateParticleEmitterPopcorns (model: Model, stream: Stream): void {
         stream.float32(typeof emitter.Alpha === 'number' ? emitter.Alpha : 1);
         stream.int32(typeof emitter.ReplaceableId === 'number' ? emitter.ReplaceableId : 0);
         stream.str(emitter.Path, 260);
-        stream.str(emitter.AnimationVisiblityGuide, 260);
+        stream.str(emitter.AnimVisibilityGuide, 260);
 
         if (emitter.Alpha && typeof emitter.Alpha !== 'number') {
             stream.keyword('KPPA');

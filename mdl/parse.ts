@@ -3,7 +3,7 @@ import {
     CollisionShape, ParticleEmitter2, Camera, MaterialRenderMode, FilterMode, LayerShading, TextureFlags,
     GeosetAnimFlags, NodeFlags, CollisionShapeType, ParticleEmitter2Flags, ParticleEmitter2FramesFlags, Light,
     LightType, TVertexAnim, RibbonEmitter, ParticleEmitter2FilterMode, ParticleEmitter, ParticleEmitterFlags, NodeType,
-    EventObject, Sequence, ModelInfo
+    EventObject, Sequence, ModelInfo, Geoset, GeosetAnimInfo, FaceFX, BindPose, ParticleEmitterPopcorn, ParticleEmitterPopcornFlags
 } from '../model';
 
 class State {
@@ -372,7 +372,7 @@ function parseAnimVector (state: State, type: AnimVectorType): AnimVector {
     return animVector;
 }
 
-function parseLayer (state: State): Layer {
+function parseLayer (state: State, model: Model): Layer {
     const res: Layer = {
         Alpha: null,
         TVertexAnimId: null,
@@ -397,20 +397,43 @@ function parseLayer (state: State): Layer {
 
         if (!isStatic && keyword === 'TextureID') {
             res[keyword] = parseAnimVector(state, AnimVectorType.INT1);
-        } else if (!isStatic && keyword === 'Alpha') {
+        } else if (!isStatic && (keyword === 'Alpha')) {
             res[keyword] = parseAnimVector(state, AnimVectorType.FLOAT1);
-        } else if (keyword === 'Unshaded' || keyword === 'SphereEnvMap' || keyword === 'TwoSided' ||
-            keyword === 'Unfogged' || keyword === 'NoDepthTest' || keyword === 'NoDepthSet') {
+        } else if (
+            keyword === 'Unshaded' || keyword === 'SphereEnvMap' || keyword === 'TwoSided' ||
+            keyword === 'Unfogged' || keyword === 'NoDepthTest' || keyword === 'NoDepthSet'
+        ) {
             res.Shading |= LayerShading[keyword];
         } else if (keyword === 'FilterMode') {
             const val = parseKeyword(state);
 
-            if (val === 'None' || val === 'Transparent' || val === 'Blend' || val === 'Additive' ||
-                val === 'AddAlpha' || val === 'Modulate' || val === 'Modulate2x') {
+            if (
+                val === 'None' || val === 'Transparent' || val === 'Blend' || val === 'Additive' ||
+                val === 'AddAlpha' || val === 'Modulate' || val === 'Modulate2x'
+            ) {
                 res.FilterMode = FilterMode[val];
             }
         } else if (keyword === 'TVertexAnimId') {
             res.TVertexAnimId = parseNumber(state);
+        } else if (model.Version >= 900 && keyword === 'EmissiveGain') {
+            if (isStatic) {
+                res[keyword] = parseNumber(state);
+            } else {
+                res[keyword] = parseAnimVector(state, AnimVectorType.FLOAT1);
+            }
+        } else if (model.Version >= 1000 && keyword === 'FresnelColor') {
+            if (isStatic) {
+                const array = new Float32Array(3);
+                res[keyword] = parseArray(state, array, 0) as Float32Array;
+            } else {
+                res[keyword] = parseAnimVector(state, AnimVectorType.FLOAT3);
+            }
+        } else if (model.Version >= 1000 && (keyword === 'FresnelOpacity' || keyword === 'FresnelTeamColor')) {
+            if (isStatic) {
+                res[keyword] = parseNumber(state);
+            } else {
+                res[keyword] = parseAnimVector(state, AnimVectorType.FLOAT1);
+            }
         } else {
             let val: string|number = parseNumber(state);
 
@@ -454,11 +477,13 @@ function parseMaterials (state: State, model: Model): void {
             }
 
             if (keyword === 'Layer') {
-                obj.Layers.push(parseLayer(state));
+                obj.Layers.push(parseLayer(state, model));
             } else if (keyword === 'PriorityPlane') {
                 obj[keyword] = parseNumber(state);
             } else if (keyword === 'ConstantColor' || keyword === 'SortPrimsFarZ' || keyword === 'FullResolution') {
                 obj.RenderMode |= MaterialRenderMode[keyword];
+            } else if (keyword === 'Shader') {
+                obj[keyword] = parseString(state);
             } else {
                 throw new Error('Unknown material property ' + keyword);
             }
@@ -476,8 +501,29 @@ function parseMaterials (state: State, model: Model): void {
     model.Materials = res;
 }
 
+enum GeosetPartType {
+    INT,
+    FLOAT
+}
+
+function parseGeosetPart (state: State, countPerObj: number, type: GeosetPartType) {
+    const count = parseNumber(state);
+    const arr = new (type === GeosetPartType.FLOAT ? Float32Array : Uint8Array)(count * countPerObj);
+
+    strictParseSymbol(state, '{');
+
+    for (let index = 0; index < count; ++index) {
+        parseArray(state, arr, index * countPerObj);
+        strictParseSymbol(state, ',');
+    }
+
+    strictParseSymbol(state, '}');
+
+    return arr;
+}
+
 function parseGeoset (state: State, model: Model): void {
-    const res = {
+    const res: Geoset = {
         Vertices: null,
         Normals: null,
         TVertices: [],
@@ -510,17 +556,7 @@ function parseGeoset (state: State, model: Model): void {
                 countPerObj = 2;
             }
 
-            const count = parseNumber(state);
-            const arr = new Float32Array(count * countPerObj);
-
-            strictParseSymbol(state, '{');
-
-            for (let index = 0; index < count; ++index) {
-                parseArray(state, arr, index * countPerObj);
-                strictParseSymbol(state, ',');
-            }
-
-            strictParseSymbol(state, '}');
+            const arr = parseGeosetPart(state, countPerObj, GeosetPartType.FLOAT) as Float32Array;
 
             if (keyword === 'TVertices') {
                 res.TVertices.push(arr);
@@ -566,7 +602,7 @@ function parseGeoset (state: State, model: Model): void {
             res.Groups = groups;
         } else if (keyword === 'MinimumExtent' || keyword === 'MaximumExtent') {
             const arr = new Float32Array(3);
-            res[keyword] = parseArray(state, arr, 0);
+            res[keyword] = parseArray(state, arr, 0) as Float32Array;
             strictParseSymbol(state, ',');
         } else if (keyword === 'BoundsRadius' || keyword === 'MaterialID' || keyword === 'SelectionGroup') {
             res[keyword] = parseNumber(state);
@@ -578,10 +614,24 @@ function parseGeoset (state: State, model: Model): void {
                 obj.Alpha = 1;
             }
 
-            res.Anims.push(obj);
+            res.Anims.push(obj as unknown as GeosetAnimInfo);
         } else if (keyword === 'Unselectable') {
             res.Unselectable = true;
             strictParseSymbol(state, ',');
+        } else if (model.Version >= 900) {
+            if (keyword === 'LevelOfDetail') {
+                res.LevelOfDetail = parseNumber(state);
+                strictParseSymbol(state, ',');
+            } else if (keyword === 'Name') {
+                res.Name = parseString(state);
+                strictParseSymbol(state, ',');
+            } else if (keyword === 'Tangents') {
+                res.Tangents = parseGeosetPart(state, 4, GeosetPartType.FLOAT) as Float32Array;
+            } else if (keyword === 'SkinWeights') {
+                const count = parseNumber(state);
+                const arr = new Uint8Array(count * 4);
+                res.SkinWeights = parseArray(state, arr) as Uint8Array;
+            }
         }
     }
 
@@ -1342,6 +1392,149 @@ function parseRibbonEmitter (state: State, model: Model): void {
     model.Nodes.push(res);
 }
 
+function parseFaceFX (state: State, model: Model): void {
+    if (model.Version < 900) {
+        throwError(state, 'Unexpected model chunk FaceFX');
+    }
+
+    const name = parseString(state);
+
+    const res: FaceFX = {
+        Name: name,
+        Path: ''
+    };
+
+    strictParseSymbol(state, '{');
+
+    while (state.char() !== '}') {
+        const keyword = parseKeyword(state);
+
+        if (!keyword) {
+            throwError(state);
+        }
+
+        if (keyword === 'Path') {
+            res.Path = parseString(state);
+        }
+
+        parseSymbol(state, ',');
+    }
+
+    strictParseSymbol(state, '}');
+
+    model.FaceFX = model.FaceFX || [];
+    model.FaceFX.push(res);
+}
+
+function parseBindPose (state: State, model: Model): void {
+    if (model.Version < 900) {
+        throwError(state, 'Unexpected model chunk BindPose');
+    }
+
+    const res: BindPose = {
+        Matrices: []
+    };
+
+    strictParseSymbol(state, '{');
+
+    parseKeyword(state); // Matrices
+
+    const count = parseNumber(state);
+
+    strictParseSymbol(state, '{');
+
+    for (let i = 0; i < count; ++i) {
+        const matrix = new Float32Array(12);
+        parseArray(state, matrix);
+        res.Matrices.push(matrix);
+    }
+
+    strictParseSymbol(state, '}');
+    strictParseSymbol(state, '}');
+
+    model.BindPoses = model.BindPoses || [];
+    model.BindPoses.push(res);
+}
+
+function parseParticleEmitterPopcorn (state: State, model: Model): void {
+    if (model.Version < 900) {
+        throwError(state, 'Unexpected model chunk ParticleEmitterPopcorn');
+    }
+
+    const name = parseString(state);
+
+    const res: ParticleEmitterPopcorn = {
+        Name: name,
+        ObjectId: null,
+        Parent: null,
+        PivotPoint: null,
+        Flags: NodeType.ParticleEmitter
+    };
+
+    strictParseSymbol(state, '{');
+
+    while (state.char() !== '}') {
+        let keyword = parseKeyword(state);
+        let isStatic = false;
+
+        if (!keyword) {
+            throwError(state);
+        }
+
+        if (keyword === 'static') {
+            isStatic = true;
+            keyword = parseKeyword(state);
+        }
+
+        if (
+            !isStatic && (
+                keyword === 'LifeSpan' || keyword === 'EmissionRate' || keyword === 'Speed' ||
+                keyword === 'Color' || keyword === 'Alpha' || keyword === 'Visibility' ||
+                keyword === 'Rotation' || keyword === 'Scaling' || keyword === 'Translation'
+            )
+        ) {
+            let type: AnimVectorType = AnimVectorType.FLOAT3;
+            switch (keyword) {
+                case 'LifeSpan':
+                case 'EmissionRate':
+                case 'Speed':
+                case 'Alpha':
+                case 'Visibility':
+                    type = AnimVectorType.FLOAT1;
+                    break;
+            }
+            res[keyword] = parseAnimVector(state, type);
+        } else if (keyword === 'LifeSpan' || keyword === 'EmissionRate' || keyword === 'Speed' || keyword === 'Alpha') {
+            res[keyword] = parseNumber(state);
+        } else if (keyword === 'Color') {
+            const array = new Float32Array(3);
+            res[keyword] = parseArray(state, array, 0) as Float32Array;
+        } else if (keyword === 'ReplaceableId') {
+            res[keyword] = parseNumber(state);
+        } else if (keyword === 'Path' || keyword === 'AnimVisibilityGuide') {
+            res[keyword] = parseString(state);
+        } else if (keyword === 'Unshaded' || keyword === 'SortPrimsFarZ' || keyword === 'Unfogged') {
+            if (keyword === 'Unshaded') {
+                res.Flags |= ParticleEmitterPopcornFlags.Unshaded;
+            } else if (keyword === 'Unfogged') {
+                res.Flags |= ParticleEmitterPopcornFlags.Unfogged;
+            } else if (keyword === 'SortPrimsFarZ') {
+                res.Flags |= ParticleEmitterPopcornFlags.SortPrimsFarZ;
+            }
+        } else {
+            res[keyword] = parseNumber(state);
+        }
+
+        parseSymbol(state, ',');
+    }
+
+    strictParseSymbol(state, '}');
+
+    model.ParticleEmitterPopcorns = model.ParticleEmitterPopcorns || [];
+    model.ParticleEmitterPopcorns.push(res);
+    model.Nodes.push(res);
+}
+
 const parsers = {
     Version: parseVersion,
     Model: parseModelInfo,
@@ -1362,7 +1555,10 @@ const parsers = {
     Camera: parseCamera,
     Light: parseLight,
     TextureAnims: parseTextureAnims,
-    RibbonEmitter: parseRibbonEmitter
+    RibbonEmitter: parseRibbonEmitter,
+    FaceFX: parseFaceFX,
+    BindPose: parseBindPose,
+    ParticleEmitterPopcorn: parseParticleEmitterPopcorn
 };
 
 export function parse (str: string): Model {
