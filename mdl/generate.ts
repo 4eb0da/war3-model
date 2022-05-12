@@ -307,6 +307,7 @@ function generateMaterialChunk (model: Model, material: Material): string {
         (material.RenderMode & MaterialRenderMode.SortPrimsFarZ ? generateBooleanProp('SortPrimsFarZ', 2) : '') +
         (material.RenderMode & MaterialRenderMode.FullResolution ? generateBooleanProp('FullResolution', 2) : '') +
         generateIntPropIfNotEmpty('PriorityPlane', material.PriorityPlane, 0, null, 2) +
+        generateIntPropIfNotEmpty('RenderMode', material.RenderMode, 0, null, 2) +
         shader +
         material.Layers.map(it => generateLayerChunk(model, it)).join('') +
         generateBlockEnd(1);
@@ -428,6 +429,10 @@ function generateGeosetArray (name: string, arr: Float32Array, elemLength: numbe
 }
 
 function generateGeosetVertexGroup (arr: Uint8Array|Uint16Array): string {
+    if (!arr.length) {
+        return '';
+    }
+    
     let middle = '';
 
     for (let i = 0; i < arr.length; ++i) {
@@ -462,7 +467,7 @@ function generateGeosetGroups (groups: number[][]): string {
 }
 
 function generrateGeosetSkinWeights (skinWeights: Uint8Array): string {
-    let res = generateBlockStart('SkinWeights', skinWeights.length / 8, 1);
+    let res = generateBlockStart('SkinWeights', skinWeights.length / 4, 1);
     for (let i = 0; i < skinWeights.length; ++i) {
         if (i % 8 === 0) {
             res += generateTab(2);

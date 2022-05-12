@@ -252,6 +252,8 @@ function parseSequences (state: State, model: Model): void {
         const [name, obj] = parseObject(state);
         obj.Name = name;
         obj.NonLooping = 'NonLooping' in obj;
+        obj.MoveSpeed = obj.MoveSpeed || 0;
+        obj.Rarity = obj.Rarity || 0;
 
         res.push(obj as unknown as Sequence);
     }
@@ -478,11 +480,11 @@ function parseMaterials (state: State, model: Model): void {
 
             if (keyword === 'Layer') {
                 obj.Layers.push(parseLayer(state, model));
-            } else if (keyword === 'PriorityPlane') {
+            } else if (keyword === 'PriorityPlane' || keyword === 'RenderMode') {
                 obj[keyword] = parseNumber(state);
             } else if (keyword === 'ConstantColor' || keyword === 'SortPrimsFarZ' || keyword === 'FullResolution') {
                 obj.RenderMode |= MaterialRenderMode[keyword];
-            } else if (keyword === 'Shader') {
+            } else if (model.Version >= 900 && keyword === 'Shader') {
                 obj[keyword] = parseString(state);
             } else {
                 throw new Error('Unknown material property ' + keyword);
@@ -527,13 +529,13 @@ function parseGeoset (state: State, model: Model): void {
         Vertices: null,
         Normals: null,
         TVertices: [],
-        VertexGroup: null,
+        VertexGroup: new Uint8Array(0),
         Faces: null,
         Groups: null,
         TotalGroupsCount: null,
         MinimumExtent: null,
         MaximumExtent: null,
-        BoundsRadius: null,
+        BoundsRadius: 0,
         Anims: [],
         MaterialID: null,
         SelectionGroup: null,
@@ -630,7 +632,7 @@ function parseGeoset (state: State, model: Model): void {
             } else if (keyword === 'SkinWeights') {
                 const count = parseNumber(state);
                 const arr = new Uint8Array(count * 4);
-                res.SkinWeights = parseArray(state, arr) as Uint8Array;
+                res.SkinWeights = parseArray(state, arr, 0) as Uint8Array;
             }
         }
     }
@@ -1445,7 +1447,7 @@ function parseBindPose (state: State, model: Model): void {
 
     for (let i = 0; i < count; ++i) {
         const matrix = new Float32Array(12);
-        parseArray(state, matrix);
+        parseArray(state, matrix, 0);
         res.Matrices.push(matrix);
     }
 
