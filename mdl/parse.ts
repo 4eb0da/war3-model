@@ -152,6 +152,32 @@ function parseArray (state: State, arr?: IntArray, pos?: number): typeof arr|nul
     return arr;
 }
 
+function parseArrayCounted (state: State, arr: IntArray, pos: number): number {
+    if (state.char() !== '{') {
+        return 0;
+    }
+
+    const start = pos;
+
+    strictParseSymbol(state, '{');
+
+    while (state.char() !== '}') {
+        const num = parseNumber(state);
+
+        if (num === null) {
+            throwError(state, 'expected number');
+        }
+
+        arr[pos++] = num;
+
+        parseSymbol(state, ',');
+    }
+
+    strictParseSymbol(state, '}');
+
+    return pos - start;
+}
+
 function parseArrayOrSingleItem<ArrType extends Uint16Array|Uint32Array|Int32Array|Float32Array>
     (state: State, arr: ArrType): ArrType {
     if (state.char() !== '{') {
@@ -570,17 +596,31 @@ function parseGeoset (state: State, model: Model): void {
 
             parseArray(state, res[keyword], 0);
         } else if (keyword === 'Faces') {
-            parseNumber(state); // group count, always 1?
+            const groupCount = parseNumber(state); // group count, always 1 in the official models
             const indexCount = parseNumber(state);
 
+            let pos = 0;
             res.Faces = new Uint16Array(indexCount);
 
             strictParseSymbol(state, '{');
-            parseKeyword(state); // Triangles
+            const keyword = parseKeyword(state);
+            if (keyword !== 'Triangles') {
+                throwError(state, 'unexpected faces type');
+            }
             strictParseSymbol(state, '{');
-            parseArray(state, res.Faces, 0);
+            for (let g = 0; g < groupCount; ++g) {
+                const count = parseArrayCounted(state, res.Faces, pos);
+                if (!count) {
+                    throwError(state, 'expected array');
+                }
+                pos += count;
 
-            parseSymbol(state, ',');
+                parseSymbol(state, ',');
+            }
+
+            if (pos !== indexCount || indexCount % 3 !== 0) {
+                throwError(state, 'mismatched faces array');
+            }
 
             strictParseSymbol(state, '}');
             strictParseSymbol(state, '}');
