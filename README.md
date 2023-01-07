@@ -51,15 +51,16 @@ After conversion `mdx binary file` -> `in-memory structure` -> `mdx binary file`
 
 ~98.4% of models (3276/3329) would be identical after `mdx` -> `structure` -> `mdl` -> `structure` -> `mdx` (because warcraft contains extraneous data in models and because of unsupported multiple texture chunks in mdl).
 
-## What about Reforged?
+## Reforged format is supported
 
-Nope. Currently not supported, sorry
+New versions 900 and 1000 are supported in parsers, generators and viewer.
 
 ## MDL/MDX support
 * All standart features like Sequences, Bones, Cameras, etc
 * Multiple texture chunks (mdx only)
 * Multiple sequences/nodes with the same name (not quite sure is it feature or not, but War3 actually contains such models)
 * SoundTrack not supported
+* Reforged data
 
 ## Renderer support
 * Standart geometry/animation
@@ -71,8 +72,10 @@ Nope. Currently not supported, sorry
 * Billboarded/BillboardedLockXYZ, w/o DontInherit/CameraAnchored
 * RibbonEmitter (w/o Gravity and TextureSlot/Color animation)
 * ParticleEmitter2 (with Tail/Head/Both/Squirt(?))
-* No light support (normals, light, Unshaded, etc)
+* Reforged PBR lightning (orm textures, specular, normal mapping, etc)
+* No Light nodes support (Light, Unshaded, etc)
 * No render priority support (PriorityPlane and others)
+* BLP / DDS are supported
 
 ## BLP support
 * BLP1 only (not BLP0 and BLP2 support)
@@ -80,6 +83,10 @@ Nope. Currently not supported, sorry
 * Direct & jpeg data
 * Variable alpha (8/4/1/0 bit, but tested only 8/0)
 * API for getting all mipmap level's data
+
+## DDS support
+
+* dxt1, dxt3, dxt5, ati2 (also known as bc5)
 
 ## Thanks
 * Magos (MDX specification, War3 Model Editor app/source)

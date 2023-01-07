@@ -83,9 +83,13 @@ export interface Layer {
     TVertexAnimId?: number;
     CoordId: number;
     Alpha?: AnimVector|number;
+    /* Since Version: 900 */
     EmissiveGain?: AnimVector|number;
+    /* Since Version: 1000 */
     FresnelColor?: AnimVector|Float32Array;
+    /* Since Version: 1000 */
     FresnelOpacity?: AnimVector|number;
+    /* Since Version: 1000 */
     FresnelTeamColor?: AnimVector|number;
 }
 
@@ -99,6 +103,7 @@ export interface Material {
     PriorityPlane?: number;
     RenderMode?: number;
     Layers: Layer[];
+    /* Since Version: 900 */
     Shader?: string;
 }
 
@@ -123,9 +128,13 @@ export interface Geoset {
     MaterialID: number;
     SelectionGroup: number;
     Unselectable: boolean;
+    /* Since Version: 900 */
     LevelOfDetail?: number;
+    /* Since Version: 900 */
     Name?: string;
+    /* Since Version: 900 */
     Tangents?: Float32Array;
+    /* Since Version: 900 */
     SkinWeights?: Uint8Array;
 }
 
@@ -326,21 +335,25 @@ export interface TVertexAnim {
     Scaling?: AnimVector;
 }
 
+/* Since Version: 900 */
 export interface FaceFX {
     Name: string;
     Path: string;
 }
 
+/* Since Version: 900 */
 export interface BindPose {
     Matrices: Float32Array[];
 }
 
+/* Since Version: 900 */
 export enum ParticleEmitterPopcornFlags {
     Unshaded = 32768,
     SortPrimsFarZ = 65536,
     Unfogged = 262144
 }
 
+/* Since Version: 900 */
 export interface ParticleEmitterPopcorn extends Node {
     LifeSpan?: AnimVector|number;
     EmissionRate?: AnimVector|number;
@@ -375,7 +388,10 @@ export interface Model {
     Lights: Light[];
     RibbonEmitters: RibbonEmitter[];
     TextureAnims: TVertexAnim[];
+    /* Since Version: 900 */
     FaceFX?: FaceFX[];
+    /* Since Version: 900 */
     BindPoses?: BindPose[];
+    /* Since Version: 900 */
     ParticleEmitterPopcorns?: ParticleEmitterPopcorn[];
 }
