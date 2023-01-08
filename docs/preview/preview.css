@@ -6,7 +6,7 @@ body {
     margin: 0;
     font: 16px sans-serif;
     touch-action: none;
-    background: #000;
+    background: #262626;
 }
 
 canvas {

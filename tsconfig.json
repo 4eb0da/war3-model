@@ -13,7 +13,8 @@
 		"noUnusedLocals": true,
 		"noUnusedParameters": true,
         "pretty": true,
-        "noEmit": true
+        "noEmit": true,
+        "lib": ["DOM"]
     },
     "exclude": [
         "node_modules",

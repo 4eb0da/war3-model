@@ -182,7 +182,8 @@ export class RibbonsController {
                 continue;
             }
 
-            this.gl.uniform4f(this.shaderProgramLocations.colorUniform,
+            this.gl.uniform4f(
+                this.shaderProgramLocations.colorUniform,
                 emitter.props.Color[0], emitter.props.Color[1], emitter.props.Color[2],
                 this.interp.animVectorVal(emitter.props.Alpha, 1)
             );
@@ -260,7 +261,7 @@ export class RibbonsController {
 
     private updateEmitter (emitter: RibbonEmitterWrapper, delta: number): void {
         const now = Date.now();
-        const visibility = this.interp.animVectorVal(emitter.props.Visibility, 1);
+        const visibility = this.interp.animVectorVal(emitter.props.Visibility, 0);
 
         if (visibility > 0) {
             const emissionRate = emitter.props.EmissionRate;

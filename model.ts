@@ -4,6 +4,15 @@ export interface ModelInfo {
     MaximumExtent: Float32Array;
     BoundsRadius: number;
     BlendTime: number;
+    NumGeosets?: number;
+    NumGeosetAnims?: number;
+    NumBones?: number;
+    NumLights?: number;
+    NumAttachments?: number;
+    NumEvents?: number;
+    NumParticleEmitters?: number;
+    NumParticleEmitters2?: number;
+    NumRibbonEmitters?: number;
 }
 
 export interface Sequence {
@@ -74,10 +83,14 @@ export interface Layer {
     TVertexAnimId?: number;
     CoordId: number;
     Alpha?: AnimVector|number;
-    EmissiveGain?: number;
-    FresnelColor?: Float32Array;
-    FresnelOpacity?: number;
-    FresnelTeamColor?: number;
+    /* Since Version: 900 */
+    EmissiveGain?: AnimVector|number;
+    /* Since Version: 1000 */
+    FresnelColor?: AnimVector|Float32Array;
+    /* Since Version: 1000 */
+    FresnelOpacity?: AnimVector|number;
+    /* Since Version: 1000 */
+    FresnelTeamColor?: AnimVector|number;
 }
 
 export enum MaterialRenderMode {
@@ -90,6 +103,7 @@ export interface Material {
     PriorityPlane?: number;
     RenderMode?: number;
     Layers: Layer[];
+    /* Since Version: 900 */
     Shader?: string;
 }
 
@@ -114,9 +128,13 @@ export interface Geoset {
     MaterialID: number;
     SelectionGroup: number;
     Unselectable: boolean;
+    /* Since Version: 900 */
     LevelOfDetail?: number;
+    /* Since Version: 900 */
     Name?: string;
+    /* Since Version: 900 */
     Tangents?: Float32Array;
+    /* Since Version: 900 */
     SkinWeights?: Uint8Array;
 }
 
@@ -149,7 +167,7 @@ export enum NodeType {
     Light = 512,
     EventObject = 1024,
     Attachment = 2048,
-    ParticleEmitter = 4096,
+    ParticleEmitter = 4096, // ParticleEmitter | ParticleEmitter2 | ParticleEmitterPopcorn
     CollisionShape = 8192,
     RibbonEmitter = 16384
 }
@@ -317,13 +335,35 @@ export interface TVertexAnim {
     Scaling?: AnimVector;
 }
 
+/* Since Version: 900 */
 export interface FaceFX {
     Name: string;
     Path: string;
 }
 
+/* Since Version: 900 */
 export interface BindPose {
     Matrices: Float32Array[];
+}
+
+/* Since Version: 900 */
+export enum ParticleEmitterPopcornFlags {
+    Unshaded = 32768,
+    SortPrimsFarZ = 65536,
+    Unfogged = 262144
+}
+
+/* Since Version: 900 */
+export interface ParticleEmitterPopcorn extends Node {
+    LifeSpan?: AnimVector|number;
+    EmissionRate?: AnimVector|number;
+    Speed?: AnimVector|number;
+    Color?: AnimVector|Float32Array;
+    Alpha?: AnimVector|number;
+    ReplaceableId?: number;
+    Path?: string;
+    AnimVisibilityGuide?: string;
+    Visibility?: AnimVector;
 }
 
 export interface Model {
@@ -348,6 +388,10 @@ export interface Model {
     Lights: Light[];
     RibbonEmitters: RibbonEmitter[];
     TextureAnims: TVertexAnim[];
+    /* Since Version: 900 */
     FaceFX?: FaceFX[];
-    BindPose?: BindPose[];
+    /* Since Version: 900 */
+    BindPoses?: BindPose[];
+    /* Since Version: 900 */
+    ParticleEmitterPopcorns?: ParticleEmitterPopcorn[];
 }

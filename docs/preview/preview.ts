@@ -1,12 +1,12 @@
-import {vec3, mat4, quat} from 'gl-matrix';
-import parseDds from 'parse-dds';
+import { vec3, mat4, quat } from 'gl-matrix';
+import { decodeDds, parseHeaders } from 'dds-parser';
 
-import {parse as parseMDL} from '../../mdl/parse';
-import {parse as parseMDX} from '../../mdx/parse';
-import {Model, TextureFlags} from '../../model';
-import {ModelRenderer} from '../../renderer/modelRenderer';
-import {vec3RotateZ} from '../../renderer/util';
-import {decode, getImageData} from '../../blp/decode';
+import { parse as parseMDL } from '../../mdl/parse';
+import { parse as parseMDX } from '../../mdx/parse';
+import { Model, TextureFlags } from '../../model';
+import { ModelRenderer } from '../../renderer/modelRenderer';
+import { vec3RotateZ } from '../../renderer/util';
+import { decode, getImageData } from '../../blp/decode';
 import '../common/shim';
 
 let model: Model;
@@ -17,6 +17,7 @@ const pMatrix = mat4.create();
 const mvMatrix = mat4.create();
 const CLEANUP_NAME_REGEXP = /.*?([^\\/]+)\.\w+$/;
 let ddsExt: WEBGL_compressed_texture_s3tc | null = null;
+let rgtcExt: EXT_texture_compression_rgtc | null = null;
 
 let cameraTheta = Math.PI / 4;
 let cameraPhi = 0;
@@ -29,12 +30,13 @@ let skeletonNodes: string[] | null = null;
 
 const cameraBasePos: vec3 = vec3.create();
 const cameraPos: vec3 = vec3.create();
+const cameraPosTemp: vec3 = vec3.create();
 const cameraTarget: vec3 = vec3.create();
 const cameraUp: vec3 = vec3.fromValues(0, 0, 1);
 const cameraQuat: quat = quat.create();
 
 let start;
-function updateModel (timestamp: number) {
+function updateModel(timestamp: number) {
     if (!start) {
         start = timestamp;
     }
@@ -45,7 +47,7 @@ function updateModel (timestamp: number) {
     modelRenderer.update(delta);
 }
 
-function initGL () {
+function initGL() {
     if (gl) {
         return;
     }
@@ -67,7 +69,11 @@ function initGL () {
             gl.getExtension('WEBKIT_WEBGL_compressed_texture_s3tc')
         );
 
-        gl.clearColor(0.0, 0.0, 0.0, 1.0);
+        rgtcExt = (
+            gl.getExtension('EXT_texture_compression_rgtc')
+        );
+
+        gl.clearColor(0.15, 0.15, 0.15, 1.0);
         gl.enable(gl.DEPTH_TEST);
         gl.depthFunc(gl.LEQUAL);
     } catch (err) {
@@ -78,23 +84,23 @@ function initGL () {
 const cameraPosProjected: vec3 = vec3.create();
 const verticalQuat: quat = quat.create();
 const fromCameraBaseVec: vec3 = vec3.fromValues(1, 0, 0);
-function calcCameraQuat () {
+function calcCameraQuat() {
     vec3.set(cameraPosProjected, cameraPos[0], cameraPos[1], 0);
-    vec3.subtract(cameraPos, cameraPos, cameraTarget);
+    vec3.subtract(cameraPosTemp, cameraPos, cameraTarget);
     vec3.normalize(cameraPosProjected, cameraPosProjected);
-    vec3.normalize(cameraPos, cameraPos);
+    vec3.normalize(cameraPosTemp, cameraPosTemp);
 
     quat.rotationTo(cameraQuat, fromCameraBaseVec, cameraPosProjected);
-    quat.rotationTo(verticalQuat, cameraPosProjected, cameraPos);
+    quat.rotationTo(verticalQuat, cameraPosProjected, cameraPosTemp);
     quat.mul(cameraQuat, verticalQuat, cameraQuat);
 }
 
-function drawScene () {
+function drawScene() {
     gl.viewport(0, 0, canvas.width, canvas.height);
     gl.depthMask(true);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
-    mat4.perspective(pMatrix, Math.PI / 4 , canvas.width / canvas.height, 0.1, 10000.0);
+    mat4.perspective(pMatrix, Math.PI / 4, canvas.width / canvas.height, 0.1, 10000.0);
 
     vec3.set(
         cameraBasePos,
@@ -104,7 +110,6 @@ function drawScene () {
     );
     cameraTarget[2] = cameraTargetZ;
 
-    // tslint:disable-next-line
     vec3RotateZ(cameraPos, cameraBasePos, window['angle'] || 0);
     mat4.lookAt(mvMatrix, cameraPos, cameraTarget, cameraUp);
 
@@ -126,7 +131,7 @@ function tick(timestamp: number) {
     drawScene();
 }
 
-function loadTexture (src: string, textureName: string, flags: TextureFlags) {
+function loadTexture(src: string, textureName: string, flags: TextureFlags) {
     const img = new Image();
 
     img.onload = () => {
@@ -138,7 +143,7 @@ function loadTexture (src: string, textureName: string, flags: TextureFlags) {
 }
 
 let started = false;
-function handleLoadedTexture (): void {
+function handleLoadedTexture(): void {
     if (!started) {
         started = true;
         requestAnimationFrame(tick);
@@ -153,10 +158,11 @@ function handleLoadedTexture (): void {
     }
 } */
 
-function processModelLoading () {
+function processModelLoading() {
     console.log(model);
 
     modelRenderer = new ModelRenderer(model);
+    modelRenderer.setTeamColor(parseColor(inputColor.value));
 
     initGL();
     modelRenderer.initGL(gl);
@@ -213,8 +219,9 @@ function parseColor(value: string): vec3 {
     );
 }
 
-function initControls () {
-    const inputColor = document.getElementById('color') as HTMLInputElement;
+const inputColor = document.getElementById('color') as HTMLInputElement;
+
+function initControls() {
     inputColor.addEventListener('input', () => {
         modelRenderer.setTeamColor(parseColor(inputColor.value));
     });
@@ -270,11 +277,11 @@ function initControls () {
     });
 }
 
-function initCameraMove () {
+function initCameraMove() {
     let down = false;
     let downX, downY;
 
-    function coords (event) {
+    function coords(event) {
         const list = (event.changedTouches && event.changedTouches.length ?
             event.changedTouches :
             event.touches) || [event];
@@ -282,7 +289,7 @@ function initCameraMove () {
         return [list[0].pageX, list[0].pageY];
     }
 
-    function updateCameraDistance (distance: number): void {
+    function updateCameraDistance(distance: number): void {
         cameraDistance = distance;
         if (cameraDistance > 1000) {
             cameraDistance = 1000;
@@ -293,8 +300,8 @@ function initCameraMove () {
         (document.getElementById('distance') as HTMLInputElement).value = String(cameraDistance);
     }
 
-    function pointerDown (event) {
-        if (event.target !== canvas) {
+    function pointerDown(event: PointerEvent) {
+        if (event.target !== canvas || event.button) {
             return;
         }
 
@@ -303,7 +310,7 @@ function initCameraMove () {
         [downX, downY] = coords(event);
     }
 
-    function pointerMove (event) {
+    function pointerMove(event) {
         if (!down) {
             return;
         }
@@ -333,20 +340,20 @@ function initCameraMove () {
         downY = y;
     }
 
-    function pointerUp () {
+    function pointerUp() {
         down = false;
     }
 
-    function wheel (event) {
-        updateCameraDistance(cameraDistance * (1 + event.wheelDelta / 600));
+    function wheel(event) {
+        updateCameraDistance(cameraDistance * (1 - event.wheelDelta / 600));
     }
 
     let startCameraDistance: number;
-    function gestureStart () {
+    function gestureStart() {
         startCameraDistance = cameraDistance;
     }
 
-    function gestureChange (event) {
+    function gestureChange(event) {
         updateCameraDistance(startCameraDistance * (1 / event.scale));
     }
 
@@ -362,7 +369,7 @@ function initCameraMove () {
     document.addEventListener('gesturechange', gestureChange);
 }
 
-function updateCanvasSize () {
+function updateCanvasSize() {
     const width = canvas.parentElement.offsetWidth;
     const height = canvas.parentElement.offsetHeight;
     const dpr = window.devicePixelRatio || 1;
@@ -371,7 +378,7 @@ function updateCanvasSize () {
     canvas.height = height * dpr;
 }
 
-function setAnimationList () {
+function setAnimationList() {
     let list: string[] = model.Sequences.map(seq => seq.Name);
 
     if (list.length === 0) {
@@ -389,14 +396,16 @@ function setAnimationList () {
 
     const skeleton = document.getElementById('skeleton') as HTMLSelectElement;
     for (const node of model.Nodes) {
-        const option = document.createElement('option');
-        option.textContent = node.Name;
-        option.value = node.Name;
-        skeleton.appendChild(option);
+        if (node) {
+            const option = document.createElement('option');
+            option.textContent = node.Name;
+            option.value = node.Name;
+            skeleton.appendChild(option);
+        }
     }
 }
 
-function setDragDropTextures () {
+function setDragDropTextures() {
     const texturesContainer = document.querySelector('.drag-textures');
 
     texturesContainer.innerHTML = '';
@@ -414,11 +423,11 @@ function setDragDropTextures () {
     }
 }
 
-function initDragDrop () {
+function initDragDrop() {
     const container = document.querySelector('.container');
     let dropTarget;
 
-    container.addEventListener('dragenter', function onDragEnter (event) {
+    container.addEventListener('dragenter', function onDragEnter(event) {
         let target = event.target as HTMLElement;
 
         if (dropTarget && dropTarget !== event.target && dropTarget.classList) {
@@ -434,7 +443,7 @@ function initDragDrop () {
         container.classList.add('container_drag');
         event.preventDefault();
     });
-    container.addEventListener('dragleave', function onDragLeave (event) {
+    container.addEventListener('dragleave', function onDragLeave(event) {
         if (event.target === dropTarget) {
             container.classList.remove('container_drag');
             if (dropTarget && dropTarget.classList) {
@@ -442,7 +451,7 @@ function initDragDrop () {
             }
         }
     });
-    container.addEventListener('dragover', function onDragLeave (event: DragEvent) {
+    container.addEventListener('dragover', function onDragLeave(event: DragEvent) {
         event.preventDefault();
         event.dataTransfer.dropEffect = 'copy';
     });
@@ -484,27 +493,48 @@ function initDragDrop () {
             reader.onload = () => {
                 try {
                     if (isDDS) {
-                        const dds = parseDds(reader.result as ArrayBuffer);
+                        const array = reader.result as ArrayBuffer;
+                        const dds = parseHeaders(array);
 
                         console.log(dds);
 
                         let format: GLenum;
 
                         if (dds.format === 'dxt1') {
-                            format = ddsExt.COMPRESSED_RGB_S3TC_DXT1_EXT;
+                            format = ddsExt?.COMPRESSED_RGB_S3TC_DXT1_EXT;
                         } else if (dds.format === 'dxt3') {
-                            format = ddsExt.COMPRESSED_RGBA_S3TC_DXT3_EXT;
+                            format = ddsExt?.COMPRESSED_RGBA_S3TC_DXT3_EXT;
                         } else if (dds.format === 'dxt5') {
-                            format = ddsExt.COMPRESSED_RGBA_S3TC_DXT5_EXT;
+                            format = ddsExt?.COMPRESSED_RGBA_S3TC_DXT5_EXT;
+                        } else if (dds.format === 'ati2') {
+                            format = rgtcExt?.COMPRESSED_RED_GREEN_RGTC2_EXT;
                         }
 
-                        modelRenderer.setTextureCompressedImage(
-                            textureName,
-                            format,
-                            reader.result as ArrayBuffer,
-                            dds,
-                            textureFlags
-                        );
+                        if (format) {
+                            modelRenderer.setTextureCompressedImage(
+                                textureName,
+                                format,
+                                reader.result as ArrayBuffer,
+                                dds,
+                                textureFlags
+                            );
+                        } else {
+                            const uint8 = new Uint8Array(array);
+                            const datas: ImageData[] = dds.images
+                                .filter(image => image.shape.width > 0 && image.shape.height > 0)
+                                .map(image => {
+                                    const src = uint8.slice(image.offset, image.offset + image.length);
+                                    const rgba = decodeDds(src, dds.format, image.shape.width, image.shape.height);
+                                    return new ImageData(new Uint8ClampedArray(rgba), image.shape.width, image.shape.height);
+                                });
+
+                            modelRenderer.setTextureImageData(
+                                textureName,
+                                datas,
+                                textureFlags
+                            );
+                        }
+
                         resolve();
                     } else if (isBLP) {
                         const blp = decode(reader.result as ArrayBuffer);
@@ -529,7 +559,7 @@ function initDragDrop () {
                         img.src = reader.result as string;
                     }
                 } catch (err) {
-                    console.error(err);
+                    console.error(err.stack);
                     resolve();
                 }
             };
@@ -541,7 +571,7 @@ function initDragDrop () {
             }
         });
     };
-    container.addEventListener('drop', function onDrop (event: DragEvent) {
+    container.addEventListener('drop', function onDrop(event: DragEvent) {
         event.preventDefault();
         container.classList.remove('container_drag');
         container.classList.add('container_custom');
@@ -593,7 +623,7 @@ function initDragDrop () {
 
 
 
-    function setTextures (textures) {
+    function setTextures(textures) {
         const promises: Promise<void>[] = [];
 
         for (const texture of model.Textures) {

@@ -1,7 +1,7 @@
 import {
     Model, Sequence, Material, Layer, AnimVector, AnimKeyframe, LineType, Texture, Geoset,
     GeosetAnimInfo, GeosetAnim, Node, Bone, Helper, Attachment, EventObject, CollisionShape, CollisionShapeType,
-    ParticleEmitter2, ParticleEmitter2FramesFlags, Camera, Light, TVertexAnim, RibbonEmitter, ParticleEmitter, FaceFX, BindPose
+    ParticleEmitter2, ParticleEmitter2FramesFlags, Camera, Light, TVertexAnim, RibbonEmitter, ParticleEmitter, FaceFX, BindPose, ParticleEmitterPopcorn
 } from '../model';
 
 const BIG_ENDIAN = true;
@@ -292,6 +292,14 @@ function parseMaterials (model: Model, state: State, size: number): void {
                     layer.Alpha = state.animVector(AnimVectorType.FLOAT1);
                 } else if (keyword === 'KMTF') {
                     layer.TextureID = state.animVector(AnimVectorType.INT1);
+                } else if (keyword === 'KMTE' && model.Version >= 900) {
+                    layer.EmissiveGain = state.animVector(AnimVectorType.FLOAT1);
+                } else if (keyword === 'KFC3' && model.Version >= 1000) {
+                    layer.FresnelColor = state.animVector(AnimVectorType.FLOAT3);
+                } else if (keyword === 'KFCA' && model.Version >= 1000) {
+                    layer.FresnelOpacity = state.animVector(AnimVectorType.FLOAT1);
+                } else if (keyword === 'KFTC' && model.Version >= 1000) {
+                    layer.FresnelTeamColor = state.animVector(AnimVectorType.FLOAT1);
                 } else {
                     throw new Error('Unknown layer chunk data ' + keyword);
                 }
@@ -1010,7 +1018,7 @@ function parseBindPose (model: Model, state: State, size: number): void {
 
     const startPos = state.pos;
     
-    model.BindPose = model.BindPose || [];
+    model.BindPoses = model.BindPoses || [];
 
     const len = state.int32();
     const bindPose: BindPose = {
@@ -1021,10 +1029,60 @@ function parseBindPose (model: Model, state: State, size: number): void {
         const matrix = state.float32Array(12);
         bindPose.Matrices.push(matrix);
     }
-    model.BindPose.push(bindPose);
+    model.BindPoses.push(bindPose);
 
     if (state.pos !== startPos + size) {
         throw new Error('Mismatched BindPose data');
+    }
+}
+
+function parseParticleEmitterPopcorn (model: Model, state: State, size: number): void {
+    if (model.Version < 900) {
+        throw new Error('Mismatched version chunk');
+    }
+
+    const startPos = state.pos;
+    
+    model.ParticleEmitterPopcorns = model.ParticleEmitterPopcorns || [];
+
+    while (state.pos < startPos + size) {
+        const emitterStart = state.pos;
+        const emitterSize = state.int32();
+
+        const emitter: ParticleEmitterPopcorn = {} as ParticleEmitterPopcorn;
+
+        parseNode(model, emitter, state);
+
+        emitter.LifeSpan = state.float32();
+        emitter.EmissionRate = state.float32();
+        emitter.Speed = state.float32();
+        emitter.Color = state.float32Array(3);
+        emitter.Alpha = state.float32();
+        emitter.ReplaceableId = state.int32();
+        emitter.Path = state.str(260);
+        emitter.AnimVisibilityGuide = state.str(260);
+
+        while (state.pos < emitterStart + emitterSize) {
+            const keyword = state.keyword();
+
+            if (keyword === 'KPPA') {
+                emitter.Alpha = state.animVector(AnimVectorType.FLOAT1);
+            } else if (keyword === 'KPPC') {
+                emitter.Color = state.animVector(AnimVectorType.FLOAT3);
+            } else if (keyword === 'KPPE') {
+                emitter.EmissionRate = state.animVector(AnimVectorType.FLOAT1);
+            } else if (keyword === 'KPPL') {
+                emitter.LifeSpan = state.animVector(AnimVectorType.FLOAT1);
+            } else if (keyword === 'KPPS') {
+                emitter.Speed = state.animVector(AnimVectorType.FLOAT1);
+            } else if (keyword === 'KPPV') {
+                emitter.Visibility = state.animVector(AnimVectorType.FLOAT1);
+            } else {
+                throw new Error('Incorrect particle emitter popcorn chunk data ' + keyword);
+            }
+        }
+
+        model.ParticleEmitterPopcorns.push(emitter);
     }
 }
 
@@ -1050,7 +1108,8 @@ const parsers: {[key: string]: (model: Model, state: State, size: number) => voi
     TXAN: parseTextureAnims,
     RIBB: parseRibbonEmitters,
     FAFX: parseFaceFX,
-    BPOS: parseBindPose
+    BPOS: parseBindPose,
+    CORN: parseParticleEmitterPopcorn
 };
 
 export function parse (arrayBuffer: ArrayBuffer): Model {
@@ -1108,6 +1167,16 @@ export function parse (arrayBuffer: ArrayBuffer): Model {
             model.Nodes[i].PivotPoint = model.PivotPoints[i];
         }
     }
+
+    model.Info.NumGeosets = model.Geosets.length;
+    model.Info.NumGeosetAnims = model.GeosetAnims.length;
+    model.Info.NumBones = model.Bones.length;
+    model.Info.NumLights = model.Lights.length;
+    model.Info.NumAttachments = model.Attachments.length;
+    model.Info.NumEvents = model.EventObjects.length;
+    model.Info.NumParticleEmitters = model.ParticleEmitters.length;
+    model.Info.NumParticleEmitters2 = model.ParticleEmitters2.length;
+    model.Info.NumRibbonEmitters = model.RibbonEmitters.length;
 
     return model;
 }

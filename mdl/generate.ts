@@ -3,7 +3,7 @@ import {
     AnimVector, LineType, AnimKeyframe, LayerShading, TVertexAnim, Geoset, GeosetAnimInfo, GeosetAnim, GeosetAnimFlags,
     NodeFlags, Bone, Light, LightType, Helper, Attachment, ParticleEmitter2, ParticleEmitter2FilterMode,
     ParticleEmitter2Flags, ParticleEmitter2FramesFlags, RibbonEmitter, EventObject, Camera, CollisionShape,
-    CollisionShapeType, ParticleEmitter, ParticleEmitterFlags
+    CollisionShapeType, ParticleEmitter, ParticleEmitterFlags, FaceFX, BindPose, ParticleEmitterPopcorn, ParticleEmitterPopcornFlags
 } from '../model';
 
 const FLOAT_PRESICION = 6;
@@ -183,8 +183,13 @@ function generateAnimKeyFrame (key: AnimKeyframe, tabSize = 2, reverse = false) 
     return res;
 }
 
-function generateAnimVectorProp (name, val: AnimVector|number, defaultVal: number|null = 0,
-                                 tabSize = 1, reverse = false): string {
+function generateAnimVectorProp (
+    name: string,
+    val: AnimVector|number,
+    defaultVal: number|null = 0,
+    tabSize = 1,
+    reverse = false
+): string {
     if (val === null || val === undefined) {
         return '';
     }
@@ -286,17 +291,25 @@ function generateMaterials (model: Model): string {
     }
 
     return generateBlockStart('Materials', model.Materials.length) +
-        model.Materials.map(generateMaterialChunk).join('') +
+        model.Materials.map(it => generateMaterialChunk(model, it)).join('') +
         generateBlockEnd();
 }
 
-function generateMaterialChunk (material: Material): string {
+function generateMaterialChunk (model: Model, material: Material): string {
+    let shader = '';
+
+    if (model.Version >= 900 && material.Shader) {
+        shader = generateWrappedStringProp('Shader', material.Shader, false, 2);
+    }
+
     return generateBlockStart('Material', null, 1) +
         (material.RenderMode & MaterialRenderMode.ConstantColor ? generateBooleanProp('ConstantColor', 2) : '') +
         (material.RenderMode & MaterialRenderMode.SortPrimsFarZ ? generateBooleanProp('SortPrimsFarZ', 2) : '') +
         (material.RenderMode & MaterialRenderMode.FullResolution ? generateBooleanProp('FullResolution', 2) : '') +
         generateIntPropIfNotEmpty('PriorityPlane', material.PriorityPlane, 0, null, 2) +
-        material.Layers.map(generateLayerChunk).join('') +
+        generateIntPropIfNotEmpty('RenderMode', material.RenderMode, 0, null, 2) +
+        shader +
+        material.Layers.map(it => generateLayerChunk(model, it)).join('') +
         generateBlockEnd(1);
 }
 
@@ -320,7 +333,18 @@ function generateFilterMode (filterMode: FilterMode): string {
     return '';
 }
 
-function generateLayerChunk (layer: Layer) {
+function generateLayerChunk (model: Model, layer: Layer) {
+    let middle = '';
+
+    if (model.Version >= 900) {
+        middle += (layer.EmissiveGain !== undefined ? generateAnimVectorProp('EmissiveGain', layer.EmissiveGain, 1, 3) : '');
+        if (model.Version >= 1000) {
+            middle += (layer.FresnelColor !== undefined ? generateColorProp('FresnelColor', layer.FresnelColor, true, 3) : '');
+            middle += (layer.FresnelOpacity !== undefined ? generateAnimVectorProp('FresnelOpacity', layer.FresnelOpacity, 0, 3) : '');
+            middle += (layer.FresnelTeamColor !== undefined ? generateAnimVectorProp('FresnelTeamColor', layer.FresnelTeamColor, 0, 3) : '');
+        }
+    }
+
     return generateBlockStart('Layer', null, 2) +
         generateStringProp('FilterMode', generateFilterMode(layer.FilterMode), null, 3) +
         (layer.Alpha !== undefined ? generateAnimVectorProp('Alpha', layer.Alpha, 1, 3) : '') +
@@ -333,6 +357,7 @@ function generateLayerChunk (layer: Layer) {
         (layer.Shading & LayerShading.NoDepthSet ? generateBooleanProp('NoDepthSet', 3) : '') +
         generateIntPropIfNotEmpty('CoordId', layer.CoordId, 0, null, 3) +
         generateIntPropIfNotEmpty('TVertexAnimId', layer.TVertexAnimId, null, null, 3) +
+        middle +
         generateBlockEnd(2);
 }
 
@@ -359,10 +384,19 @@ function generateGeosets (model: Model): string {
         return '';
     }
 
-    return model.Geosets.map(generateGeosetChunk).join('');
+    return model.Geosets.map(it => generateGeosetChunk(model, it)).join('');
 }
 
-function generateGeosetChunk (geoset: Geoset): string {
+function generateGeosetChunk (model: Model, geoset: Geoset): string {
+    let middle = '';
+
+    if (model.Version >= 900) {
+        middle += (geoset.LevelOfDetail !== undefined ? generateIntProp('LevelOfDetail', geoset.LevelOfDetail) : '') +
+            (geoset.Name ? generateWrappedStringProp('Name', geoset.Name) : '') +
+            (geoset.Tangents ? generateGeosetArray('Tangents', geoset.Tangents, 4) : '') +
+            (geoset.SkinWeights ? generrateGeosetSkinWeights(geoset.SkinWeights) : '');
+    }
+
     return generateBlockStart('Geoset') +
         generateGeosetArray('Vertices', geoset.Vertices, 3) +
         generateGeosetArray('Normals', geoset.Normals, 3) +
@@ -377,6 +411,7 @@ function generateGeosetChunk (geoset: Geoset): string {
         generateIntProp('MaterialID', geoset.MaterialID) +
         generateIntProp('SelectionGroup', geoset.SelectionGroup) +
         (geoset.Unselectable ? generateBooleanProp('Unselectable') : '') +
+        middle +
         generateBlockEnd();
 }
 
@@ -394,6 +429,10 @@ function generateGeosetArray (name: string, arr: Float32Array, elemLength: numbe
 }
 
 function generateGeosetVertexGroup (arr: Uint8Array|Uint16Array): string {
+    if (!arr.length) {
+        return '';
+    }
+    
     let middle = '';
 
     for (let i = 0; i < arr.length; ++i) {
@@ -425,6 +464,24 @@ function generateGeosetGroups (groups: number[][]): string {
     return generateBlockStart(`Groups ${groups.length} ${totalMatrices}`, null, 1) +
         middle +
         generateBlockEnd(1);
+}
+
+function generrateGeosetSkinWeights (skinWeights: Uint8Array): string {
+    let res = generateBlockStart('SkinWeights', skinWeights.length / 4, 1);
+    for (let i = 0; i < skinWeights.length; ++i) {
+        if (i % 8 === 0) {
+            res += generateTab(2);
+        } else {
+            res += ' ';
+        }
+        res += skinWeights[i] + ',';
+        if ((i + 1) % 8 === 0) {
+            res += '\n';
+        }
+    }
+    res += generateBlockEnd(1);
+
+    return res;
 }
 
 function generateGeosetAnimInfos (anims: GeosetAnimInfo[]): string {
@@ -789,6 +846,63 @@ function generateCollisionShapeChunk (collisionShape: CollisionShape): string {
         generateBlockEnd();
 }
 
+function generateFaceFX (model: Model): string {
+    if (model.Version < 900 || !model.FaceFX) {
+        return '';
+    }
+    return model.FaceFX.map(generateFaceFXChunk).join('');
+}
+
+function generateFaceFXChunk (faceFX: FaceFX): string {
+    return generateBlockStart('FaceFX', faceFX.Name) +
+        generateWrappedStringProp('Path', faceFX.Path) +
+        generateBlockEnd();
+}
+
+function generateBindPose (model: Model): string {
+    if (model.Version < 900 || !model.BindPoses) {
+        return '';
+    }
+    return model.BindPoses.map(generateBindPoseChunk).join('');
+}
+
+function generateBindPoseChunk (bindPose: BindPose): string {
+    const middle = generateBlockStart('Matrices', bindPose.Matrices.length, 1) + 
+        bindPose.Matrices.map(item => {
+            return generateTab(2) + generateArray(item);
+        }).join('\n') + '\n' +
+        generateBlockEnd(1);
+
+    return generateBlockStart('BindPose') +
+        middle +
+        generateBlockEnd();
+}
+
+function generateParticleEmitterPopcorn (model: Model): string {
+    if (model.Version < 900 || !model.ParticleEmitterPopcorns) {
+        return '';
+    }
+    return model.ParticleEmitterPopcorns.map(generateParticleEmitterPopcornChunk).join('');
+}
+
+function generateParticleEmitterPopcornChunk (emitter: ParticleEmitterPopcorn): string {
+    return generateBlockStart('ParticleEmitterPopcorn', emitter.Name) +
+        generateNodeProps(emitter) +
+        (emitter.Flags & ParticleEmitterPopcornFlags.Unshaded ? generateBooleanProp('Unshaded') : '') +
+        (emitter.Flags & ParticleEmitterPopcornFlags.SortPrimsFarZ ? generateBooleanProp('SortPrimsFarZ') : '') +
+        (emitter.Flags & ParticleEmitterPopcornFlags.Unfogged ? generateBooleanProp('Unfogged') : '') +
+        generateAnimVectorProp('LifeSpan', emitter.LifeSpan, null) +
+        generateAnimVectorProp('EmissionRate', emitter.EmissionRate, 0) +
+        generateAnimVectorProp('Speed', emitter.Speed, 0) +
+        generateColorProp('Color', emitter.Color, true) +
+        generateAnimVectorProp('Alpha', emitter.Alpha, 1) +
+        generateIntPropIfNotEmpty('ReplaceableId', emitter.ReplaceableId, 0, null) +
+        generateWrappedStringProp('Path', emitter.Path, false) +
+        generateWrappedStringProp('AnimVisibilityGuide', emitter.AnimVisibilityGuide, false) +
+        generateAnimVectorProp('Visibility', emitter.Visibility) +
+        generateBlockEnd();
+}
+
 const generators: ((model: Model) => string)[] = [
     generateVersion,
     generateModel,
@@ -809,7 +923,10 @@ const generators: ((model: Model) => string)[] = [
     generateRibbonEmitters,
     generateEventObjects,
     generateCameras,
-    generateCollisionShapes
+    generateCollisionShapes,
+    generateFaceFX,
+    generateBindPose,
+    generateParticleEmitterPopcorn
 ];
 
 export function generate (model: Model): string {

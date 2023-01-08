@@ -26,6 +26,7 @@ interface ImageDataLike {
     width: number;
     height: number;
     data: Uint8ClampedArray;
+    colorSpace: 'srgb' | 'display-p3' | undefined;
 }
 
 // node.js have no native ImageData
@@ -36,7 +37,8 @@ function createImageData (width: number, height: number): ImageDataLike {
         return {
             width,
             height,
-            data: new Uint8ClampedArray(width * height * 4)
+            data: new Uint8ClampedArray(width * height * 4),
+            colorSpace: 'srgb'
         };
     }
 }
