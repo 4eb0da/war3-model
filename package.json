@@ -1,9 +1,10 @@
 {
   "name": "war3-model",
-  "version": "2.2.1",
+  "version": "3.0.0",
   "description": "Warcraft 3 model parser, generator, convertor and previewer",
   "keywords": [
     "warcraft3",
+    "reforged",
     "mdl",
     "mdx",
     "blp",
@@ -69,11 +70,8 @@
   "typings": "dist/war3-model.d.ts",
   "exports": {
     ".": {
-      "node": {
-        "require": "./dist/war3-model.js",
-        "import": "./dist/es/war3-model.js"
-      },
-      "default": "./dist/es/war3-model.browser.js"
+      "require": "./dist/war3-model.js",
+      "import": "./dist/es/war3-model.js"
     },
     "./dist/": "./dist/"
   }

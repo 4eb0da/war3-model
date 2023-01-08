@@ -45,11 +45,9 @@ fs.writeFileSync('out.png', PNG.sync.write(png));
 
 ## Is it good enough?
 
-100% of old classic Warcraft 3 models can be parsed.
+100% of both old classic Warcraft 3 and Reforged models can be parsed.
 
-After conversion `mdx binary file` -> `in-memory structure` -> `mdx binary file` all of them would be byte-to-byte identical.
-
-~98.4% of models (3276/3329) would be identical after `mdx` -> `structure` -> `mdl` -> `structure` -> `mdx` (because warcraft contains extraneous data in models and because of unsupported multiple texture chunks in mdl).
+After conversion `mdx binary file` -> `in-memory structure` -> `mdx binary file` ~99.7% (7908/7927) of them would be byte-to-byte identical (19 of them contains unused data).
 
 ## Reforged format is supported
 
