@@ -23,12 +23,20 @@ class ModelRenderer {
     setTextureImage (path: string, img: HTMLImageElement, flags: TextureFlags): void;
     setTextureImageData (path: string, imageData: ImageData[], flags: TextureFlags): void;
     setTextureCompressedImage (path: string, format: number, imageData: ArrayBuffer, ddsInfo: DdsInfo, flags: TextureFlags): void;
-    setCamera (cameraPos: vec3, cameraQuat: quat): void
+    setCamera (cameraPos: vec3, cameraQuat: quat): void;
+    setLightPosition (lightPos: vec3): void;
+    setLightColor (lightColor: vec3): void;
     // Sets current animation
     setSequence (index: number): void;
     setTeamColor (color: vec3): void;
     update (delta: number): void;
-    render (mvMatrix: mat4, pMatrix: mat4, opts?: { wireframe: boolean }): void;
+    render (mvMatrix: mat4, pMatrix: mat4, opts?: {
+        wireframe: boolean;
+        shadowMapTexture?: WebGLTexture;
+        shadowMapMatrix?: mat4;
+        shadowBias?: number;
+        shadowSmoothingStep?: number;
+    }): void;
     renderSkeleton (mvMatrix: mat4, pMatrix: mat4, nodes: string[] | null): void;
 }
 ```
