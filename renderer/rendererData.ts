@@ -24,5 +24,9 @@ export interface RendererData {
     teamColor: vec3;
     cameraPos: vec3;
     cameraQuat: quat;
+    lightPos: vec3;
+    lightColor: vec3;
+    shadowBias: number;
+    shadowSmoothingStep: number;
     textures: {[key: string]: WebGLTexture};
 }
