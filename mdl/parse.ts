@@ -882,7 +882,7 @@ function parseEventObject (state: State, model: Model): void {
     strictParseSymbol(state, '}');
 
     model.EventObjects.push(res);
-    model.Nodes.push(res);
+    model.Nodes[res.ObjectId] = res;
 }
 
 function parseCollisionShape (state: State, model: Model): void {
@@ -938,7 +938,7 @@ function parseCollisionShape (state: State, model: Model): void {
     strictParseSymbol(state, '}');
 
     model.CollisionShapes.push(res);
-    model.Nodes.push(res);
+    model.Nodes[res.ObjectId] = res;
 }
 
 function parseGlobalSequences (state: State, model: Model): void {
@@ -1173,7 +1173,7 @@ function parseParticleEmitter2 (state: State, model: Model): void {
     strictParseSymbol(state, '}');
 
     model.ParticleEmitters2.push(res);
-    model.Nodes.push(res);
+    model.Nodes[res.ObjectId] = res;
 }
 
 function parseCamera (state: State, model: Model): void {
@@ -1310,7 +1310,7 @@ function parseLight (state: State, model: Model): void {
     strictParseSymbol(state, '}');
 
     model.Lights.push(res);
-    model.Nodes.push(res);
+    model.Nodes[res.ObjectId] = res;
 }
 
 function parseTextureAnims (state: State, model: Model): void {
@@ -1372,7 +1372,7 @@ function parseRibbonEmitter (state: State, model: Model): void {
         EmissionRate: null,
         Rows: null,
         Columns: null,
-        MaterialID: null,
+        MaterialID: 0,
         Gravity: null,
         Visibility: null
     };
@@ -1431,7 +1431,7 @@ function parseRibbonEmitter (state: State, model: Model): void {
     strictParseSymbol(state, '}');
 
     model.RibbonEmitters.push(res);
-    model.Nodes.push(res);
+    model.Nodes[res.ObjectId] = res;
 }
 
 function parseFaceFX (state: State, model: Model): void {
@@ -1574,7 +1574,7 @@ function parseParticleEmitterPopcorn (state: State, model: Model): void {
 
     model.ParticleEmitterPopcorns = model.ParticleEmitterPopcorns || [];
     model.ParticleEmitterPopcorns.push(res);
-    model.Nodes.push(res);
+    model.Nodes[res.ObjectId] = res;
 }
 
 const parsers = {
