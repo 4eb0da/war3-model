@@ -12,12 +12,21 @@ import '../common/shim';
 let model: Model;
 let modelRenderer: ModelRenderer;
 let canvas: HTMLCanvasElement;
-let gl: WebGLRenderingContext;
+let gl: WebGLRenderingContext | WebGL2RenderingContext;
 const pMatrix = mat4.create();
 const mvMatrix = mat4.create();
+const lightMVMatrix = mat4.create();
+const shadowMapMatrix = mat4.create();
 const CLEANUP_NAME_REGEXP = /.*?([^\\/]+)\.\w+$/;
 let ddsExt: WEBGL_compressed_texture_s3tc | null = null;
 let rgtcExt: EXT_texture_compression_rgtc | null = null;
+
+const SHADOW_QUALITY = 4096;
+const FB_WIDTH = SHADOW_QUALITY;
+const FB_HEIGHT = SHADOW_QUALITY;
+let framebuffer: WebGLFramebuffer;
+let framebufferTexture: WebGLTexture;
+let framebufferDepthTexture: WebGLTexture;
 
 let cameraTheta = Math.PI / 4;
 let cameraPhi = 0;
@@ -27,13 +36,17 @@ let cameraTargetZ = 50;
 let wireframe = false;
 let showSkeleton = false;
 let skeletonNodes: string[] | null = null;
+let shadow = true;
 
 const cameraBasePos: vec3 = vec3.create();
 const cameraPos: vec3 = vec3.create();
 const cameraPosTemp: vec3 = vec3.create();
 const cameraTarget: vec3 = vec3.create();
 const cameraUp: vec3 = vec3.fromValues(0, 0, 1);
-const cameraQuat: quat = quat.create();
+// const cameraQuat: quat = quat.create();
+const lightPosition: vec3 = vec3.fromValues(200, 200, 200);
+const lightTarget: vec3 = vec3.fromValues(0, 0, 0);
+const lightColor: vec3 = vec3.fromValues(1, 1, 1);
 
 let start;
 function updateModel(timestamp: number) {
@@ -54,7 +67,7 @@ function initGL() {
 
     try {
         const opts: WebGLContextAttributes = {
-            antialias: true,
+            antialias: false,
             alpha: false
         };
 
@@ -62,6 +75,16 @@ function initGL() {
             canvas.getContext('webgl', opts) ||
             canvas.getContext('experimental-webgl', opts) as
             (WebGL2RenderingContext | WebGLRenderingContext);
+
+        let supportShadows = false;
+        if (gl instanceof WebGLRenderingContext) {
+            const depthExt = gl.getExtension('WEBGL_depth_texture');
+            if (depthExt) {
+                supportShadows = true;
+            }
+        } else {
+            supportShadows = true;
+        }
 
         ddsExt = (
             gl.getExtension('WEBGL_compressed_texture_s3tc') ||
@@ -72,6 +95,34 @@ function initGL() {
         rgtcExt = (
             gl.getExtension('EXT_texture_compression_rgtc')
         );
+
+        if (supportShadows) {
+            framebuffer = gl.createFramebuffer();
+
+            gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
+
+            framebufferTexture = gl.createTexture();
+            gl.bindTexture(gl.TEXTURE_2D, framebufferTexture);
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, FB_WIDTH, FB_HEIGHT, 0, gl.RGB, gl.UNSIGNED_BYTE, null);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+            gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, framebufferTexture, 0);
+
+            framebufferDepthTexture = gl.createTexture();
+            gl.bindTexture(gl.TEXTURE_2D, framebufferDepthTexture);
+            if (gl instanceof WebGLRenderingContext) {
+                gl.texImage2D(gl.TEXTURE_2D, 0, gl.DEPTH_COMPONENT, FB_WIDTH, FB_HEIGHT, 0, gl.DEPTH_COMPONENT, gl.UNSIGNED_INT, null);
+            } else {
+                gl.texImage2D(gl.TEXTURE_2D, 0, gl.DEPTH_COMPONENT32F, FB_WIDTH, FB_HEIGHT, 0, gl.DEPTH_COMPONENT, gl.FLOAT, null);
+            }
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+            gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.TEXTURE_2D, framebufferDepthTexture, 0);
+
+            gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+        }
 
         gl.clearColor(0.15, 0.15, 0.15, 1.0);
         gl.enable(gl.DEPTH_TEST);
@@ -84,23 +135,23 @@ function initGL() {
 const cameraPosProjected: vec3 = vec3.create();
 const verticalQuat: quat = quat.create();
 const fromCameraBaseVec: vec3 = vec3.fromValues(1, 0, 0);
-function calcCameraQuat() {
+function calcCameraQuat(cameraPos: vec3, cameraTarget: vec3): quat {
     vec3.set(cameraPosProjected, cameraPos[0], cameraPos[1], 0);
     vec3.subtract(cameraPosTemp, cameraPos, cameraTarget);
     vec3.normalize(cameraPosProjected, cameraPosProjected);
     vec3.normalize(cameraPosTemp, cameraPosTemp);
 
+    const cameraQuat = quat.create();
     quat.rotationTo(cameraQuat, fromCameraBaseVec, cameraPosProjected);
     quat.rotationTo(verticalQuat, cameraPosProjected, cameraPosTemp);
     quat.mul(cameraQuat, verticalQuat, cameraQuat);
+
+    return cameraQuat;
 }
 
 function drawScene() {
-    gl.viewport(0, 0, canvas.width, canvas.height);
     gl.depthMask(true);
-    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-
-    mat4.perspective(pMatrix, Math.PI / 4, canvas.width / canvas.height, 0.1, 10000.0);
+    mat4.perspective(pMatrix, Math.PI / 4, canvas.width / canvas.height, 0.1, 2000.0);
 
     vec3.set(
         cameraBasePos,
@@ -112,12 +163,43 @@ function drawScene() {
 
     vec3RotateZ(cameraPos, cameraBasePos, window['angle'] || 0);
     mat4.lookAt(mvMatrix, cameraPos, cameraTarget, cameraUp);
+    mat4.lookAt(lightMVMatrix, lightPosition, lightTarget, cameraUp);
 
-    calcCameraQuat();
+    mat4.identity(shadowMapMatrix);
+    mat4.translate(shadowMapMatrix, shadowMapMatrix, vec3.fromValues(.5, .5, .5));
+    mat4.scale(shadowMapMatrix, shadowMapMatrix, vec3.fromValues(.5, .5, .5));
+    mat4.multiply(shadowMapMatrix, shadowMapMatrix, pMatrix);
+    mat4.multiply(shadowMapMatrix, shadowMapMatrix, lightMVMatrix);
+
+    const cameraQuat: quat = calcCameraQuat(cameraPos, cameraTarget);
+    const lightQuat: quat = calcCameraQuat(lightPosition, lightTarget);
+    
+    modelRenderer.setLightPosition(lightPosition);
+    modelRenderer.setLightColor(lightColor);
+
+    if (shadow && framebuffer) {
+        gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
+        gl.viewport(0, 0, FB_WIDTH, FB_HEIGHT);
+        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+        modelRenderer.setCamera(lightPosition, lightQuat);
+        modelRenderer.render(lightMVMatrix, pMatrix, {
+            wireframe: false
+        });
+
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    }
+
+    gl.viewport(0, 0, canvas.width, canvas.height);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
     modelRenderer.setCamera(cameraPos, cameraQuat);
     modelRenderer.render(mvMatrix, pMatrix, {
-        wireframe
+        wireframe,
+        shadowMapTexture: shadow ? framebufferDepthTexture : undefined,
+        shadowMapMatrix: shadow ? shadowMapMatrix : undefined,
+        shadowBias: 1e-6,
+        shadowSmoothingStep: 1 / SHADOW_QUALITY
     });
 
     if (showSkeleton) {
@@ -247,6 +329,12 @@ function initControls() {
     wireframe = wireframeCheck.checked;
     wireframeCheck.addEventListener('input', () => {
         wireframe = wireframeCheck.checked;
+    });
+
+    const shadowCheck = document.getElementById('shadow') as HTMLInputElement;
+    shadow = shadowCheck.checked;
+    shadowCheck.addEventListener('input', () => {
+        shadow = shadowCheck.checked;
     });
 
     const readSkeletonNodes = (value: string) => {

@@ -139,18 +139,6 @@ const vertexShaderHDHardwareSkinning = `
     varying mat3 vTBN;
     varying vec3 vFragPos;
 
-    mat3 transpose(mat3 inMatrix) {
-        vec3 i0 = inMatrix[0];
-        vec3 i1 = inMatrix[1];
-        vec3 i2 = inMatrix[2];
-        mat3 outMatrix = mat3(
-                     vec3(i0.x, i1.x, i2.x),
-                     vec3(i0.y, i1.y, i2.y),
-                     vec3(i0.z, i1.z, i2.z)
-                     );
-        return outMatrix;
-    }
-
     void main(void) {
         vec4 position = vec4(aVertexPosition, 1.0);
         mat4 sum;
@@ -208,9 +196,14 @@ const fragmentShaderHD = `
     uniform float uDiscardAlphaLevel;
     uniform mat3 uTVextexAnim;
     uniform vec3 uLightPos;
+    uniform vec3 uLightColor;
     uniform vec3 uCameraPos;
+    uniform bool uHasShadowMap;
+    uniform sampler2D uShadowMapSampler;
+    uniform mat4 uShadowMapLightMatrix;
+    uniform float uShadowBias;
+    uniform float uShadowSmoothingStep;
 
-    const vec3 lightColor = vec3(4.);
     const float PI = 3.14159265359;
     const float gamma = 2.2;
 
@@ -278,7 +271,7 @@ const fragmentShaderHD = `
 
         vec3 lightDir = normalize(uLightPos - vFragPos);
         float lightFactor = max(dot(normal, lightDir), .0);
-        vec3 radiance = lightColor;
+        vec3 radiance = uLightColor;
 
         vec3 f0 = vec3(.04);
         f0 = mix(f0, baseColor.rgb, metallic);
@@ -298,6 +291,40 @@ const fragmentShaderHD = `
         vec3 specular = num / denom;
 
         totalLight += (kD * baseColor.rgb / PI + specular) * radiance * lightFactor;
+
+        if (uHasShadowMap) {
+            vec4 fragInLightPos = uShadowMapLightMatrix * vec4(vFragPos, 1.);
+            vec3 shadowMapCoord = fragInLightPos.xyz / fragInLightPos.w;
+
+            int passes = 5;
+            float step = 1. / float(passes);
+
+            float lightDepth = texture2D(uShadowMapSampler, shadowMapCoord.xy).r;
+            float lightDepth0 = texture2D(uShadowMapSampler, vec2(shadowMapCoord.x + uShadowSmoothingStep, shadowMapCoord.y)).r;
+            float lightDepth1 = texture2D(uShadowMapSampler, vec2(shadowMapCoord.x, shadowMapCoord.y + uShadowSmoothingStep)).r;
+            float lightDepth2 = texture2D(uShadowMapSampler, vec2(shadowMapCoord.x, shadowMapCoord.y - uShadowSmoothingStep)).r;
+            float lightDepth3 = texture2D(uShadowMapSampler, vec2(shadowMapCoord.x - uShadowSmoothingStep, shadowMapCoord.y)).r;
+            float currentDepth = shadowMapCoord.z;
+
+            float visibility = 0.;
+            if (lightDepth > currentDepth - uShadowBias) {
+                visibility += step;
+            }
+            if (lightDepth0 > currentDepth - uShadowBias) {
+                visibility += step;
+            }
+            if (lightDepth1 > currentDepth - uShadowBias) {
+                visibility += step;
+            }
+            if (lightDepth2 > currentDepth - uShadowBias) {
+                visibility += step;
+            }
+            if (lightDepth3 > currentDepth - uShadowBias) {
+                visibility += step;
+            }
+
+            totalLight *= visibility;
+        }
 
         vec3 ambient = vec3(.03) * baseColor.rgb * occlusion;
         vec3 color = ambient + totalLight;
@@ -394,7 +421,13 @@ export class ModelRenderer {
         tVertexAnimUniform: WebGLUniformLocation | null;
         nodesMatricesAttributes: (WebGLUniformLocation | null)[];
         lightPosUniform: WebGLUniformLocation | null;
+        lightColorUniform: WebGLUniformLocation | null;
         cameraPosUniform: WebGLUniformLocation | null;
+        hasShadowMapUniform: WebGLUniformLocation | null;
+        shadowMapSamplerUniform: WebGLUniformLocation | null;
+        shadowMapLightMatrixUniform: WebGLUniformLocation | null;
+        shadowBiasUniform: WebGLUniformLocation | null;
+        shadowSmoothingStepUniform: WebGLUniformLocation | null;
     };
     private skeletonShaderProgram: WebGLProgram | null;
     private skeletonVertexShader: WebGLShader | null;
@@ -447,7 +480,13 @@ export class ModelRenderer {
             tVertexAnimUniform: null,
             nodesMatricesAttributes: null,
             lightPosUniform: null,
-            cameraPosUniform: null
+            lightColorUniform: null,
+            cameraPosUniform: null,
+            hasShadowMapUniform: null,
+            shadowMapSamplerUniform: null,
+            shadowMapLightMatrixUniform: null,
+            shadowBiasUniform: null,
+            shadowSmoothingStepUniform: null
         };
         this.skeletonShaderProgramLocations = {
             vertexPositionAttribute: null,
@@ -472,12 +511,18 @@ export class ModelRenderer {
             teamColor: null,
             cameraPos: null,
             cameraQuat: null,
+            lightPos: null,
+            lightColor: null,
+            shadowBias: 0,
+            shadowSmoothingStep: 0,
             textures: {}
         };
 
         this.rendererData.teamColor = vec3.fromValues(1., 0., 0.);
         this.rendererData.cameraPos = vec3.create();
         this.rendererData.cameraQuat = quat.create();
+        this.rendererData.lightPos = vec3.fromValues(1000, 1000, 1000);
+        this.rendererData.lightColor = vec3.fromValues(1, 1, 1);
 
         this.setSequence(0);
 
@@ -642,6 +687,14 @@ export class ModelRenderer {
         quat.copy(this.rendererData.cameraQuat, cameraQuat);
     }
 
+    public setLightPosition (lightPos: vec3): void {
+        vec3.copy(this.rendererData.lightPos, lightPos);
+    }
+
+    public setLightColor (lightColor: vec3): void {
+        vec3.copy(this.rendererData.lightColor, lightColor);
+    }
+
     public setSequence (index: number): void {
         this.rendererData.animation = index;
         this.rendererData.animationInfo = this.model.Sequences[this.rendererData.animation];
@@ -675,8 +728,18 @@ export class ModelRenderer {
         }
     }
 
-    public render (mvMatrix: mat4, pMatrix: mat4, { wireframe } : {
+    public render (mvMatrix: mat4, pMatrix: mat4, {
+        wireframe,
+        shadowMapTexture,
+        shadowMapMatrix,
+        shadowBias,
+        shadowSmoothingStep
+    } : {
         wireframe: boolean;
+        shadowMapTexture?: WebGLTexture;
+        shadowMapMatrix?: mat4;
+        shadowBias?: number;
+        shadowSmoothingStep?: number;
     }): void {
         this.gl.useProgram(this.shaderProgram);
 
@@ -725,9 +788,24 @@ export class ModelRenderer {
 
             // Shader_HD_DefaultUnit
             if (this.isHD) {
-                this.gl.uniform3fv(this.shaderProgramLocations.lightPosUniform, [1000, 1000, 1000]);
+                this.gl.uniform3fv(this.shaderProgramLocations.lightPosUniform, this.rendererData.lightPos);
+                this.gl.uniform3fv(this.shaderProgramLocations.lightColorUniform, this.rendererData.lightColor);
                 // this.gl.uniform3fv(this.shaderProgramLocations.lightPosUniform, this.rendererData.cameraPos);
                 this.gl.uniform3fv(this.shaderProgramLocations.cameraPosUniform, this.rendererData.cameraPos);
+
+                if (shadowMapTexture && shadowMapMatrix) {
+                    this.gl.uniform1i(this.shaderProgramLocations.hasShadowMapUniform, 1);
+
+                    this.gl.activeTexture(this.gl.TEXTURE3);
+                    this.gl.bindTexture(this.gl.TEXTURE_2D, shadowMapTexture);
+                    this.gl.uniform1i(this.shaderProgramLocations.shadowMapSamplerUniform, 3);
+                    this.gl.uniformMatrix4fv(this.shaderProgramLocations.shadowMapLightMatrixUniform, false, shadowMapMatrix);
+
+                    this.gl.uniform1f(this.shaderProgramLocations.shadowBiasUniform, shadowBias ?? 1e-6);
+                    this.gl.uniform1f(this.shaderProgramLocations.shadowSmoothingStepUniform, shadowSmoothingStep ?? 1 / 1024);
+                } else {
+                    this.gl.uniform1i(this.shaderProgramLocations.hasShadowMapUniform, 0);
+                }
 
                 this.setLayerPropsHD(materialID, material.Layers);
 
@@ -758,6 +836,11 @@ export class ModelRenderer {
                     this.gl.UNSIGNED_SHORT,
                     0
                 );
+
+                if (shadowMapTexture && shadowMapMatrix) {
+                    this.gl.activeTexture(this.gl.TEXTURE3);
+                    this.gl.bindTexture(this.gl.TEXTURE_2D, null);
+                }
             } else {
                 for (let j = 0; j < material.Layers.length; ++j) {
                     this.setLayerProps(material.Layers[j], this.rendererData.materialLayerTextureID[materialID][j]);
@@ -1020,7 +1103,13 @@ export class ModelRenderer {
             this.shaderProgramLocations.normalSamplerUniform = this.gl.getUniformLocation(shaderProgram, 'uNormalSampler');
             this.shaderProgramLocations.ormSamplerUniform = this.gl.getUniformLocation(shaderProgram, 'uOrmSampler');
             this.shaderProgramLocations.lightPosUniform = this.gl.getUniformLocation(shaderProgram, 'uLightPos');
+            this.shaderProgramLocations.lightColorUniform = this.gl.getUniformLocation(shaderProgram, 'uLightColor');
             this.shaderProgramLocations.cameraPosUniform = this.gl.getUniformLocation(shaderProgram, 'uCameraPos');
+            this.shaderProgramLocations.hasShadowMapUniform = this.gl.getUniformLocation(shaderProgram, 'uHasShadowMap');
+            this.shaderProgramLocations.shadowMapSamplerUniform = this.gl.getUniformLocation(shaderProgram, 'uShadowMapSampler');
+            this.shaderProgramLocations.shadowMapLightMatrixUniform = this.gl.getUniformLocation(shaderProgram, 'uShadowMapLightMatrix');
+            this.shaderProgramLocations.shadowBiasUniform = this.gl.getUniformLocation(shaderProgram, 'uShadowBias');
+            this.shaderProgramLocations.shadowSmoothingStepUniform = this.gl.getUniformLocation(shaderProgram, 'uShadowSmoothingStep');
         } else {
             this.shaderProgramLocations.replaceableTypeUniform = this.gl.getUniformLocation(shaderProgram, 'uReplaceableType');
         }
