@@ -773,7 +773,7 @@ function generateRibbonEmitterChunk (ribbonEmitter: RibbonEmitter): string {
         generateIntPropIfNotEmpty('Gravity', ribbonEmitter.Gravity, 0) +
         generateIntProp('Rows', ribbonEmitter.Rows) +
         generateIntProp('Columns', ribbonEmitter.Columns) +
-        generateIntPropIfNotEmpty('MaterialID', ribbonEmitter.MaterialID, undefined) +
+        generateIntProp('MaterialID', ribbonEmitter.MaterialID) +
         generateBlockEnd();
 }
 
