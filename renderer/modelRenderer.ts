@@ -11,12 +11,18 @@ import {ParticlesController} from './particles';
 import {RibbonsController} from './ribbons';
 
 // actually, all is number
-type DDS_FORMAT = WEBGL_compressed_texture_s3tc['COMPRESSED_RGBA_S3TC_DXT1_EXT'] | 
-    WEBGL_compressed_texture_s3tc['COMPRESSED_RGBA_S3TC_DXT3_EXT'] | 
-    WEBGL_compressed_texture_s3tc['COMPRESSED_RGBA_S3TC_DXT5_EXT'] | 
+export type DDS_FORMAT = WEBGL_compressed_texture_s3tc['COMPRESSED_RGBA_S3TC_DXT1_EXT'] |
+    WEBGL_compressed_texture_s3tc['COMPRESSED_RGBA_S3TC_DXT3_EXT'] |
+    WEBGL_compressed_texture_s3tc['COMPRESSED_RGBA_S3TC_DXT5_EXT'] |
     WEBGL_compressed_texture_s3tc['COMPRESSED_RGB_S3TC_DXT1_EXT'];
 
 const MAX_NODES = 256;
+
+const ENV_MAP_SIZE = 2048;
+const ENV_CONVOLUTE_DIFFUSE_SIZE = 32;
+const ENV_PREFILTER_SIZE = 128;
+const MAX_ENV_MIP_LEVELS = 8;
+const BRDF_LUT_SIZE = 512;
 
 const vertexShaderHardwareSkinning = `
     attribute vec3 aVertexPosition;
@@ -120,24 +126,24 @@ const fragmentShader = `
     }
 `;
 
-const vertexShaderHDHardwareSkinning = `
-    attribute vec3 aVertexPosition;
-    attribute vec3 aNormal;
-    attribute vec2 aTextureCoord;
-    attribute vec4 aSkin;
-    attribute vec4 aBoneWeight;
-    attribute vec4 aTangent;
+const vertexShaderHDHardwareSkinning = `#version 300 es
+    in vec3 aVertexPosition;
+    in vec3 aNormal;
+    in vec2 aTextureCoord;
+    in vec4 aSkin;
+    in vec4 aBoneWeight;
+    in vec4 aTangent;
 
     uniform mat4 uMVMatrix;
     uniform mat4 uPMatrix;
     uniform mat4 uNodesMatrices[${MAX_NODES}];
 
-    varying vec3 vNormal;
-    varying vec3 vTangent;
-    varying vec3 vBinormal;
-    varying vec2 vTextureCoord;
-    varying mat3 vTBN;
-    varying vec3 vFragPos;
+    out vec3 vNormal;
+    out vec3 vTangent;
+    out vec3 vBinormal;
+    out vec2 vTextureCoord;
+    out mat3 vTBN;
+    out vec3 vFragPos;
 
     void main(void) {
         vec4 position = vec4(aVertexPosition, 1.0);
@@ -179,15 +185,17 @@ const vertexShaderHDHardwareSkinning = `
     }
 `;
 
-const fragmentShaderHD = `
+const fragmentShaderHD = `#version 300 es
     precision mediump float;
 
-    varying vec2 vTextureCoord;
-    varying vec3 vNormal;
-    varying vec3 vTangent;
-    varying vec3 vBinormal;
-    varying mat3 vTBN;
-    varying vec3 vFragPos;
+    in vec2 vTextureCoord;
+    in vec3 vNormal;
+    in vec3 vTangent;
+    in vec3 vBinormal;
+    in mat3 vTBN;
+    in vec3 vFragPos;
+
+    out vec4 FragColor;
 
     uniform sampler2D uSampler;
     uniform sampler2D uNormalSampler;
@@ -203,9 +211,14 @@ const fragmentShaderHD = `
     uniform mat4 uShadowMapLightMatrix;
     uniform float uShadowBias;
     uniform float uShadowSmoothingStep;
+    uniform bool uHasEnv;
+    uniform samplerCube uIrradianceMap;
+    uniform samplerCube uPrefilteredEnv;
+    uniform sampler2D uBRDFLUT;
 
     const float PI = 3.14159265359;
     const float gamma = 2.2;
+    const float MAX_REFLECTION_LOD = ${MAX_ENV_MIP_LEVELS.toFixed(1)};
 
     float distributionGGX(vec3 normal, vec3 halfWay, float roughness) {
         float a = roughness * roughness;
@@ -227,7 +240,7 @@ const fragmentShaderHD = `
 
         float num = nDotV;
         float denom = nDotV * (1. - k) + k;
-        
+
         return num / denom;
     }
 
@@ -236,38 +249,43 @@ const fragmentShaderHD = `
         float nDotL = max(dot(normal, lightDir), .0);
         float ggx2  = geometrySchlickGGX(nDotV, roughness);
         float ggx1  = geometrySchlickGGX(nDotL, roughness);
-        
+
         return ggx1 * ggx2;
     }
 
     vec3 fresnelSchlick(float lightFactor, vec3 f0) {
         return f0 + (1. - f0) * pow(clamp(1. - lightFactor, 0., 1.), 5.);
-    }  
+    }
+
+    vec3 fresnelSchlickRoughness(float lightFactor, vec3 f0, float roughness) {
+        return f0 + (max(vec3(1.0 - roughness), f0) - f0) * pow(clamp(1.0 - lightFactor, 0.0, 1.0), 5.0);
+    }
 
     void main(void) {
         vec2 texCoord = (uTVextexAnim * vec3(vTextureCoord.s, vTextureCoord.t, 1.)).st;
-        vec4 resultColor = texture2D(uSampler, texCoord);
+        vec4 resultColor = texture(uSampler, texCoord);
 
-        vec4 orm = texture2D(uOrmSampler, texCoord);
+        vec4 orm = texture(uOrmSampler, texCoord);
 
         float occlusion = orm.r;
         float roughness = orm.g;
         float metallic = orm.b;
         float teamColorFactor = orm.a;
 
-        vec4 baseColor = texture2D(uSampler, texCoord);
+        vec4 baseColor = texture(uSampler, texCoord);
         vec3 teamColor = baseColor.rgb * uReplaceableColor;
         baseColor.rgb = mix(baseColor.rgb, teamColor, teamColorFactor);
         baseColor.rgb = pow(baseColor.rgb, vec3(gamma));
 
         resultColor.rgb = mix(resultColor.rgb, resultColor.rgb * uReplaceableColor, teamColorFactor);
-        vec3 normal = texture2D(uNormalSampler, texCoord).rgb;
+        vec3 normal = texture(uNormalSampler, texCoord).rgb;
         normal = normal * 2.0 - 1.0;
         normal.x = -normal.x;
         normal.y = -normal.y;
         normal = normalize(vTBN * -normal);
 
         vec3 viewDir = normalize(uCameraPos - vFragPos);
+        vec3 reflected = reflect(-viewDir, normal);
 
         vec3 lightDir = normalize(uLightPos - vFragPos);
         float lightFactor = max(dot(normal, lightDir), .0);
@@ -280,17 +298,27 @@ const fragmentShaderHD = `
         vec3 halfWay = normalize(viewDir + lightDir);
         float ndf = distributionGGX(normal, halfWay, roughness);
         float g = geometrySmith(normal, viewDir, lightDir, roughness);
-        vec3 f = fresnelSchlick(max(dot(halfWay, viewDir), 0.), f0); 
+        vec3 f = fresnelSchlick(max(dot(halfWay, viewDir), 0.), f0);
 
         vec3 kS = f;
-        // vec3 kD = vec3(1.) - kS;
         vec3 kD = vec3(1.);
-        // kD *= 1.0 - metallic;
+        if (uHasEnv) {
+            kD *= 1.0 - metallic;
+        } else {
+            kD = vec3(1.) - kS;
+        }
         vec3 num = ndf * g * f;
         float denom = 4. * max(dot(normal, viewDir), 0.) * max(dot(normal, lightDir), 0.) + .0001;
         vec3 specular = num / denom;
 
-        totalLight += (kD * baseColor.rgb / PI + specular) * radiance * lightFactor;
+        totalLight = (kD * baseColor.rgb / PI + specular) * radiance * lightFactor;
+
+        if (uHasEnv) {
+            vec3 prefilteredColor = textureLod(uPrefilteredEnv, reflected, roughness * MAX_REFLECTION_LOD).rgb;
+            vec3 f = fresnelSchlickRoughness(max(dot(normal, viewDir), 0.0), f0, roughness);
+            vec2 envBRDF = texture(uBRDFLUT, vec2(max(dot(normal, viewDir), 0.0), roughness)).rg;
+            specular = prefilteredColor * (f * envBRDF.x + envBRDF.y);
+        }
 
         if (uHasShadowMap) {
             vec4 fragInLightPos = uShadowMapLightMatrix * vec4(vFragPos, 1.);
@@ -299,11 +327,11 @@ const fragmentShaderHD = `
             int passes = 5;
             float step = 1. / float(passes);
 
-            float lightDepth = texture2D(uShadowMapSampler, shadowMapCoord.xy).r;
-            float lightDepth0 = texture2D(uShadowMapSampler, vec2(shadowMapCoord.x + uShadowSmoothingStep, shadowMapCoord.y)).r;
-            float lightDepth1 = texture2D(uShadowMapSampler, vec2(shadowMapCoord.x, shadowMapCoord.y + uShadowSmoothingStep)).r;
-            float lightDepth2 = texture2D(uShadowMapSampler, vec2(shadowMapCoord.x, shadowMapCoord.y - uShadowSmoothingStep)).r;
-            float lightDepth3 = texture2D(uShadowMapSampler, vec2(shadowMapCoord.x - uShadowSmoothingStep, shadowMapCoord.y)).r;
+            float lightDepth = texture(uShadowMapSampler, shadowMapCoord.xy).r;
+            float lightDepth0 = texture(uShadowMapSampler, vec2(shadowMapCoord.x + uShadowSmoothingStep, shadowMapCoord.y)).r;
+            float lightDepth1 = texture(uShadowMapSampler, vec2(shadowMapCoord.x, shadowMapCoord.y + uShadowSmoothingStep)).r;
+            float lightDepth2 = texture(uShadowMapSampler, vec2(shadowMapCoord.x, shadowMapCoord.y - uShadowSmoothingStep)).r;
+            float lightDepth3 = texture(uShadowMapSampler, vec2(shadowMapCoord.x - uShadowSmoothingStep, shadowMapCoord.y)).r;
             float currentDepth = shadowMapCoord.z;
 
             float visibility = 0.;
@@ -326,15 +354,28 @@ const fragmentShaderHD = `
             totalLight *= visibility;
         }
 
-        vec3 ambient = vec3(.03) * baseColor.rgb * occlusion;
-        vec3 color = ambient + totalLight;
-        
+        vec3 color;
+
+        if (uHasEnv) {
+            vec3 diffuse = texture(uIrradianceMap, normal).rgb * baseColor.rgb;
+            vec3 prefilteredColor = textureLod(uPrefilteredEnv, reflected, roughness * MAX_REFLECTION_LOD).rgb;
+            vec2 envBRDF = texture(uBRDFLUT, vec2(max(dot(normal, viewDir), 0.0), roughness)).rg;
+            specular = prefilteredColor * (f * envBRDF.x + envBRDF.y);
+
+            vec3 ambient = (kD * diffuse + specular) * occlusion;
+            color = ambient + totalLight;
+        } else {
+            vec3 ambient = vec3(.03);
+            ambient *= baseColor.rgb * occlusion;
+            color = ambient + totalLight;
+        }
+
         color = pow(color, vec3(1. / gamma));
-    
-        gl_FragColor = vec4(color, 1.);
+
+        FragColor = vec4(color, 1.);
 
         // hand-made alpha-test
-        if (gl_FragColor[3] < uDiscardAlphaLevel) {
+        if (FragColor[3] < uDiscardAlphaLevel) {
             discard;
         }
     }
@@ -363,6 +404,341 @@ const skeletonFragmentShader = `
 
     void main(void) {
         gl_FragColor = vec4(vColor, 1.0);
+    }
+`;
+
+const envToCubemapVertexShader = `
+    attribute vec3 aPos;
+
+    uniform mat4 uMVMatrix;
+    uniform mat4 uPMatrix;
+
+    varying vec3 vLocalPos;
+
+    void main(void) {
+        vLocalPos = aPos;
+        gl_Position = uPMatrix * uMVMatrix * vec4(aPos, 1.0);
+    }
+`;
+
+const envToCubemapFragmentShader = `
+    precision mediump float;
+
+    varying vec3 vLocalPos;
+
+    uniform sampler2D uEquirectangularMap;
+
+    const vec2 invAtan = vec2(0.1591, 0.3183);
+
+    vec2 SampleSphericalMap(vec3 v) {
+        // vec2 uv = vec2(atan(v.z, v.x), asin(v.y));
+        vec2 uv = vec2(atan(v.x, v.y), asin(-v.z));
+        uv *= invAtan;
+        uv += 0.5;
+        return uv;
+    }
+
+    void main(void) {
+        vec2 uv = SampleSphericalMap(normalize(vLocalPos)); // make sure to normalize localPos
+        vec3 color = texture2D(uEquirectangularMap, uv).rgb;
+
+        gl_FragColor = vec4(color, 1.0);
+        // gl_FragColor = vec4(vLocalPos, 1.0);
+    }
+`;
+
+const envVertexShader = `#version 300 es
+    in vec3 aPos;
+    out vec3 vLocalPos;
+
+    uniform mat4 uMVMatrix;
+    uniform mat4 uPMatrix;
+
+    void main(void) {
+        vLocalPos = aPos;
+        mat4 rotView = mat4(mat3(uMVMatrix)); // remove translation from the view matrix
+        vec4 clipPos = uPMatrix * rotView * 1000. * vec4(aPos, 1.0);
+
+        gl_Position = clipPos.xyww;
+        // gl_Position = uPMatrix * uMVMatrix * vec4(aPos, 1.0);
+    }
+`;
+
+const envFragmentShader = `#version 300 es
+    precision mediump float;
+
+    in vec3 vLocalPos;
+
+    out vec4 FragColor;
+
+    uniform samplerCube uEnvironmentMap;
+
+    void main(void) {
+        // vec3 envColor = textureLod(uEnvironmentMap, vLocalPos, 0.0).rgb;
+        vec3 envColor = texture(uEnvironmentMap, vLocalPos).rgb;
+
+        FragColor = vec4(envColor, 1.0);
+    }
+`;
+
+const convoluteEnvDiffuseVertexShader = `
+    attribute vec3 aPos;
+
+    uniform mat4 uMVMatrix;
+    uniform mat4 uPMatrix;
+
+    varying vec3 vLocalPos;
+
+    void main(void) {
+        vLocalPos = aPos;
+        gl_Position = uPMatrix * uMVMatrix * vec4(aPos, 1.0);
+    }
+`;
+
+const convoluteEnvDiffuseFragmentShader = `
+    precision mediump float;
+
+    varying vec3 vLocalPos;
+
+    uniform samplerCube uEnvironmentMap;
+
+    const float PI = 3.14159265359;
+
+    void main(void) {
+        vec3 irradiance = vec3(0.0);
+
+        // the sample direction equals the hemisphere's orientation
+        vec3 normal = normalize(vLocalPos);
+
+        vec3 up    = vec3(0.0, 1.0, 0.0);
+        vec3 right = normalize(cross(up, normal));
+        up         = normalize(cross(normal, right));
+
+        const float sampleDelta = 0.025;
+        float nrSamples = 0.0;
+        for(float phi = 0.0; phi < 2.0 * PI; phi += sampleDelta)
+        {
+            for(float theta = 0.0; theta < 0.5 * PI; theta += sampleDelta)
+            {
+                // spherical to cartesian (in tangent space)
+                vec3 tangentSample = vec3(sin(theta) * cos(phi),  sin(theta) * sin(phi), cos(theta));
+                // tangent space to world
+                vec3 sampleVec = tangentSample.x * right + tangentSample.y * up + tangentSample.z * normal;
+
+                irradiance += textureCube(uEnvironmentMap, sampleVec).rgb * cos(theta) * sin(theta);
+                nrSamples++;
+            }
+        }
+        irradiance = PI * irradiance * (1.0 / float(nrSamples));
+
+        gl_FragColor = vec4(irradiance, 1.0);
+        // gl_FragColor = vec4(textureCube(uEnvironmentMap, vLocalPos).rgb, 1.0);
+        // gl_FragColor = vec4(1.0);
+    }
+`;
+
+const prefilterEnvVertexShader = `#version 300 es
+    in vec3 aPos;
+
+    out vec3 vLocalPos;
+
+    uniform mat4 uMVMatrix;
+    uniform mat4 uPMatrix;
+
+    void main(void) {
+        vLocalPos = aPos;
+        gl_Position = uPMatrix * uMVMatrix * vec4(aPos, 1.0);
+    }
+`;
+
+const prefilterEnvFragmentShader = `#version 300 es
+    precision mediump float;
+
+    out vec4 FragColor;
+
+    in vec3 vLocalPos;
+
+    uniform samplerCube uEnvironmentMap;
+    uniform float uRoughness;
+
+    const float PI = 3.14159265359;
+
+    float RadicalInverse_VdC(uint bits) {
+        bits = (bits << 16u) | (bits >> 16u);
+        bits = ((bits & 0x55555555u) << 1u) | ((bits & 0xAAAAAAAAu) >> 1u);
+        bits = ((bits & 0x33333333u) << 2u) | ((bits & 0xCCCCCCCCu) >> 2u);
+        bits = ((bits & 0x0F0F0F0Fu) << 4u) | ((bits & 0xF0F0F0F0u) >> 4u);
+        bits = ((bits & 0x00FF00FFu) << 8u) | ((bits & 0xFF00FF00u) >> 8u);
+        return float(bits) * 2.3283064365386963e-10; // / 0x100000000
+    }
+
+    vec2 Hammersley(uint i, uint N) {
+        return vec2(float(i)/float(N), RadicalInverse_VdC(i));
+    }
+
+    vec3 ImportanceSampleGGX(vec2 Xi, vec3 N, float roughness) {
+        float a = roughness * roughness;
+
+        float phi = 2.0 * PI * Xi.x;
+        float cosTheta = sqrt((1.0 - Xi.y) / (1.0 + (a*a - 1.0) * Xi.y));
+        float sinTheta = sqrt(1.0 - cosTheta*cosTheta);
+
+        // from spherical coordinates to cartesian coordinates
+        vec3 H;
+        H.x = cos(phi) * sinTheta;
+        H.y = sin(phi) * sinTheta;
+        H.z = cosTheta;
+
+        // from tangent-space vector to world-space sample vector
+        vec3 up        = abs(N.z) < 0.999 ? vec3(0.0, 0.0, 1.0) : vec3(1.0, 0.0, 0.0);
+        vec3 tangent   = normalize(cross(up, N));
+        vec3 bitangent = cross(N, tangent);
+
+        vec3 sampleVec = tangent * H.x + bitangent * H.y + N * H.z;
+
+        return normalize(sampleVec);
+    }
+
+    void main() {
+        vec3 N = normalize(vLocalPos);
+        vec3 R = N;
+        vec3 V = R;
+
+        const uint SAMPLE_COUNT = 1024u;
+        float totalWeight = 0.0;
+        vec3 prefilteredColor = vec3(0.0);
+        for(uint i = 0u; i < SAMPLE_COUNT; ++i)
+        {
+            vec2 Xi = Hammersley(i, SAMPLE_COUNT);
+            vec3 H  = ImportanceSampleGGX(Xi, N, uRoughness);
+            vec3 L  = normalize(2.0 * dot(V, H) * H - V);
+
+            float NdotL = max(dot(N, L), 0.0);
+            if(NdotL > 0.0) {
+                prefilteredColor += texture(uEnvironmentMap, L).rgb * NdotL;
+                totalWeight      += NdotL;
+            }
+        }
+        prefilteredColor = prefilteredColor / totalWeight;
+
+        FragColor = vec4(prefilteredColor, 1.0);
+    }
+`;
+
+const integrateBRDFVertexShader = `#version 300 es
+    in vec3 aPos;
+
+    out vec2 vLocalPos;
+
+    void main(void) {
+        vLocalPos = aPos.xy;
+        gl_Position = vec4(aPos, 1.0);
+    }
+`;
+
+const integrateBRDFFragmentShader = `#version 300 es
+    precision mediump float;
+
+    in vec2 vLocalPos;
+
+    out vec4 FragColor;
+
+    const float PI = 3.14159265359;
+
+    float RadicalInverse_VdC(uint bits) {
+        bits = (bits << 16u) | (bits >> 16u);
+        bits = ((bits & 0x55555555u) << 1u) | ((bits & 0xAAAAAAAAu) >> 1u);
+        bits = ((bits & 0x33333333u) << 2u) | ((bits & 0xCCCCCCCCu) >> 2u);
+        bits = ((bits & 0x0F0F0F0Fu) << 4u) | ((bits & 0xF0F0F0F0u) >> 4u);
+        bits = ((bits & 0x00FF00FFu) << 8u) | ((bits & 0xFF00FF00u) >> 8u);
+        return float(bits) * 2.3283064365386963e-10; // / 0x100000000
+    }
+
+    vec2 Hammersley(uint i, uint N) {
+        return vec2(float(i)/float(N), RadicalInverse_VdC(i));
+    }
+
+    vec3 ImportanceSampleGGX(vec2 Xi, vec3 N, float roughness) {
+        float a = roughness * roughness;
+
+        float phi = 2.0 * PI * Xi.x;
+        float cosTheta = sqrt((1.0 - Xi.y) / (1.0 + (a*a - 1.0) * Xi.y));
+        float sinTheta = sqrt(1.0 - cosTheta*cosTheta);
+
+        // from spherical coordinates to cartesian coordinates
+        vec3 H;
+        H.x = cos(phi) * sinTheta;
+        H.y = sin(phi) * sinTheta;
+        H.z = cosTheta;
+
+        // from tangent-space vector to world-space sample vector
+        vec3 up        = abs(N.z) < 0.999 ? vec3(0.0, 0.0, 1.0) : vec3(1.0, 0.0, 0.0);
+        vec3 tangent   = normalize(cross(up, N));
+        vec3 bitangent = cross(N, tangent);
+
+        vec3 sampleVec = tangent * H.x + bitangent * H.y + N * H.z;
+
+        return normalize(sampleVec);
+    }
+
+    float geometrySchlickGGX(float nDotV, float roughness) {
+        float r = roughness;
+        float k = r * r / 2.;
+
+        float num = nDotV;
+        float denom = nDotV * (1. - k) + k;
+
+        return num / denom;
+    }
+
+    float geometrySmith(vec3 normal, vec3 viewDir, vec3 lightDir, float roughness) {
+        float nDotV = max(dot(normal, viewDir), .0);
+        float nDotL = max(dot(normal, lightDir), .0);
+        float ggx2  = geometrySchlickGGX(nDotV, roughness);
+        float ggx1  = geometrySchlickGGX(nDotL, roughness);
+
+        return ggx1 * ggx2;
+    }
+
+    vec2 IntegrateBRDF(float NdotV, float roughness) {
+        vec3 V;
+        V.x = sqrt(1.0 - NdotV*NdotV);
+        V.y = 0.0;
+        V.z = NdotV;
+
+        float A = 0.0;
+        float B = 0.0;
+
+        vec3 N = vec3(0.0, 0.0, 1.0);
+
+        const uint SAMPLE_COUNT = 1024u;
+        for(uint i = 0u; i < SAMPLE_COUNT; ++i)
+        {
+            vec2 Xi = Hammersley(i, SAMPLE_COUNT);
+            vec3 H  = ImportanceSampleGGX(Xi, N, roughness);
+            vec3 L  = normalize(2.0 * dot(V, H) * H - V);
+
+            float NdotL = max(L.z, 0.0);
+            float NdotH = max(H.z, 0.0);
+            float VdotH = max(dot(V, H), 0.0);
+
+            if(NdotL > 0.0)
+            {
+                float G = geometrySmith(N, V, L, roughness);
+                float G_Vis = (G * VdotH) / (NdotH * NdotV);
+                float Fc = pow(1.0 - VdotH, 5.0);
+
+                A += (1.0 - Fc) * G_Vis;
+                B += Fc * G_Vis;
+            }
+        }
+        A /= float(SAMPLE_COUNT);
+        B /= float(SAMPLE_COUNT);
+        return vec2(A, B);
+    }
+
+    void main() {
+        FragColor = vec4(IntegrateBRDF((vLocalPos.x + 1.0) * .5, (vLocalPos.y + 1.0) * .5), 0., 1.);
     }
 `;
 
@@ -428,6 +804,10 @@ export class ModelRenderer {
         shadowMapLightMatrixUniform: WebGLUniformLocation | null;
         shadowBiasUniform: WebGLUniformLocation | null;
         shadowSmoothingStepUniform: WebGLUniformLocation | null;
+        hasEnvUniform: WebGLUniformLocation | null;
+        irradianceMapUniform: WebGLUniformLocation | null;
+        prefilteredEnvUniform: WebGLUniformLocation | null;
+        brdfLUTUniform: WebGLUniformLocation | null;
     };
     private skeletonShaderProgram: WebGLProgram | null;
     private skeletonVertexShader: WebGLShader | null;
@@ -458,6 +838,58 @@ export class ModelRenderer {
     private skinWeightBuffer: WebGLBuffer[] = [];
     private tangentBuffer: WebGLBuffer[] = [];
 
+    private cubeVertexBuffer: WebGLBuffer;
+    private squareVertexBuffer: WebGLBuffer;
+    private brdfLUT: WebGLTexture;
+
+    private envToCubemapShaderProgramLocations: {
+        vertexPositionAttribute: number | null;
+        pMatrixUniform: WebGLUniformLocation | null;
+        mvMatrixUniform: WebGLUniformLocation | null;
+        envMapSamplerUniform: WebGLUniformLocation | null;
+    };
+    private envToCubemapVertexShader: WebGLShader | null;
+    private envToCubemapFragmentShader: WebGLShader | null;
+    private envToCubemapShaderProgram: WebGLProgram | null;
+
+    private envShaderProgramLocations: {
+        vertexPositionAttribute: number | null;
+        pMatrixUniform: WebGLUniformLocation | null;
+        mvMatrixUniform: WebGLUniformLocation | null;
+        envMapSamplerUniform: WebGLUniformLocation | null;
+    };
+    private envVertexShader: WebGLShader | null;
+    private envFragmentShader: WebGLShader | null;
+    private envShaderProgram: WebGLProgram | null;
+
+    private convoluteDiffuseEnvShaderProgramLocations: {
+        vertexPositionAttribute: number | null;
+        pMatrixUniform: WebGLUniformLocation | null;
+        mvMatrixUniform: WebGLUniformLocation | null;
+        envMapSamplerUniform: WebGLUniformLocation | null;
+    };
+    private convoluteDiffuseEnvVertexShader: WebGLShader | null;
+    private convoluteDiffuseEnvFragmentShader: WebGLShader | null;
+    private convoluteDiffuseEnvShaderProgram: WebGLProgram | null;
+
+    private prefilterEnvShaderProgramLocations: {
+        vertexPositionAttribute: number | null;
+        pMatrixUniform: WebGLUniformLocation | null;
+        mvMatrixUniform: WebGLUniformLocation | null;
+        envMapSamplerUniform: WebGLUniformLocation | null;
+        roughnessUniform: WebGLUniformLocation | null;
+    };
+    private prefilterEnvVertexShader: WebGLShader | null;
+    private prefilterEnvFragmentShader: WebGLShader | null;
+    private prefilterEnvShaderProgram: WebGLProgram | null;
+
+    private integrateBRDFShaderProgramLocations: {
+        vertexPositionAttribute: number | null;
+    };
+    private integrateBRDFVertexShader: WebGLShader | null;
+    private integrateBRDFFragmentShader: WebGLShader | null;
+    private integrateBRDFShaderProgram: WebGLProgram | null;
+
     constructor(model: Model) {
         this.isHD = model.Geosets?.some(it => it.SkinWeights?.length > 0);
 
@@ -486,13 +918,45 @@ export class ModelRenderer {
             shadowMapSamplerUniform: null,
             shadowMapLightMatrixUniform: null,
             shadowBiasUniform: null,
-            shadowSmoothingStepUniform: null
+            shadowSmoothingStepUniform: null,
+            hasEnvUniform: null,
+            irradianceMapUniform: null,
+            prefilteredEnvUniform: null,
+            brdfLUTUniform: null
         };
         this.skeletonShaderProgramLocations = {
             vertexPositionAttribute: null,
             colorAttribute: null,
             mvMatrixUniform: null,
             pMatrixUniform: null
+        };
+        this.envToCubemapShaderProgramLocations = {
+            vertexPositionAttribute: null,
+            pMatrixUniform: null,
+            mvMatrixUniform: null,
+            envMapSamplerUniform: null
+        };
+        this.envShaderProgramLocations = {
+            vertexPositionAttribute: null,
+            mvMatrixUniform: null,
+            pMatrixUniform: null,
+            envMapSamplerUniform: null
+        };
+        this.convoluteDiffuseEnvShaderProgramLocations = {
+            vertexPositionAttribute: null,
+            mvMatrixUniform: null,
+            pMatrixUniform: null,
+            envMapSamplerUniform: null
+        };
+        this.prefilterEnvShaderProgramLocations = {
+            envMapSamplerUniform: null,
+            mvMatrixUniform: null,
+            pMatrixUniform: null,
+            roughnessUniform: null,
+            vertexPositionAttribute: null
+        };
+        this.integrateBRDFShaderProgramLocations = {
+            vertexPositionAttribute: null
         };
 
         this.model = model;
@@ -515,7 +979,11 @@ export class ModelRenderer {
             lightColor: null,
             shadowBias: 0,
             shadowSmoothingStep: 0,
-            textures: {}
+            textures: {},
+            envTextures: {},
+            requiredEnvMaps: {},
+            irradianceMap: {},
+            prefilteredEnvMap: {}
         };
 
         this.rendererData.teamColor = vec3.fromValues(1., 0., 0.);
@@ -620,13 +1088,25 @@ export class ModelRenderer {
             this.gl.getExtension('MOZ_EXT_texture_filter_anisotropic') ||
             this.gl.getExtension('WEBKIT_EXT_texture_filter_anisotropic')
         );
+
+        if (this.model.Version >= 1000 && isWebGL2(this.gl)) {
+            this.model.Materials.forEach(material => {
+                if (material.Shader === 'Shader_HD_DefaultUnit' && material.Layers.length === 6 && typeof material.Layers[5].TextureID === 'number') {
+                    this.rendererData.requiredEnvMaps[this.model.Textures[material.Layers[5].TextureID].Image] = true;
+                }
+            });
+        }
+
         this.initShaders();
         this.initBuffers();
+        this.initCube();
+        this.initSquare();
+        this.initBRDFLUT();
         this.particlesController.initGL(glContext);
         this.ribbonsController.initGL(glContext);
     }
 
-    public setTextureImage (path: string, img: HTMLImageElement, flags: TextureFlags): void {
+    public setTextureImage (path: string, img: HTMLImageElement, flags: TextureFlags | 0): void {
         this.rendererData.textures[path] = this.gl.createTexture();
         this.gl.bindTexture(this.gl.TEXTURE_2D, this.rendererData.textures[path]);
         // this.gl.pixelStorei(this.gl.UNPACK_FLIP_Y_WEBGL, true);
@@ -634,6 +1114,9 @@ export class ModelRenderer {
         this.setTextureParameters(flags, true);
 
         this.gl.generateMipmap(this.gl.TEXTURE_2D);
+
+        this.processEnvMaps(path);
+
         this.gl.bindTexture(this.gl.TEXTURE_2D, null);
     }
 
@@ -645,6 +1128,7 @@ export class ModelRenderer {
             this.gl.texImage2D(this.gl.TEXTURE_2D, i, this.gl.RGBA, this.gl.RGBA, this.gl.UNSIGNED_BYTE, imageData[i]);
         }
         this.setTextureParameters(flags, false);
+        this.processEnvMaps(path);
 
         this.gl.bindTexture(this.gl.TEXTURE_2D, null);
     }
@@ -665,7 +1149,7 @@ export class ModelRenderer {
 
         if (isWebGL2(this.gl)) {
             this.gl.texStorage2D(this.gl.TEXTURE_2D, count, format, ddsInfo.images[0].shape.width, ddsInfo.images[0].shape.height);
-            
+
             for (let i = 0; i < count; ++i) {
                 const image = ddsInfo.images[i];
                 this.gl.compressedTexSubImage2D(this.gl.TEXTURE_2D, i, 0, 0, image.shape.width, image.shape.height, format, view.subarray(image.offset, image.offset + image.length));
@@ -678,6 +1162,7 @@ export class ModelRenderer {
         }
 
         this.setTextureParameters(flags, isWebGL2(this.gl));
+        this.processEnvMaps(path);
 
         this.gl.bindTexture(this.gl.TEXTURE_2D, null);
     }
@@ -730,17 +1215,23 @@ export class ModelRenderer {
 
     public render (mvMatrix: mat4, pMatrix: mat4, {
         wireframe,
+        env = true,
         shadowMapTexture,
         shadowMapMatrix,
         shadowBias,
         shadowSmoothingStep
     } : {
         wireframe: boolean;
+        env?: boolean;
         shadowMapTexture?: WebGLTexture;
         shadowMapMatrix?: mat4;
         shadowBias?: number;
         shadowSmoothingStep?: number;
     }): void {
+        if (env) {
+            this.renderEnv(mvMatrix, pMatrix);
+        }
+
         this.gl.useProgram(this.shaderProgram);
 
         this.gl.uniformMatrix4fv(this.shaderProgramLocations.pMatrixUniform, false, pMatrix);
@@ -805,6 +1296,27 @@ export class ModelRenderer {
                     this.gl.uniform1f(this.shaderProgramLocations.shadowSmoothingStepUniform, shadowSmoothingStep ?? 1 / 1024);
                 } else {
                     this.gl.uniform1i(this.shaderProgramLocations.hasShadowMapUniform, 0);
+                }
+
+                const envTexture = this.model.Textures[material.Layers[5]?.TextureID as number].Image;
+                const irradianceMap = this.rendererData.irradianceMap[envTexture];
+                const prefilteredEnv = this.rendererData.prefilteredEnvMap[envTexture];
+                if (env && irradianceMap) {
+                    this.gl.uniform1i(this.shaderProgramLocations.hasEnvUniform, 1);
+                    this.gl.activeTexture(this.gl.TEXTURE4);
+                    this.gl.bindTexture(this.gl.TEXTURE_CUBE_MAP, irradianceMap);
+                    this.gl.uniform1i(this.shaderProgramLocations.irradianceMapUniform, 4);
+                    this.gl.activeTexture(this.gl.TEXTURE5);
+                    this.gl.bindTexture(this.gl.TEXTURE_CUBE_MAP, prefilteredEnv);
+                    this.gl.uniform1i(this.shaderProgramLocations.prefilteredEnvUniform, 5);
+                    this.gl.activeTexture(this.gl.TEXTURE6);
+                    this.gl.bindTexture(this.gl.TEXTURE_2D, this.brdfLUT);
+                    this.gl.uniform1i(this.shaderProgramLocations.brdfLUTUniform, 6);
+                } else {
+                    this.gl.uniform1i(this.shaderProgramLocations.hasEnvUniform, 0);
+                    this.gl.uniform1i(this.shaderProgramLocations.irradianceMapUniform, 4);
+                    this.gl.uniform1i(this.shaderProgramLocations.prefilteredEnvUniform, 5);
+                    this.gl.uniform1i(this.shaderProgramLocations.brdfLUTUniform, 6);
                 }
 
                 this.setLayerPropsHD(materialID, material.Layers);
@@ -891,9 +1403,37 @@ export class ModelRenderer {
         this.ribbonsController.render(mvMatrix, pMatrix);
     }
 
+    private renderEnv (mvMatrix: mat4, pMatrix: mat4): void {
+        if (!isWebGL2(this.gl)) {
+            return;
+        }
+
+        this.gl.disable(this.gl.BLEND);
+        this.gl.disable(this.gl.DEPTH_TEST);
+        this.gl.disable(this.gl.CULL_FACE);
+
+        for (const path in this.rendererData.envTextures) {
+            this.gl.useProgram(this.envShaderProgram);
+
+            this.gl.uniformMatrix4fv(this.envShaderProgramLocations.pMatrixUniform, false, pMatrix);
+            this.gl.uniformMatrix4fv(this.envShaderProgramLocations.mvMatrixUniform, false, mvMatrix);
+
+            this.gl.activeTexture(this.gl.TEXTURE0);
+            this.gl.bindTexture(this.gl.TEXTURE_CUBE_MAP, this.rendererData.envTextures[path]);
+            this.gl.uniform1i(this.envShaderProgramLocations.envMapSamplerUniform, 0);
+
+            this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.cubeVertexBuffer);
+            this.gl.enableVertexAttribArray(this.envShaderProgramLocations.vertexPositionAttribute);
+            this.gl.vertexAttribPointer(this.envShaderProgramLocations.vertexPositionAttribute, 3, this.gl.FLOAT, false, 0, 0);
+            this.gl.drawArrays(this.gl.TRIANGLES, 0, 6 * 6);
+            this.gl.disableVertexAttribArray(this.envShaderProgramLocations.vertexPositionAttribute);
+            this.gl.bindTexture(this.gl.TEXTURE_CUBE_MAP, null);
+        }
+    }
+
     /**
-     * @param mvMatrix 
-     * @param pMatrix 
+     * @param mvMatrix
+     * @param pMatrix
      * @param nodes Nodes to highlight. null means draw all
      */
     public renderSkeleton (mvMatrix: mat4, pMatrix: mat4, nodes: string[] | null): void {
@@ -1017,7 +1557,7 @@ export class ModelRenderer {
         this.gl.bufferData(this.gl.ARRAY_BUFFER, buffer, this.gl.DYNAMIC_DRAW);
     }
 
-    private setTextureParameters (flags: TextureFlags, hasMipmaps: boolean) {
+    private setTextureParameters (flags: TextureFlags | 0, hasMipmaps: boolean) {
         if (flags & TextureFlags.WrapWidth) {
             this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_S, this.gl.REPEAT);
         } else {
@@ -1035,6 +1575,195 @@ export class ModelRenderer {
             const max = this.gl.getParameter(this.anisotropicExt.MAX_TEXTURE_MAX_ANISOTROPY_EXT);
             this.gl.texParameterf(this.gl.TEXTURE_2D, this.anisotropicExt.TEXTURE_MAX_ANISOTROPY_EXT, max);
         }
+    }
+
+    private processEnvMaps (path: string): void {
+        if (!this.rendererData.requiredEnvMaps[path] || !this.rendererData.textures[path] || !isWebGL2(this.gl)) {
+            return;
+        }
+
+        this.gl.disable(this.gl.BLEND);
+        this.gl.disable(this.gl.DEPTH_TEST);
+        this.gl.disable(this.gl.CULL_FACE);
+
+        const pMatrix = mat4.create();
+        const mvMatrix = mat4.create();
+        const eye = vec3.fromValues(0, 0, 0);
+        const center = [
+            vec3.fromValues(1, 0, 0),
+            vec3.fromValues(-1, 0, 0),
+            vec3.fromValues(0, 1, 0),
+            vec3.fromValues(0, -1, 0),
+            vec3.fromValues(0, 0, 1),
+            vec3.fromValues(0, 0, -1)
+        ];
+        const up = [
+            vec3.fromValues(0, -1, 0),
+            vec3.fromValues(0, -1, 0),
+            vec3.fromValues(0, 0, 1),
+            vec3.fromValues(0, 0, -1),
+            vec3.fromValues(0, -1, 0),
+            vec3.fromValues(0, -1, 0)
+        ];
+
+        const framebuffer = this.gl.createFramebuffer();
+
+        this.gl.useProgram(this.envToCubemapShaderProgram);
+
+        const cubemap = this.rendererData.envTextures[path] = this.gl.createTexture();
+        this.gl.activeTexture(this.gl.TEXTURE1);
+        this.gl.bindTexture(this.gl.TEXTURE_CUBE_MAP, cubemap);
+        for (let i = 0; i < 6; ++i) {
+            // this.gl.texImage2D(this.gl.TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, this.gl.RGB16F, ENV_MAP_SIZE, ENV_MAP_SIZE, 0, this.gl.RGB, this.gl.FLOAT, null);
+            this.gl.texImage2D(this.gl.TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, this.gl.RGB, ENV_MAP_SIZE, ENV_MAP_SIZE, 0, this.gl.RGB, this.gl.UNSIGNED_BYTE, null);
+        }
+
+        this.gl.texParameteri(this.gl.TEXTURE_CUBE_MAP, this.gl.TEXTURE_WRAP_S, this.gl.CLAMP_TO_EDGE);
+        this.gl.texParameteri(this.gl.TEXTURE_CUBE_MAP, this.gl.TEXTURE_WRAP_T, this.gl.CLAMP_TO_EDGE);
+        this.gl.texParameteri(this.gl.TEXTURE_CUBE_MAP, this.gl.TEXTURE_WRAP_R, this.gl.CLAMP_TO_EDGE);
+        this.gl.texParameteri(this.gl.TEXTURE_CUBE_MAP, this.gl.TEXTURE_MIN_FILTER, this.gl.LINEAR);
+        this.gl.texParameteri(this.gl.TEXTURE_CUBE_MAP, this.gl.TEXTURE_MAG_FILTER, this.gl.LINEAR);
+
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.cubeVertexBuffer);
+        this.gl.enableVertexAttribArray(this.envToCubemapShaderProgramLocations.vertexPositionAttribute);
+        this.gl.vertexAttribPointer(this.envToCubemapShaderProgramLocations.vertexPositionAttribute, 3, this.gl.FLOAT, false, 0, 0);
+
+        this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, framebuffer);
+
+        mat4.perspective(pMatrix, Math.PI / 2, 1, .1, 10);
+        this.gl.uniformMatrix4fv(this.envToCubemapShaderProgramLocations.pMatrixUniform, false, pMatrix);
+        this.gl.activeTexture(this.gl.TEXTURE0);
+        this.gl.bindTexture(this.gl.TEXTURE_2D, this.rendererData.textures[path]);
+        this.gl.uniform1i(this.envToCubemapShaderProgramLocations.envMapSamplerUniform, 0);
+        this.gl.viewport(0, 0, ENV_MAP_SIZE, ENV_MAP_SIZE);
+        for (let i = 0; i < 6; ++i) {
+            this.gl.framebufferTexture2D(this.gl.FRAMEBUFFER, this.gl.COLOR_ATTACHMENT0, this.gl.TEXTURE_CUBE_MAP_POSITIVE_X + i, cubemap, 0);
+            this.gl.clear(this.gl.COLOR_BUFFER_BIT | this.gl.DEPTH_BUFFER_BIT);
+
+            mat4.lookAt(mvMatrix, eye, center[i], up[i]);
+            this.gl.uniformMatrix4fv(this.envToCubemapShaderProgramLocations.mvMatrixUniform, false, mvMatrix);
+
+            this.gl.drawArrays(this.gl.TRIANGLES, 0, 6 * 6);
+        }
+
+        this.gl.disableVertexAttribArray(this.envToCubemapShaderProgramLocations.vertexPositionAttribute);
+
+        this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
+
+        this.gl.bindTexture(this.gl.TEXTURE_CUBE_MAP, cubemap);
+        this.gl.generateMipmap(this.gl.TEXTURE_CUBE_MAP);
+
+        this.gl.bindTexture(this.gl.TEXTURE_CUBE_MAP, null);
+
+        // Diffuse env convolution
+
+        this.gl.useProgram(this.convoluteDiffuseEnvShaderProgram);
+
+        const diffuseCubemap = this.rendererData.irradianceMap[path] = this.gl.createTexture();
+        this.gl.activeTexture(this.gl.TEXTURE1);
+        this.gl.bindTexture(this.gl.TEXTURE_CUBE_MAP, diffuseCubemap);
+        for (let i = 0; i < 6; ++i) {
+            // this.gl.texImage2D(this.gl.TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, this.gl.RGB16F, ENV_MAP_SIZE, ENV_MAP_SIZE, 0, this.gl.RGB, this.gl.FLOAT, null);
+            this.gl.texImage2D(this.gl.TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, this.gl.RGB, ENV_CONVOLUTE_DIFFUSE_SIZE, ENV_CONVOLUTE_DIFFUSE_SIZE, 0, this.gl.RGB, this.gl.UNSIGNED_BYTE, null);
+        }
+
+        this.gl.texParameteri(this.gl.TEXTURE_CUBE_MAP, this.gl.TEXTURE_WRAP_S, this.gl.CLAMP_TO_EDGE);
+        this.gl.texParameteri(this.gl.TEXTURE_CUBE_MAP, this.gl.TEXTURE_WRAP_T, this.gl.CLAMP_TO_EDGE);
+        this.gl.texParameteri(this.gl.TEXTURE_CUBE_MAP, this.gl.TEXTURE_WRAP_R, this.gl.CLAMP_TO_EDGE);
+        this.gl.texParameteri(this.gl.TEXTURE_CUBE_MAP, this.gl.TEXTURE_MIN_FILTER, this.gl.LINEAR);
+        this.gl.texParameteri(this.gl.TEXTURE_CUBE_MAP, this.gl.TEXTURE_MAG_FILTER, this.gl.LINEAR);
+
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.cubeVertexBuffer);
+        this.gl.enableVertexAttribArray(this.convoluteDiffuseEnvShaderProgramLocations.vertexPositionAttribute);
+        this.gl.vertexAttribPointer(this.convoluteDiffuseEnvShaderProgramLocations.vertexPositionAttribute, 3, this.gl.FLOAT, false, 0, 0);
+
+        this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, framebuffer);
+
+        mat4.perspective(pMatrix, Math.PI / 2, 1, .1, 10);
+        this.gl.uniformMatrix4fv(this.convoluteDiffuseEnvShaderProgramLocations.pMatrixUniform, false, pMatrix);
+        this.gl.activeTexture(this.gl.TEXTURE0);
+        this.gl.bindTexture(this.gl.TEXTURE_CUBE_MAP, this.rendererData.envTextures[path]);
+        this.gl.uniform1i(this.convoluteDiffuseEnvShaderProgramLocations.envMapSamplerUniform, 0);
+        this.gl.viewport(0, 0, ENV_CONVOLUTE_DIFFUSE_SIZE, ENV_CONVOLUTE_DIFFUSE_SIZE);
+        for (let i = 0; i < 6; ++i) {
+            this.gl.framebufferTexture2D(this.gl.FRAMEBUFFER, this.gl.COLOR_ATTACHMENT0, this.gl.TEXTURE_CUBE_MAP_POSITIVE_X + i, diffuseCubemap, 0);
+            this.gl.clear(this.gl.COLOR_BUFFER_BIT | this.gl.DEPTH_BUFFER_BIT);
+
+            mat4.lookAt(mvMatrix, eye, center[i], up[i]);
+            this.gl.uniformMatrix4fv(this.convoluteDiffuseEnvShaderProgramLocations.mvMatrixUniform, false, mvMatrix);
+
+            this.gl.drawArrays(this.gl.TRIANGLES, 0, 6 * 6);
+        }
+
+        this.gl.disableVertexAttribArray(this.convoluteDiffuseEnvShaderProgramLocations.vertexPositionAttribute);
+
+        this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
+
+        this.gl.bindTexture(this.gl.TEXTURE_CUBE_MAP, diffuseCubemap);
+        this.gl.generateMipmap(this.gl.TEXTURE_CUBE_MAP);
+
+        // Prefilter env map with different roughness
+
+        this.gl.useProgram(this.prefilterEnvShaderProgram);
+
+        const prefilterCubemap = this.rendererData.prefilteredEnvMap[path] = this.gl.createTexture();
+        this.gl.activeTexture(this.gl.TEXTURE1);
+        this.gl.bindTexture(this.gl.TEXTURE_CUBE_MAP, prefilterCubemap);
+        this.gl.texStorage2D(this.gl.TEXTURE_CUBE_MAP, MAX_ENV_MIP_LEVELS, this.gl.RGBA8, ENV_PREFILTER_SIZE, ENV_PREFILTER_SIZE);
+        // for (let i = 0; i < 6; ++i) {
+            // this.gl.texImage2D(this.gl.TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, this.gl.RGB, ENV_PREFILTER_SIZE, ENV_PREFILTER_SIZE, 0, this.gl.RGB, this.gl.UNSIGNED_BYTE, null);
+        // }
+        for (let mip = 0; mip < MAX_ENV_MIP_LEVELS; ++mip) {
+            for (let i = 0; i < 6; ++i) {
+                const size = ENV_PREFILTER_SIZE * .5 ** mip;
+                const data = new Uint8Array(size * size * 4);
+                this.gl.texSubImage2D(this.gl.TEXTURE_CUBE_MAP_POSITIVE_X + i, mip, 0, 0, size, size, this.gl.RGBA, this.gl.UNSIGNED_BYTE, data);
+            }
+        }
+
+        this.gl.texParameteri(this.gl.TEXTURE_CUBE_MAP, this.gl.TEXTURE_WRAP_S, this.gl.CLAMP_TO_EDGE);
+        this.gl.texParameteri(this.gl.TEXTURE_CUBE_MAP, this.gl.TEXTURE_WRAP_T, this.gl.CLAMP_TO_EDGE);
+        this.gl.texParameteri(this.gl.TEXTURE_CUBE_MAP, this.gl.TEXTURE_WRAP_R, this.gl.CLAMP_TO_EDGE);
+        this.gl.texParameteri(this.gl.TEXTURE_CUBE_MAP, this.gl.TEXTURE_MIN_FILTER, this.gl.LINEAR_MIPMAP_LINEAR);
+        this.gl.texParameteri(this.gl.TEXTURE_CUBE_MAP, this.gl.TEXTURE_MAG_FILTER, this.gl.LINEAR);
+
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.cubeVertexBuffer);
+        this.gl.enableVertexAttribArray(this.prefilterEnvShaderProgramLocations.vertexPositionAttribute);
+        this.gl.vertexAttribPointer(this.prefilterEnvShaderProgramLocations.vertexPositionAttribute, 3, this.gl.FLOAT, false, 0, 0);
+
+        this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, framebuffer);
+
+        mat4.perspective(pMatrix, Math.PI / 2, 1, .1, 10);
+        this.gl.uniformMatrix4fv(this.prefilterEnvShaderProgramLocations.pMatrixUniform, false, pMatrix);
+        this.gl.activeTexture(this.gl.TEXTURE0);
+        this.gl.bindTexture(this.gl.TEXTURE_CUBE_MAP, this.rendererData.envTextures[path]);
+        this.gl.uniform1i(this.prefilterEnvShaderProgramLocations.envMapSamplerUniform, 0);
+
+        for (let mip = 0; mip < MAX_ENV_MIP_LEVELS; ++mip) {
+            const mipWidth = ENV_PREFILTER_SIZE *.5 ** mip;
+            const mipHeight = ENV_PREFILTER_SIZE *.5 ** mip;
+            this.gl.viewport(0, 0, mipWidth, mipHeight);
+
+            const roughness = mip / (MAX_ENV_MIP_LEVELS - 1);
+
+            this.gl.uniform1f(this.prefilterEnvShaderProgramLocations.roughnessUniform, roughness);
+
+            for (let i = 0; i < 6; ++i) {
+                this.gl.framebufferTexture2D(this.gl.FRAMEBUFFER, this.gl.COLOR_ATTACHMENT0, this.gl.TEXTURE_CUBE_MAP_POSITIVE_X + i, prefilterCubemap, mip);
+                this.gl.clear(this.gl.COLOR_BUFFER_BIT | this.gl.DEPTH_BUFFER_BIT);
+
+                mat4.lookAt(mvMatrix, eye, center[i], up[i]);
+                this.gl.uniformMatrix4fv(this.prefilterEnvShaderProgramLocations.mvMatrixUniform, false, mvMatrix);
+
+                this.gl.drawArrays(this.gl.TRIANGLES, 0, 6 * 6);
+            }
+        }
+
+        // cleanup
+
+        this.gl.activeTexture(this.gl.TEXTURE1);
+        this.gl.bindTexture(this.gl.TEXTURE_CUBE_MAP, null);
+        this.gl.deleteFramebuffer(framebuffer);
     }
 
     private updateLayerTextureId (materialId: number, layerId: number): void {
@@ -1105,11 +1834,17 @@ export class ModelRenderer {
             this.shaderProgramLocations.lightPosUniform = this.gl.getUniformLocation(shaderProgram, 'uLightPos');
             this.shaderProgramLocations.lightColorUniform = this.gl.getUniformLocation(shaderProgram, 'uLightColor');
             this.shaderProgramLocations.cameraPosUniform = this.gl.getUniformLocation(shaderProgram, 'uCameraPos');
+
             this.shaderProgramLocations.hasShadowMapUniform = this.gl.getUniformLocation(shaderProgram, 'uHasShadowMap');
             this.shaderProgramLocations.shadowMapSamplerUniform = this.gl.getUniformLocation(shaderProgram, 'uShadowMapSampler');
             this.shaderProgramLocations.shadowMapLightMatrixUniform = this.gl.getUniformLocation(shaderProgram, 'uShadowMapLightMatrix');
             this.shaderProgramLocations.shadowBiasUniform = this.gl.getUniformLocation(shaderProgram, 'uShadowBias');
             this.shaderProgramLocations.shadowSmoothingStepUniform = this.gl.getUniformLocation(shaderProgram, 'uShadowSmoothingStep');
+
+            this.shaderProgramLocations.hasEnvUniform = this.gl.getUniformLocation(shaderProgram, 'uHasEnv');
+            this.shaderProgramLocations.irradianceMapUniform = this.gl.getUniformLocation(shaderProgram, 'uIrradianceMap');
+            this.shaderProgramLocations.prefilteredEnvUniform = this.gl.getUniformLocation(shaderProgram, 'uPrefilteredEnv');
+            this.shaderProgramLocations.brdfLUTUniform = this.gl.getUniformLocation(shaderProgram, 'uBRDFLUT');
         } else {
             this.shaderProgramLocations.replaceableTypeUniform = this.gl.getUniformLocation(shaderProgram, 'uReplaceableType');
         }
@@ -1122,6 +1857,99 @@ export class ModelRenderer {
                 this.shaderProgramLocations.nodesMatricesAttributes[i] =
                     this.gl.getUniformLocation(shaderProgram, `uNodesMatrices[${i}]`);
             }
+        }
+
+        if (this.isHD && isWebGL2(this.gl)) {
+            const envToCubemapVertex = this.envToCubemapVertexShader = getShader(this.gl, envToCubemapVertexShader, this.gl.VERTEX_SHADER);
+            const envToCubemapFragment = this.envToCubemapFragmentShader = getShader(this.gl, envToCubemapFragmentShader, this.gl.FRAGMENT_SHADER);
+            const envToCubemapShaderProgram = this.envToCubemapShaderProgram = this.gl.createProgram();
+            this.gl.attachShader(envToCubemapShaderProgram, envToCubemapVertex);
+            this.gl.attachShader(envToCubemapShaderProgram, envToCubemapFragment);
+            this.gl.linkProgram(envToCubemapShaderProgram);
+
+            if (!this.gl.getProgramParameter(envToCubemapShaderProgram, this.gl.LINK_STATUS)) {
+                alert('Could not initialise shaders');
+            }
+
+            this.gl.useProgram(envToCubemapShaderProgram);
+
+            this.envToCubemapShaderProgramLocations.vertexPositionAttribute = this.gl.getAttribLocation(envToCubemapShaderProgram, 'aPos');
+            this.envToCubemapShaderProgramLocations.pMatrixUniform = this.gl.getUniformLocation(envToCubemapShaderProgram, 'uPMatrix');
+            this.envToCubemapShaderProgramLocations.mvMatrixUniform = this.gl.getUniformLocation(envToCubemapShaderProgram, 'uMVMatrix');
+            this.envToCubemapShaderProgramLocations.envMapSamplerUniform = this.gl.getUniformLocation(envToCubemapShaderProgram, 'uEquirectangularMap');
+
+            const envVertex = this.envVertexShader = getShader(this.gl, envVertexShader, this.gl.VERTEX_SHADER);
+            const envFragment = this.envFragmentShader = getShader(this.gl, envFragmentShader, this.gl.FRAGMENT_SHADER);
+            const envShaderProgram = this.envShaderProgram = this.gl.createProgram();
+            this.gl.attachShader(envShaderProgram, envVertex);
+            this.gl.attachShader(envShaderProgram, envFragment);
+            this.gl.linkProgram(envShaderProgram);
+
+            if (!this.gl.getProgramParameter(envShaderProgram, this.gl.LINK_STATUS)) {
+                alert('Could not initialise shaders');
+            }
+
+            this.gl.useProgram(envShaderProgram);
+
+            this.envShaderProgramLocations.vertexPositionAttribute = this.gl.getAttribLocation(envShaderProgram, 'aPos');
+            this.envShaderProgramLocations.pMatrixUniform = this.gl.getUniformLocation(envShaderProgram, 'uPMatrix');
+            this.envShaderProgramLocations.mvMatrixUniform = this.gl.getUniformLocation(envShaderProgram, 'uMVMatrix');
+            this.envShaderProgramLocations.envMapSamplerUniform = this.gl.getUniformLocation(envShaderProgram, 'uEnvironmentMap');
+
+
+            const convoluteDiffuseEnvVertex = this.convoluteDiffuseEnvVertexShader = getShader(this.gl, convoluteEnvDiffuseVertexShader, this.gl.VERTEX_SHADER);
+            const convoluteDiffuseEnvFragment = this.convoluteDiffuseEnvFragmentShader = getShader(this.gl, convoluteEnvDiffuseFragmentShader, this.gl.FRAGMENT_SHADER);
+            const convoluteDiffuseEnvShaderProgram = this.convoluteDiffuseEnvShaderProgram = this.gl.createProgram();
+            this.gl.attachShader(convoluteDiffuseEnvShaderProgram, convoluteDiffuseEnvVertex);
+            this.gl.attachShader(convoluteDiffuseEnvShaderProgram, convoluteDiffuseEnvFragment);
+            this.gl.linkProgram(convoluteDiffuseEnvShaderProgram);
+
+            if (!this.gl.getProgramParameter(convoluteDiffuseEnvShaderProgram, this.gl.LINK_STATUS)) {
+                alert('Could not initialise shaders');
+            }
+
+            this.gl.useProgram(convoluteDiffuseEnvShaderProgram);
+
+            this.convoluteDiffuseEnvShaderProgramLocations.vertexPositionAttribute = this.gl.getAttribLocation(convoluteDiffuseEnvShaderProgram, 'aPos');
+            this.convoluteDiffuseEnvShaderProgramLocations.pMatrixUniform = this.gl.getUniformLocation(convoluteDiffuseEnvShaderProgram, 'uPMatrix');
+            this.convoluteDiffuseEnvShaderProgramLocations.mvMatrixUniform = this.gl.getUniformLocation(convoluteDiffuseEnvShaderProgram, 'uMVMatrix');
+            this.convoluteDiffuseEnvShaderProgramLocations.envMapSamplerUniform = this.gl.getUniformLocation(convoluteDiffuseEnvShaderProgram, 'uEnvironmentMap');
+
+
+            const prefilterEnvVertex = this.prefilterEnvVertexShader = getShader(this.gl, prefilterEnvVertexShader, this.gl.VERTEX_SHADER);
+            const prefilterEnvFragment = this.prefilterEnvFragmentShader = getShader(this.gl, prefilterEnvFragmentShader, this.gl.FRAGMENT_SHADER);
+            const prefilterEnvShaderProgram = this.prefilterEnvShaderProgram = this.gl.createProgram();
+            this.gl.attachShader(prefilterEnvShaderProgram, prefilterEnvVertex);
+            this.gl.attachShader(prefilterEnvShaderProgram, prefilterEnvFragment);
+            this.gl.linkProgram(prefilterEnvShaderProgram);
+
+            if (!this.gl.getProgramParameter(prefilterEnvShaderProgram, this.gl.LINK_STATUS)) {
+                alert('Could not initialise shaders');
+            }
+
+            this.gl.useProgram(prefilterEnvShaderProgram);
+
+            this.prefilterEnvShaderProgramLocations.vertexPositionAttribute = this.gl.getAttribLocation(prefilterEnvShaderProgram, 'aPos');
+            this.prefilterEnvShaderProgramLocations.pMatrixUniform = this.gl.getUniformLocation(prefilterEnvShaderProgram, 'uPMatrix');
+            this.prefilterEnvShaderProgramLocations.mvMatrixUniform = this.gl.getUniformLocation(prefilterEnvShaderProgram, 'uMVMatrix');
+            this.prefilterEnvShaderProgramLocations.envMapSamplerUniform = this.gl.getUniformLocation(prefilterEnvShaderProgram, 'uEnvironmentMap');
+            this.prefilterEnvShaderProgramLocations.roughnessUniform = this.gl.getUniformLocation(prefilterEnvShaderProgram, 'uRoughness');
+
+
+            const integrateBRDFVertex = this.integrateBRDFVertexShader = getShader(this.gl, integrateBRDFVertexShader, this.gl.VERTEX_SHADER);
+            const integrateBRDFFragment = this.integrateBRDFFragmentShader = getShader(this.gl, integrateBRDFFragmentShader, this.gl.FRAGMENT_SHADER);
+            const integrateBRDFShaderProgram = this.integrateBRDFShaderProgram = this.gl.createProgram();
+            this.gl.attachShader(integrateBRDFShaderProgram, integrateBRDFVertex);
+            this.gl.attachShader(integrateBRDFShaderProgram, integrateBRDFFragment);
+            this.gl.linkProgram(integrateBRDFShaderProgram);
+
+            if (!this.gl.getProgramParameter(integrateBRDFShaderProgram, this.gl.LINK_STATUS)) {
+                alert('Could not initialise shaders');
+            }
+
+            this.gl.useProgram(integrateBRDFShaderProgram);
+
+            this.integrateBRDFShaderProgramLocations.vertexPositionAttribute = this.gl.getAttribLocation(integrateBRDFShaderProgram, 'aPos');
         }
     }
 
@@ -1171,7 +1999,7 @@ export class ModelRenderer {
                 this.skinWeightBuffer[i] = this.gl.createBuffer();
                 this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.skinWeightBuffer[i]);
                 this.gl.bufferData(this.gl.ARRAY_BUFFER, geoset.SkinWeights, this.gl.STATIC_DRAW);
-                
+
                 this.tangentBuffer[i] = this.gl.createBuffer();
                 this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.tangentBuffer[i]);
                 this.gl.bufferData(this.gl.ARRAY_BUFFER, geoset.Tangents, this.gl.STATIC_DRAW);
@@ -1196,6 +2024,98 @@ export class ModelRenderer {
             this.gl.bindBuffer(this.gl.ELEMENT_ARRAY_BUFFER, this.indexBuffer[i]);
             this.gl.bufferData(this.gl.ELEMENT_ARRAY_BUFFER, geoset.Faces, this.gl.STATIC_DRAW);
         }
+    }
+
+    private initCube (): void {
+        this.cubeVertexBuffer = this.gl.createBuffer();
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.cubeVertexBuffer);
+        this.gl.bufferData(this.gl.ARRAY_BUFFER, new Float32Array([
+            -0.5, -0.5,  -0.5,
+            -0.5,  0.5,  -0.5,
+             0.5, -0.5,  -0.5,
+            -0.5,  0.5,  -0.5,
+             0.5,  0.5,  -0.5,
+             0.5, -0.5,  -0.5,
+
+            -0.5, -0.5,   0.5,
+             0.5, -0.5,   0.5,
+            -0.5,  0.5,   0.5,
+            -0.5,  0.5,   0.5,
+             0.5, -0.5,   0.5,
+             0.5,  0.5,   0.5,
+
+            -0.5,   0.5, -0.5,
+            -0.5,   0.5,  0.5,
+             0.5,   0.5, -0.5,
+            -0.5,   0.5,  0.5,
+             0.5,   0.5,  0.5,
+             0.5,   0.5, -0.5,
+
+            -0.5,  -0.5, -0.5,
+             0.5,  -0.5, -0.5,
+            -0.5,  -0.5,  0.5,
+            -0.5,  -0.5,  0.5,
+             0.5,  -0.5, -0.5,
+             0.5,  -0.5,  0.5,
+
+            -0.5,  -0.5, -0.5,
+            -0.5,  -0.5,  0.5,
+            -0.5,   0.5, -0.5,
+            -0.5,  -0.5,  0.5,
+            -0.5,   0.5,  0.5,
+            -0.5,   0.5, -0.5,
+
+             0.5,  -0.5, -0.5,
+             0.5,   0.5, -0.5,
+             0.5,  -0.5,  0.5,
+             0.5,  -0.5,  0.5,
+             0.5,   0.5, -0.5,
+             0.5,   0.5,  0.5,
+        ]), this.gl.STATIC_DRAW);
+    }
+
+    private initSquare(): void {
+        this.squareVertexBuffer = this.gl.createBuffer();
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.squareVertexBuffer);
+        this.gl.bufferData(this.gl.ARRAY_BUFFER, new Float32Array([
+            -1.0, -1.0,
+            1.0, -1.0,
+            -1.0, 1.0,
+            1.0, -1.0,
+            1.0, 1.0,
+            -1.0, 1.0,
+        ]), this.gl.STATIC_DRAW);
+    }
+
+    private initBRDFLUT(): void {
+        this.brdfLUT = this.gl.createTexture();
+        this.gl.activeTexture(this.gl.TEXTURE0);
+        this.gl.bindTexture(this.gl.TEXTURE_2D, this.brdfLUT);
+        this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, BRDF_LUT_SIZE, BRDF_LUT_SIZE, 0, this.gl.RGBA, this.gl.UNSIGNED_BYTE, null);
+
+        this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_S, this.gl.CLAMP_TO_EDGE);
+        this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_T, this.gl.CLAMP_TO_EDGE);
+        this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MIN_FILTER, this.gl.LINEAR);
+        this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MAG_FILTER, this.gl.LINEAR);
+
+        const framebuffer = this.gl.createFramebuffer();
+        this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, framebuffer);
+        this.gl.framebufferTexture2D(this.gl.FRAMEBUFFER, this.gl.COLOR_ATTACHMENT0, this.gl.TEXTURE_2D, this.brdfLUT, 0);
+
+        this.gl.useProgram(this.integrateBRDFShaderProgram);
+
+        this.gl.viewport(0, 0, BRDF_LUT_SIZE, BRDF_LUT_SIZE);
+        this.gl.clear(this.gl.COLOR_BUFFER_BIT | this.gl.DEPTH_BUFFER_BIT);
+
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.squareVertexBuffer);
+        this.gl.enableVertexAttribArray(this.integrateBRDFShaderProgramLocations.vertexPositionAttribute);
+        this.gl.vertexAttribPointer(this.integrateBRDFShaderProgramLocations.vertexPositionAttribute, 2, this.gl.FLOAT, false, 0, 0);
+
+        this.gl.drawArrays(this.gl.TRIANGLES, 0, 6);
+
+        this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
+
+        this.gl.deleteFramebuffer(framebuffer);
     }
 
     /*private resetGlobalSequences (): void {
