@@ -263,7 +263,6 @@ const fragmentShaderHD = `#version 300 es
 
     void main(void) {
         vec2 texCoord = (uTVextexAnim * vec3(vTextureCoord.s, vTextureCoord.t, 1.)).st;
-        vec4 resultColor = texture(uSampler, texCoord);
 
         vec4 orm = texture(uOrmSampler, texCoord);
 
@@ -277,7 +276,6 @@ const fragmentShaderHD = `#version 300 es
         baseColor.rgb = mix(baseColor.rgb, teamColor, teamColorFactor);
         baseColor.rgb = pow(baseColor.rgb, vec3(gamma));
 
-        resultColor.rgb = mix(resultColor.rgb, resultColor.rgb * uReplaceableColor, teamColorFactor);
         vec3 normal = texture(uNormalSampler, texCoord).rgb;
         normal = normal * 2.0 - 1.0;
         normal.x = -normal.x;
@@ -301,24 +299,15 @@ const fragmentShaderHD = `#version 300 es
         vec3 f = fresnelSchlick(max(dot(halfWay, viewDir), 0.), f0);
 
         vec3 kS = f;
-        vec3 kD = vec3(1.);
+        vec3 kD = vec3(1.) - kS;
         if (uHasEnv) {
             kD *= 1.0 - metallic;
-        } else {
-            kD = vec3(1.) - kS;
         }
         vec3 num = ndf * g * f;
         float denom = 4. * max(dot(normal, viewDir), 0.) * max(dot(normal, lightDir), 0.) + .0001;
         vec3 specular = num / denom;
 
         totalLight = (kD * baseColor.rgb / PI + specular) * radiance * lightFactor;
-
-        if (uHasEnv) {
-            vec3 prefilteredColor = textureLod(uPrefilteredEnv, reflected, roughness * MAX_REFLECTION_LOD).rgb;
-            vec3 f = fresnelSchlickRoughness(max(dot(normal, viewDir), 0.0), f0, roughness);
-            vec2 envBRDF = texture(uBRDFLUT, vec2(max(dot(normal, viewDir), 0.0), roughness)).rg;
-            specular = prefilteredColor * (f * envBRDF.x + envBRDF.y);
-        }
 
         if (uHasShadowMap) {
             vec4 fragInLightPos = uShadowMapLightMatrix * vec4(vFragPos, 1.);
@@ -357,6 +346,11 @@ const fragmentShaderHD = `#version 300 es
         vec3 color;
 
         if (uHasEnv) {
+            vec3 f = fresnelSchlickRoughness(max(dot(normal, viewDir), 0.0), f0, roughness);
+            vec3 kS = f;
+            vec3 kD = vec3(1.0) - kS;
+            kD *= 1.0 - metallic;
+
             vec3 diffuse = texture(uIrradianceMap, normal).rgb * baseColor.rgb;
             vec3 prefilteredColor = textureLod(uPrefilteredEnv, reflected, roughness * MAX_REFLECTION_LOD).rgb;
             vec2 envBRDF = texture(uBRDFLUT, vec2(max(dot(normal, viewDir), 0.0), roughness)).rg;
@@ -370,6 +364,7 @@ const fragmentShaderHD = `#version 300 es
             color = ambient + totalLight;
         }
 
+        color = color / (vec3(1.) + color);
         color = pow(color, vec3(1. / gamma));
 
         FragColor = vec4(color, 1.);
@@ -503,6 +498,7 @@ const convoluteEnvDiffuseFragmentShader = `
     uniform samplerCube uEnvironmentMap;
 
     const float PI = 3.14159265359;
+    const float gamma = 2.2;
 
     void main(void) {
         vec3 irradiance = vec3(0.0);
@@ -525,7 +521,7 @@ const convoluteEnvDiffuseFragmentShader = `
                 // tangent space to world
                 vec3 sampleVec = tangentSample.x * right + tangentSample.y * up + tangentSample.z * normal;
 
-                irradiance += textureCube(uEnvironmentMap, sampleVec).rgb * cos(theta) * sin(theta);
+                irradiance += pow(textureCube(uEnvironmentMap, sampleVec).rgb, vec3(gamma)) * cos(theta) * sin(theta);
                 nrSamples++;
             }
         }
@@ -562,6 +558,7 @@ const prefilterEnvFragmentShader = `#version 300 es
     uniform float uRoughness;
 
     const float PI = 3.14159265359;
+    const float gamma = 2.2;
 
     float RadicalInverse_VdC(uint bits) {
         bits = (bits << 16u) | (bits >> 16u);
@@ -615,7 +612,7 @@ const prefilterEnvFragmentShader = `#version 300 es
 
             float NdotL = max(dot(N, L), 0.0);
             if(NdotL > 0.0) {
-                prefilteredColor += texture(uEnvironmentMap, L).rgb * NdotL;
+                prefilteredColor += pow(texture(uEnvironmentMap, L).rgb, vec3(gamma)) * NdotL;
                 totalWeight      += NdotL;
             }
         }
@@ -775,6 +772,7 @@ export class ModelRenderer {
 
     private gl: WebGL2RenderingContext | WebGLRenderingContext;
     private anisotropicExt: EXT_texture_filter_anisotropic | null;
+    private colorBufferFloatExt: EXT_color_buffer_float | null;
     private vertexShader: WebGLShader | null;
     private fragmentShader: WebGLShader | null;
     private shaderProgram: WebGLProgram | null;
@@ -1077,6 +1075,84 @@ export class ModelRenderer {
             this.gl.deleteProgram(this.shaderProgram);
             this.shaderProgram = null;
         }
+
+        if (this.envToCubemapShaderProgram) {
+            if (this.envToCubemapVertexShader) {
+                this.gl.detachShader(this.envToCubemapShaderProgram, this.envToCubemapVertexShader);
+                this.gl.deleteShader(this.envToCubemapVertexShader);
+                this.envToCubemapVertexShader = null;
+            }
+            if (this.envToCubemapFragmentShader) {
+                this.gl.detachShader(this.envToCubemapShaderProgram, this.envToCubemapFragmentShader);
+                this.gl.deleteShader(this.envToCubemapFragmentShader);
+                this.envToCubemapFragmentShader = null;
+            }
+            this.gl.deleteProgram(this.envToCubemapShaderProgram);
+            this.envToCubemapShaderProgram = null;
+        }
+
+        if (this.envShaderProgram) {
+            if (this.envVertexShader) {
+                this.gl.detachShader(this.envShaderProgram, this.envVertexShader);
+                this.gl.deleteShader(this.envVertexShader);
+                this.envVertexShader = null;
+            }
+            if (this.envFragmentShader) {
+                this.gl.detachShader(this.envShaderProgram, this.envFragmentShader);
+                this.gl.deleteShader(this.envFragmentShader);
+                this.envFragmentShader = null;
+            }
+            this.gl.deleteProgram(this.envShaderProgram);
+            this.envShaderProgram = null;
+        }
+
+        if (this.convoluteDiffuseEnvShaderProgram) {
+            if (this.convoluteDiffuseEnvVertexShader) {
+                this.gl.detachShader(this.convoluteDiffuseEnvShaderProgram, this.convoluteDiffuseEnvVertexShader);
+                this.gl.deleteShader(this.convoluteDiffuseEnvVertexShader);
+                this.convoluteDiffuseEnvVertexShader = null;
+            }
+            if (this.convoluteDiffuseEnvFragmentShader) {
+                this.gl.detachShader(this.convoluteDiffuseEnvShaderProgram, this.convoluteDiffuseEnvFragmentShader);
+                this.gl.deleteShader(this.convoluteDiffuseEnvFragmentShader);
+                this.convoluteDiffuseEnvFragmentShader = null;
+            }
+            this.gl.deleteProgram(this.convoluteDiffuseEnvShaderProgram);
+            this.convoluteDiffuseEnvShaderProgram = null;
+        }
+
+        if (this.prefilterEnvShaderProgram) {
+            if (this.prefilterEnvVertexShader) {
+                this.gl.detachShader(this.prefilterEnvShaderProgram, this.prefilterEnvVertexShader);
+                this.gl.deleteShader(this.prefilterEnvVertexShader);
+                this.prefilterEnvVertexShader = null;
+            }
+            if (this.prefilterEnvFragmentShader) {
+                this.gl.detachShader(this.prefilterEnvShaderProgram, this.prefilterEnvFragmentShader);
+                this.gl.deleteShader(this.prefilterEnvFragmentShader);
+                this.prefilterEnvFragmentShader = null;
+            }
+            this.gl.deleteProgram(this.prefilterEnvShaderProgram);
+            this.prefilterEnvShaderProgram = null;
+        }
+
+        if (this.integrateBRDFShaderProgram) {
+            if (this.integrateBRDFVertexShader) {
+                this.gl.detachShader(this.integrateBRDFShaderProgram, this.integrateBRDFVertexShader);
+                this.gl.deleteShader(this.integrateBRDFVertexShader);
+                this.integrateBRDFVertexShader = null;
+            }
+            if (this.integrateBRDFFragmentShader) {
+                this.gl.detachShader(this.integrateBRDFShaderProgram, this.integrateBRDFFragmentShader);
+                this.gl.deleteShader(this.integrateBRDFFragmentShader);
+                this.integrateBRDFFragmentShader = null;
+            }
+            this.gl.deleteProgram(this.integrateBRDFShaderProgram);
+            this.integrateBRDFShaderProgram = null;
+        }
+
+        this.gl.deleteBuffer(this.cubeVertexBuffer);
+        this.gl.deleteBuffer(this.squareVertexBuffer);
     }
 
     public initGL (glContext: WebGL2RenderingContext | WebGLRenderingContext): void {
@@ -1088,6 +1164,7 @@ export class ModelRenderer {
             this.gl.getExtension('MOZ_EXT_texture_filter_anisotropic') ||
             this.gl.getExtension('WEBKIT_EXT_texture_filter_anisotropic')
         );
+        this.colorBufferFloatExt = this.gl.getExtension('EXT_color_buffer_float');
 
         if (this.model.Version >= 1000 && isWebGL2(this.gl)) {
             this.model.Materials.forEach(material => {
@@ -1215,23 +1292,19 @@ export class ModelRenderer {
 
     public render (mvMatrix: mat4, pMatrix: mat4, {
         wireframe,
-        env = true,
+        useEnvironmentMap = false,
         shadowMapTexture,
         shadowMapMatrix,
         shadowBias,
         shadowSmoothingStep
     } : {
         wireframe: boolean;
-        env?: boolean;
+        useEnvironmentMap?: boolean;
         shadowMapTexture?: WebGLTexture;
         shadowMapMatrix?: mat4;
         shadowBias?: number;
         shadowSmoothingStep?: number;
     }): void {
-        if (env) {
-            this.renderEnv(mvMatrix, pMatrix);
-        }
-
         this.gl.useProgram(this.shaderProgram);
 
         this.gl.uniformMatrix4fv(this.shaderProgramLocations.pMatrixUniform, false, pMatrix);
@@ -1301,7 +1374,7 @@ export class ModelRenderer {
                 const envTexture = this.model.Textures[material.Layers[5]?.TextureID as number].Image;
                 const irradianceMap = this.rendererData.irradianceMap[envTexture];
                 const prefilteredEnv = this.rendererData.prefilteredEnvMap[envTexture];
-                if (env && irradianceMap) {
+                if (useEnvironmentMap && irradianceMap) {
                     this.gl.uniform1i(this.shaderProgramLocations.hasEnvUniform, 1);
                     this.gl.activeTexture(this.gl.TEXTURE4);
                     this.gl.bindTexture(this.gl.TEXTURE_CUBE_MAP, irradianceMap);
@@ -1403,7 +1476,7 @@ export class ModelRenderer {
         this.ribbonsController.render(mvMatrix, pMatrix);
     }
 
-    private renderEnv (mvMatrix: mat4, pMatrix: mat4): void {
+    public renderEnvironment (mvMatrix: mat4, pMatrix: mat4): void {
         if (!isWebGL2(this.gl)) {
             return;
         }
@@ -1578,7 +1651,7 @@ export class ModelRenderer {
     }
 
     private processEnvMaps (path: string): void {
-        if (!this.rendererData.requiredEnvMaps[path] || !this.rendererData.textures[path] || !isWebGL2(this.gl)) {
+        if (!this.rendererData.requiredEnvMaps[path] || !this.rendererData.textures[path] || !isWebGL2(this.gl) || !this.colorBufferFloatExt) {
             return;
         }
 
@@ -1614,8 +1687,7 @@ export class ModelRenderer {
         this.gl.activeTexture(this.gl.TEXTURE1);
         this.gl.bindTexture(this.gl.TEXTURE_CUBE_MAP, cubemap);
         for (let i = 0; i < 6; ++i) {
-            // this.gl.texImage2D(this.gl.TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, this.gl.RGB16F, ENV_MAP_SIZE, ENV_MAP_SIZE, 0, this.gl.RGB, this.gl.FLOAT, null);
-            this.gl.texImage2D(this.gl.TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, this.gl.RGB, ENV_MAP_SIZE, ENV_MAP_SIZE, 0, this.gl.RGB, this.gl.UNSIGNED_BYTE, null);
+            this.gl.texImage2D(this.gl.TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, this.gl.RGBA16F, ENV_MAP_SIZE, ENV_MAP_SIZE, 0, this.gl.RGBA, this.gl.FLOAT, null);
         }
 
         this.gl.texParameteri(this.gl.TEXTURE_CUBE_MAP, this.gl.TEXTURE_WRAP_S, this.gl.CLAMP_TO_EDGE);
@@ -1663,8 +1735,7 @@ export class ModelRenderer {
         this.gl.activeTexture(this.gl.TEXTURE1);
         this.gl.bindTexture(this.gl.TEXTURE_CUBE_MAP, diffuseCubemap);
         for (let i = 0; i < 6; ++i) {
-            // this.gl.texImage2D(this.gl.TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, this.gl.RGB16F, ENV_MAP_SIZE, ENV_MAP_SIZE, 0, this.gl.RGB, this.gl.FLOAT, null);
-            this.gl.texImage2D(this.gl.TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, this.gl.RGB, ENV_CONVOLUTE_DIFFUSE_SIZE, ENV_CONVOLUTE_DIFFUSE_SIZE, 0, this.gl.RGB, this.gl.UNSIGNED_BYTE, null);
+            this.gl.texImage2D(this.gl.TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, this.gl.RGBA16F, ENV_CONVOLUTE_DIFFUSE_SIZE, ENV_CONVOLUTE_DIFFUSE_SIZE, 0, this.gl.RGBA, this.gl.FLOAT, null);
         }
 
         this.gl.texParameteri(this.gl.TEXTURE_CUBE_MAP, this.gl.TEXTURE_WRAP_S, this.gl.CLAMP_TO_EDGE);
@@ -1709,15 +1780,15 @@ export class ModelRenderer {
         const prefilterCubemap = this.rendererData.prefilteredEnvMap[path] = this.gl.createTexture();
         this.gl.activeTexture(this.gl.TEXTURE1);
         this.gl.bindTexture(this.gl.TEXTURE_CUBE_MAP, prefilterCubemap);
-        this.gl.texStorage2D(this.gl.TEXTURE_CUBE_MAP, MAX_ENV_MIP_LEVELS, this.gl.RGBA8, ENV_PREFILTER_SIZE, ENV_PREFILTER_SIZE);
+        this.gl.texStorage2D(this.gl.TEXTURE_CUBE_MAP, MAX_ENV_MIP_LEVELS, this.gl.RGBA16F, ENV_PREFILTER_SIZE, ENV_PREFILTER_SIZE);
         // for (let i = 0; i < 6; ++i) {
             // this.gl.texImage2D(this.gl.TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, this.gl.RGB, ENV_PREFILTER_SIZE, ENV_PREFILTER_SIZE, 0, this.gl.RGB, this.gl.UNSIGNED_BYTE, null);
         // }
         for (let mip = 0; mip < MAX_ENV_MIP_LEVELS; ++mip) {
             for (let i = 0; i < 6; ++i) {
                 const size = ENV_PREFILTER_SIZE * .5 ** mip;
-                const data = new Uint8Array(size * size * 4);
-                this.gl.texSubImage2D(this.gl.TEXTURE_CUBE_MAP_POSITIVE_X + i, mip, 0, 0, size, size, this.gl.RGBA, this.gl.UNSIGNED_BYTE, data);
+                const data = new Float32Array(size * size * 4);
+                this.gl.texSubImage2D(this.gl.TEXTURE_CUBE_MAP_POSITIVE_X + i, mip, 0, 0, size, size, this.gl.RGBA, this.gl.FLOAT, data);
             }
         }
 
@@ -2088,10 +2159,14 @@ export class ModelRenderer {
     }
 
     private initBRDFLUT(): void {
+        if (!isWebGL2(this.gl) || !this.colorBufferFloatExt) {
+            return;
+        }
+
         this.brdfLUT = this.gl.createTexture();
         this.gl.activeTexture(this.gl.TEXTURE0);
         this.gl.bindTexture(this.gl.TEXTURE_2D, this.brdfLUT);
-        this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, BRDF_LUT_SIZE, BRDF_LUT_SIZE, 0, this.gl.RGBA, this.gl.UNSIGNED_BYTE, null);
+        this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RG16F, BRDF_LUT_SIZE, BRDF_LUT_SIZE, 0, this.gl.RG, this.gl.FLOAT, null);
 
         this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_S, this.gl.CLAMP_TO_EDGE);
         this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_T, this.gl.CLAMP_TO_EDGE);

@@ -185,8 +185,7 @@ function drawScene() {
 
         modelRenderer.setCamera(lightPosition, lightQuat);
         modelRenderer.render(lightMVMatrix, pMatrix, {
-            wireframe: false,
-            env: false
+            wireframe: false
         });
 
         gl.bindFramebuffer(gl.FRAMEBUFFER, null);
@@ -196,9 +195,12 @@ function drawScene() {
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
     modelRenderer.setCamera(cameraPos, cameraQuat);
+    if (ibl) {
+        modelRenderer.renderEnvironment(mvMatrix, pMatrix);
+    }
     modelRenderer.render(mvMatrix, pMatrix, {
         wireframe,
-        env: ibl,
+        useEnvironmentMap: ibl,
         shadowMapTexture: shadow ? framebufferDepthTexture : undefined,
         shadowMapMatrix: shadow ? shadowMapMatrix : undefined,
         shadowBias: 1e-6,
