@@ -4,7 +4,7 @@ import { decodeDds, parseHeaders } from 'dds-parser';
 import { parse as parseMDL } from '../../mdl/parse';
 import { parse as parseMDX } from '../../mdx/parse';
 import { Model, TextureFlags } from '../../model';
-import { ModelRenderer } from '../../renderer/modelRenderer';
+import { DDS_FORMAT, ModelRenderer } from '../../renderer/modelRenderer';
 import { vec3RotateZ } from '../../renderer/util';
 import { decode, getImageData } from '../../blp/decode';
 import '../common/shim';
@@ -37,6 +37,7 @@ let wireframe = false;
 let showSkeleton = false;
 let skeletonNodes: string[] | null = null;
 let shadow = true;
+let ibl = true;
 
 const cameraBasePos: vec3 = vec3.create();
 const cameraPos: vec3 = vec3.create();
@@ -151,7 +152,7 @@ function calcCameraQuat(cameraPos: vec3, cameraTarget: vec3): quat {
 
 function drawScene() {
     gl.depthMask(true);
-    mat4.perspective(pMatrix, Math.PI / 4, canvas.width / canvas.height, 0.1, 2000.0);
+    mat4.perspective(pMatrix, Math.PI / 4, canvas.width / canvas.height, 0.1, 3000.0);
 
     vec3.set(
         cameraBasePos,
@@ -173,7 +174,7 @@ function drawScene() {
 
     const cameraQuat: quat = calcCameraQuat(cameraPos, cameraTarget);
     const lightQuat: quat = calcCameraQuat(lightPosition, lightTarget);
-    
+
     modelRenderer.setLightPosition(lightPosition);
     modelRenderer.setLightColor(lightColor);
 
@@ -194,8 +195,12 @@ function drawScene() {
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
     modelRenderer.setCamera(cameraPos, cameraQuat);
+    if (ibl) {
+        modelRenderer.renderEnvironment(mvMatrix, pMatrix);
+    }
     modelRenderer.render(mvMatrix, pMatrix, {
         wireframe,
+        useEnvironmentMap: ibl,
         shadowMapTexture: shadow ? framebufferDepthTexture : undefined,
         shadowMapMatrix: shadow ? shadowMapMatrix : undefined,
         shadowBias: 1e-6,
@@ -213,7 +218,7 @@ function tick(timestamp: number) {
     drawScene();
 }
 
-function loadTexture(src: string, textureName: string, flags: TextureFlags) {
+function loadTexture(src: string, textureName: string, flags: TextureFlags | 0) {
     const img = new Image();
 
     img.onload = () => {
@@ -337,6 +342,12 @@ function initControls() {
         shadow = shadowCheck.checked;
     });
 
+    const iblCheck = document.getElementById('ibl') as HTMLInputElement;
+    ibl = iblCheck.checked;
+    iblCheck.addEventListener('input', () => {
+        ibl = iblCheck.checked;
+    });
+
     const readSkeletonNodes = (value: string) => {
         const val = value.trim();
 
@@ -420,8 +431,8 @@ function initCameraMove() {
         if (cameraTheta > Math.PI / 2 * 0.98) {
             cameraTheta = Math.PI / 2 * 0.98;
         }
-        if (cameraTheta < 0) {
-            cameraTheta = 0;
+        if (cameraTheta < -Math.PI / 2 * 0.98) {
+            cameraTheta = -Math.PI / 2 * 0.98;
         }
 
         downX = x;
@@ -601,7 +612,7 @@ function initDragDrop() {
                         if (format) {
                             modelRenderer.setTextureCompressedImage(
                                 textureName,
-                                format,
+                                format as DDS_FORMAT,
                                 reader.result as ArrayBuffer,
                                 dds,
                                 textureFlags
