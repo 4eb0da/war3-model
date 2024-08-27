@@ -24,6 +24,14 @@ const ENV_PREFILTER_SIZE = 128;
 const MAX_ENV_MIP_LEVELS = 8;
 const BRDF_LUT_SIZE = 512;
 
+interface WebGLProgramObject<A extends string, U extends string> {
+    program: WebGLProgram;
+    vertexShader: WebGLShader;
+    fragmentShader: WebGLShader;
+    attributes: Record<A, GLuint>;
+    uniforms: Record<U, WebGLUniformLocation>;
+}
+
 const vertexShaderHardwareSkinning = `
     attribute vec3 aVertexPosition;
     attribute vec3 aNormal;
@@ -840,53 +848,11 @@ export class ModelRenderer {
     private squareVertexBuffer: WebGLBuffer;
     private brdfLUT: WebGLTexture;
 
-    private envToCubemapShaderProgramLocations: {
-        vertexPositionAttribute: number | null;
-        pMatrixUniform: WebGLUniformLocation | null;
-        mvMatrixUniform: WebGLUniformLocation | null;
-        envMapSamplerUniform: WebGLUniformLocation | null;
-    };
-    private envToCubemapVertexShader: WebGLShader | null;
-    private envToCubemapFragmentShader: WebGLShader | null;
-    private envToCubemapShaderProgram: WebGLProgram | null;
-
-    private envShaderProgramLocations: {
-        vertexPositionAttribute: number | null;
-        pMatrixUniform: WebGLUniformLocation | null;
-        mvMatrixUniform: WebGLUniformLocation | null;
-        envMapSamplerUniform: WebGLUniformLocation | null;
-    };
-    private envVertexShader: WebGLShader | null;
-    private envFragmentShader: WebGLShader | null;
-    private envShaderProgram: WebGLProgram | null;
-
-    private convoluteDiffuseEnvShaderProgramLocations: {
-        vertexPositionAttribute: number | null;
-        pMatrixUniform: WebGLUniformLocation | null;
-        mvMatrixUniform: WebGLUniformLocation | null;
-        envMapSamplerUniform: WebGLUniformLocation | null;
-    };
-    private convoluteDiffuseEnvVertexShader: WebGLShader | null;
-    private convoluteDiffuseEnvFragmentShader: WebGLShader | null;
-    private convoluteDiffuseEnvShaderProgram: WebGLProgram | null;
-
-    private prefilterEnvShaderProgramLocations: {
-        vertexPositionAttribute: number | null;
-        pMatrixUniform: WebGLUniformLocation | null;
-        mvMatrixUniform: WebGLUniformLocation | null;
-        envMapSamplerUniform: WebGLUniformLocation | null;
-        roughnessUniform: WebGLUniformLocation | null;
-    };
-    private prefilterEnvVertexShader: WebGLShader | null;
-    private prefilterEnvFragmentShader: WebGLShader | null;
-    private prefilterEnvShaderProgram: WebGLProgram | null;
-
-    private integrateBRDFShaderProgramLocations: {
-        vertexPositionAttribute: number | null;
-    };
-    private integrateBRDFVertexShader: WebGLShader | null;
-    private integrateBRDFFragmentShader: WebGLShader | null;
-    private integrateBRDFShaderProgram: WebGLProgram | null;
+    private envToCubemap: WebGLProgramObject<'aPos', 'uPMatrix' | 'uMVMatrix' | 'uEquirectangularMap'>;
+    private envSphere: WebGLProgramObject<'aPos', 'uPMatrix' | 'uMVMatrix' | 'uEnvironmentMap'>;
+    private convoluteDiffuseEnv: WebGLProgramObject<'aPos', 'uPMatrix' | 'uMVMatrix' | 'uEnvironmentMap'>;
+    private prefilterEnv: WebGLProgramObject<'aPos', 'uPMatrix' | 'uMVMatrix' | 'uEnvironmentMap' | 'uRoughness'>;
+    private integrateBRDF: WebGLProgramObject<'aPos', never>;
 
     constructor(model: Model) {
         this.isHD = model.Geosets?.some(it => it.SkinWeights?.length > 0);
@@ -927,34 +893,6 @@ export class ModelRenderer {
             colorAttribute: null,
             mvMatrixUniform: null,
             pMatrixUniform: null
-        };
-        this.envToCubemapShaderProgramLocations = {
-            vertexPositionAttribute: null,
-            pMatrixUniform: null,
-            mvMatrixUniform: null,
-            envMapSamplerUniform: null
-        };
-        this.envShaderProgramLocations = {
-            vertexPositionAttribute: null,
-            mvMatrixUniform: null,
-            pMatrixUniform: null,
-            envMapSamplerUniform: null
-        };
-        this.convoluteDiffuseEnvShaderProgramLocations = {
-            vertexPositionAttribute: null,
-            mvMatrixUniform: null,
-            pMatrixUniform: null,
-            envMapSamplerUniform: null
-        };
-        this.prefilterEnvShaderProgramLocations = {
-            envMapSamplerUniform: null,
-            mvMatrixUniform: null,
-            pMatrixUniform: null,
-            roughnessUniform: null,
-            vertexPositionAttribute: null
-        };
-        this.integrateBRDFShaderProgramLocations = {
-            vertexPositionAttribute: null
         };
 
         this.model = model;
@@ -1076,80 +1014,11 @@ export class ModelRenderer {
             this.shaderProgram = null;
         }
 
-        if (this.envToCubemapShaderProgram) {
-            if (this.envToCubemapVertexShader) {
-                this.gl.detachShader(this.envToCubemapShaderProgram, this.envToCubemapVertexShader);
-                this.gl.deleteShader(this.envToCubemapVertexShader);
-                this.envToCubemapVertexShader = null;
-            }
-            if (this.envToCubemapFragmentShader) {
-                this.gl.detachShader(this.envToCubemapShaderProgram, this.envToCubemapFragmentShader);
-                this.gl.deleteShader(this.envToCubemapFragmentShader);
-                this.envToCubemapFragmentShader = null;
-            }
-            this.gl.deleteProgram(this.envToCubemapShaderProgram);
-            this.envToCubemapShaderProgram = null;
-        }
-
-        if (this.envShaderProgram) {
-            if (this.envVertexShader) {
-                this.gl.detachShader(this.envShaderProgram, this.envVertexShader);
-                this.gl.deleteShader(this.envVertexShader);
-                this.envVertexShader = null;
-            }
-            if (this.envFragmentShader) {
-                this.gl.detachShader(this.envShaderProgram, this.envFragmentShader);
-                this.gl.deleteShader(this.envFragmentShader);
-                this.envFragmentShader = null;
-            }
-            this.gl.deleteProgram(this.envShaderProgram);
-            this.envShaderProgram = null;
-        }
-
-        if (this.convoluteDiffuseEnvShaderProgram) {
-            if (this.convoluteDiffuseEnvVertexShader) {
-                this.gl.detachShader(this.convoluteDiffuseEnvShaderProgram, this.convoluteDiffuseEnvVertexShader);
-                this.gl.deleteShader(this.convoluteDiffuseEnvVertexShader);
-                this.convoluteDiffuseEnvVertexShader = null;
-            }
-            if (this.convoluteDiffuseEnvFragmentShader) {
-                this.gl.detachShader(this.convoluteDiffuseEnvShaderProgram, this.convoluteDiffuseEnvFragmentShader);
-                this.gl.deleteShader(this.convoluteDiffuseEnvFragmentShader);
-                this.convoluteDiffuseEnvFragmentShader = null;
-            }
-            this.gl.deleteProgram(this.convoluteDiffuseEnvShaderProgram);
-            this.convoluteDiffuseEnvShaderProgram = null;
-        }
-
-        if (this.prefilterEnvShaderProgram) {
-            if (this.prefilterEnvVertexShader) {
-                this.gl.detachShader(this.prefilterEnvShaderProgram, this.prefilterEnvVertexShader);
-                this.gl.deleteShader(this.prefilterEnvVertexShader);
-                this.prefilterEnvVertexShader = null;
-            }
-            if (this.prefilterEnvFragmentShader) {
-                this.gl.detachShader(this.prefilterEnvShaderProgram, this.prefilterEnvFragmentShader);
-                this.gl.deleteShader(this.prefilterEnvFragmentShader);
-                this.prefilterEnvFragmentShader = null;
-            }
-            this.gl.deleteProgram(this.prefilterEnvShaderProgram);
-            this.prefilterEnvShaderProgram = null;
-        }
-
-        if (this.integrateBRDFShaderProgram) {
-            if (this.integrateBRDFVertexShader) {
-                this.gl.detachShader(this.integrateBRDFShaderProgram, this.integrateBRDFVertexShader);
-                this.gl.deleteShader(this.integrateBRDFVertexShader);
-                this.integrateBRDFVertexShader = null;
-            }
-            if (this.integrateBRDFFragmentShader) {
-                this.gl.detachShader(this.integrateBRDFShaderProgram, this.integrateBRDFFragmentShader);
-                this.gl.deleteShader(this.integrateBRDFFragmentShader);
-                this.integrateBRDFFragmentShader = null;
-            }
-            this.gl.deleteProgram(this.integrateBRDFShaderProgram);
-            this.integrateBRDFShaderProgram = null;
-        }
+        this.destroyShaderProgramObject(this.envToCubemap);
+        this.destroyShaderProgramObject(this.envSphere);
+        this.destroyShaderProgramObject(this.convoluteDiffuseEnv);
+        this.destroyShaderProgramObject(this.prefilterEnv);
+        this.destroyShaderProgramObject(this.integrateBRDF);
 
         this.gl.deleteBuffer(this.cubeVertexBuffer);
         this.gl.deleteBuffer(this.squareVertexBuffer);
@@ -1486,20 +1355,20 @@ export class ModelRenderer {
         this.gl.disable(this.gl.CULL_FACE);
 
         for (const path in this.rendererData.envTextures) {
-            this.gl.useProgram(this.envShaderProgram);
+            this.gl.useProgram(this.envSphere.program);
 
-            this.gl.uniformMatrix4fv(this.envShaderProgramLocations.pMatrixUniform, false, pMatrix);
-            this.gl.uniformMatrix4fv(this.envShaderProgramLocations.mvMatrixUniform, false, mvMatrix);
+            this.gl.uniformMatrix4fv(this.envSphere.uniforms.uPMatrix, false, pMatrix);
+            this.gl.uniformMatrix4fv(this.envSphere.uniforms.uMVMatrix, false, mvMatrix);
 
             this.gl.activeTexture(this.gl.TEXTURE0);
             this.gl.bindTexture(this.gl.TEXTURE_CUBE_MAP, this.rendererData.envTextures[path]);
-            this.gl.uniform1i(this.envShaderProgramLocations.envMapSamplerUniform, 0);
+            this.gl.uniform1i(this.envSphere.uniforms.uEnvironmentMap, 0);
 
             this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.cubeVertexBuffer);
-            this.gl.enableVertexAttribArray(this.envShaderProgramLocations.vertexPositionAttribute);
-            this.gl.vertexAttribPointer(this.envShaderProgramLocations.vertexPositionAttribute, 3, this.gl.FLOAT, false, 0, 0);
+            this.gl.enableVertexAttribArray(this.envSphere.attributes.aPos);
+            this.gl.vertexAttribPointer(this.envSphere.attributes.aPos, 3, this.gl.FLOAT, false, 0, 0);
             this.gl.drawArrays(this.gl.TRIANGLES, 0, 6 * 6);
-            this.gl.disableVertexAttribArray(this.envShaderProgramLocations.vertexPositionAttribute);
+            this.gl.disableVertexAttribArray(this.envSphere.attributes.aPos);
             this.gl.bindTexture(this.gl.TEXTURE_CUBE_MAP, null);
         }
     }
@@ -1681,7 +1550,7 @@ export class ModelRenderer {
 
         const framebuffer = this.gl.createFramebuffer();
 
-        this.gl.useProgram(this.envToCubemapShaderProgram);
+        this.gl.useProgram(this.envToCubemap.program);
 
         const cubemap = this.rendererData.envTextures[path] = this.gl.createTexture();
         this.gl.activeTexture(this.gl.TEXTURE1);
@@ -1697,28 +1566,28 @@ export class ModelRenderer {
         this.gl.texParameteri(this.gl.TEXTURE_CUBE_MAP, this.gl.TEXTURE_MAG_FILTER, this.gl.LINEAR);
 
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.cubeVertexBuffer);
-        this.gl.enableVertexAttribArray(this.envToCubemapShaderProgramLocations.vertexPositionAttribute);
-        this.gl.vertexAttribPointer(this.envToCubemapShaderProgramLocations.vertexPositionAttribute, 3, this.gl.FLOAT, false, 0, 0);
+        this.gl.enableVertexAttribArray(this.envToCubemap.attributes.aPos);
+        this.gl.vertexAttribPointer(this.envToCubemap.attributes.aPos, 3, this.gl.FLOAT, false, 0, 0);
 
         this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, framebuffer);
 
         mat4.perspective(pMatrix, Math.PI / 2, 1, .1, 10);
-        this.gl.uniformMatrix4fv(this.envToCubemapShaderProgramLocations.pMatrixUniform, false, pMatrix);
+        this.gl.uniformMatrix4fv(this.envToCubemap.uniforms.uPMatrix, false, pMatrix);
         this.gl.activeTexture(this.gl.TEXTURE0);
         this.gl.bindTexture(this.gl.TEXTURE_2D, this.rendererData.textures[path]);
-        this.gl.uniform1i(this.envToCubemapShaderProgramLocations.envMapSamplerUniform, 0);
+        this.gl.uniform1i(this.envToCubemap.uniforms.uEquirectangularMap, 0);
         this.gl.viewport(0, 0, ENV_MAP_SIZE, ENV_MAP_SIZE);
         for (let i = 0; i < 6; ++i) {
             this.gl.framebufferTexture2D(this.gl.FRAMEBUFFER, this.gl.COLOR_ATTACHMENT0, this.gl.TEXTURE_CUBE_MAP_POSITIVE_X + i, cubemap, 0);
             this.gl.clear(this.gl.COLOR_BUFFER_BIT | this.gl.DEPTH_BUFFER_BIT);
 
             mat4.lookAt(mvMatrix, eye, center[i], up[i]);
-            this.gl.uniformMatrix4fv(this.envToCubemapShaderProgramLocations.mvMatrixUniform, false, mvMatrix);
+            this.gl.uniformMatrix4fv(this.envToCubemap.uniforms.uMVMatrix, false, mvMatrix);
 
             this.gl.drawArrays(this.gl.TRIANGLES, 0, 6 * 6);
         }
 
-        this.gl.disableVertexAttribArray(this.envToCubemapShaderProgramLocations.vertexPositionAttribute);
+        this.gl.disableVertexAttribArray(this.envToCubemap.attributes.aPos);
 
         this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
 
@@ -1729,7 +1598,7 @@ export class ModelRenderer {
 
         // Diffuse env convolution
 
-        this.gl.useProgram(this.convoluteDiffuseEnvShaderProgram);
+        this.gl.useProgram(this.convoluteDiffuseEnv.program);
 
         const diffuseCubemap = this.rendererData.irradianceMap[path] = this.gl.createTexture();
         this.gl.activeTexture(this.gl.TEXTURE1);
@@ -1745,28 +1614,28 @@ export class ModelRenderer {
         this.gl.texParameteri(this.gl.TEXTURE_CUBE_MAP, this.gl.TEXTURE_MAG_FILTER, this.gl.LINEAR);
 
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.cubeVertexBuffer);
-        this.gl.enableVertexAttribArray(this.convoluteDiffuseEnvShaderProgramLocations.vertexPositionAttribute);
-        this.gl.vertexAttribPointer(this.convoluteDiffuseEnvShaderProgramLocations.vertexPositionAttribute, 3, this.gl.FLOAT, false, 0, 0);
+        this.gl.enableVertexAttribArray(this.convoluteDiffuseEnv.attributes.aPos);
+        this.gl.vertexAttribPointer(this.convoluteDiffuseEnv.attributes.aPos, 3, this.gl.FLOAT, false, 0, 0);
 
         this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, framebuffer);
 
         mat4.perspective(pMatrix, Math.PI / 2, 1, .1, 10);
-        this.gl.uniformMatrix4fv(this.convoluteDiffuseEnvShaderProgramLocations.pMatrixUniform, false, pMatrix);
+        this.gl.uniformMatrix4fv(this.convoluteDiffuseEnv.uniforms.uPMatrix, false, pMatrix);
         this.gl.activeTexture(this.gl.TEXTURE0);
         this.gl.bindTexture(this.gl.TEXTURE_CUBE_MAP, this.rendererData.envTextures[path]);
-        this.gl.uniform1i(this.convoluteDiffuseEnvShaderProgramLocations.envMapSamplerUniform, 0);
+        this.gl.uniform1i(this.convoluteDiffuseEnv.uniforms.uEnvironmentMap, 0);
         this.gl.viewport(0, 0, ENV_CONVOLUTE_DIFFUSE_SIZE, ENV_CONVOLUTE_DIFFUSE_SIZE);
         for (let i = 0; i < 6; ++i) {
             this.gl.framebufferTexture2D(this.gl.FRAMEBUFFER, this.gl.COLOR_ATTACHMENT0, this.gl.TEXTURE_CUBE_MAP_POSITIVE_X + i, diffuseCubemap, 0);
             this.gl.clear(this.gl.COLOR_BUFFER_BIT | this.gl.DEPTH_BUFFER_BIT);
 
             mat4.lookAt(mvMatrix, eye, center[i], up[i]);
-            this.gl.uniformMatrix4fv(this.convoluteDiffuseEnvShaderProgramLocations.mvMatrixUniform, false, mvMatrix);
+            this.gl.uniformMatrix4fv(this.convoluteDiffuseEnv.uniforms.uMVMatrix, false, mvMatrix);
 
             this.gl.drawArrays(this.gl.TRIANGLES, 0, 6 * 6);
         }
 
-        this.gl.disableVertexAttribArray(this.convoluteDiffuseEnvShaderProgramLocations.vertexPositionAttribute);
+        this.gl.disableVertexAttribArray(this.convoluteDiffuseEnv.attributes.aPos);
 
         this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
 
@@ -1775,7 +1644,7 @@ export class ModelRenderer {
 
         // Prefilter env map with different roughness
 
-        this.gl.useProgram(this.prefilterEnvShaderProgram);
+        this.gl.useProgram(this.prefilterEnv.program);
 
         const prefilterCubemap = this.rendererData.prefilteredEnvMap[path] = this.gl.createTexture();
         this.gl.activeTexture(this.gl.TEXTURE1);
@@ -1799,16 +1668,16 @@ export class ModelRenderer {
         this.gl.texParameteri(this.gl.TEXTURE_CUBE_MAP, this.gl.TEXTURE_MAG_FILTER, this.gl.LINEAR);
 
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.cubeVertexBuffer);
-        this.gl.enableVertexAttribArray(this.prefilterEnvShaderProgramLocations.vertexPositionAttribute);
-        this.gl.vertexAttribPointer(this.prefilterEnvShaderProgramLocations.vertexPositionAttribute, 3, this.gl.FLOAT, false, 0, 0);
+        this.gl.enableVertexAttribArray(this.prefilterEnv.attributes.aPos);
+        this.gl.vertexAttribPointer(this.prefilterEnv.attributes.aPos, 3, this.gl.FLOAT, false, 0, 0);
 
         this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, framebuffer);
 
         mat4.perspective(pMatrix, Math.PI / 2, 1, .1, 10);
-        this.gl.uniformMatrix4fv(this.prefilterEnvShaderProgramLocations.pMatrixUniform, false, pMatrix);
+        this.gl.uniformMatrix4fv(this.prefilterEnv.uniforms.uPMatrix, false, pMatrix);
         this.gl.activeTexture(this.gl.TEXTURE0);
         this.gl.bindTexture(this.gl.TEXTURE_CUBE_MAP, this.rendererData.envTextures[path]);
-        this.gl.uniform1i(this.prefilterEnvShaderProgramLocations.envMapSamplerUniform, 0);
+        this.gl.uniform1i(this.prefilterEnv.uniforms.uEnvironmentMap, 0);
 
         for (let mip = 0; mip < MAX_ENV_MIP_LEVELS; ++mip) {
             const mipWidth = ENV_PREFILTER_SIZE *.5 ** mip;
@@ -1817,14 +1686,14 @@ export class ModelRenderer {
 
             const roughness = mip / (MAX_ENV_MIP_LEVELS - 1);
 
-            this.gl.uniform1f(this.prefilterEnvShaderProgramLocations.roughnessUniform, roughness);
+            this.gl.uniform1f(this.prefilterEnv.uniforms.uRoughness, roughness);
 
             for (let i = 0; i < 6; ++i) {
                 this.gl.framebufferTexture2D(this.gl.FRAMEBUFFER, this.gl.COLOR_ATTACHMENT0, this.gl.TEXTURE_CUBE_MAP_POSITIVE_X + i, prefilterCubemap, mip);
                 this.gl.clear(this.gl.COLOR_BUFFER_BIT | this.gl.DEPTH_BUFFER_BIT);
 
                 mat4.lookAt(mvMatrix, eye, center[i], up[i]);
-                this.gl.uniformMatrix4fv(this.prefilterEnvShaderProgramLocations.mvMatrixUniform, false, mvMatrix);
+                this.gl.uniformMatrix4fv(this.prefilterEnv.uniforms.uMVMatrix, false, mvMatrix);
 
                 this.gl.drawArrays(this.gl.TRIANGLES, 0, 6 * 6);
             }
@@ -1844,6 +1713,65 @@ export class ModelRenderer {
             this.rendererData.materialLayerTextureID[materialId][layerId] = TextureID;
         } else {
             this.rendererData.materialLayerTextureID[materialId][layerId] = this.interp.num(TextureID);
+        }
+    }
+
+    private initShaderProgram<A extends string, U extends string>(
+        vertex: string,
+        fragment: string,
+        attributesDesc: Record<A, string>,
+        uniformsDesc: Record<U, string>
+    ): WebGLProgramObject<A, U> {
+        const vertexShader = getShader(this.gl, vertex, this.gl.VERTEX_SHADER);
+        const fragmentShader = getShader(this.gl, fragment, this.gl.FRAGMENT_SHADER);
+        const program = this.gl.createProgram();
+        this.gl.attachShader(program, vertexShader);
+        this.gl.attachShader(program, fragmentShader);
+        this.gl.linkProgram(program);
+
+        if (!this.gl.getProgramParameter(program, this.gl.LINK_STATUS)) {
+            throw new Error('Could not initialise shaders');
+        }
+
+        const attributes = {} as Record<A, GLuint>;
+        for (const name in attributesDesc) {
+            attributes[name] = this.gl.getAttribLocation(program, name);
+            if (attributes[name] < 0) {
+                throw new Error('Missing shader attribute location: ' + name);
+            }
+        }
+
+        const uniforms = {} as Record<U, WebGLUniformLocation>;
+        for (const name in uniformsDesc) {
+            uniforms[name] = this.gl.getUniformLocation(program, name);
+            if (!uniforms[name]) {
+                throw new Error('Missing shader uniform location: ' + name);
+            }
+        }
+
+        return {
+            program,
+            vertexShader,
+            fragmentShader,
+            attributes,
+            uniforms
+        };
+    }
+
+    private destroyShaderProgramObject<A extends string, U extends string>(object: WebGLProgramObject<A, U>): void {
+        if (object.program) {
+            if (object.vertexShader) {
+                this.gl.detachShader(object.program, object.vertexShader);
+                this.gl.deleteShader(object.vertexShader);
+                object.vertexShader = null;
+            }
+            if (object.fragmentShader) {
+                this.gl.detachShader(object.program, object.fragmentShader);
+                this.gl.deleteShader(object.fragmentShader);
+                object.fragmentShader = null;
+            }
+            this.gl.deleteProgram(object.program);
+            object.program = null;
         }
     }
 
@@ -1931,96 +1859,42 @@ export class ModelRenderer {
         }
 
         if (this.isHD && isWebGL2(this.gl)) {
-            const envToCubemapVertex = this.envToCubemapVertexShader = getShader(this.gl, envToCubemapVertexShader, this.gl.VERTEX_SHADER);
-            const envToCubemapFragment = this.envToCubemapFragmentShader = getShader(this.gl, envToCubemapFragmentShader, this.gl.FRAGMENT_SHADER);
-            const envToCubemapShaderProgram = this.envToCubemapShaderProgram = this.gl.createProgram();
-            this.gl.attachShader(envToCubemapShaderProgram, envToCubemapVertex);
-            this.gl.attachShader(envToCubemapShaderProgram, envToCubemapFragment);
-            this.gl.linkProgram(envToCubemapShaderProgram);
+            this.envToCubemap = this.initShaderProgram(envToCubemapVertexShader, envToCubemapFragmentShader, {
+                aPos: 'aPos'
+            }, {
+                uPMatrix: 'uPMatrix',
+                uMVMatrix: 'uMVMatrix',
+                uEquirectangularMap: 'uEquirectangularMap'
+            });
 
-            if (!this.gl.getProgramParameter(envToCubemapShaderProgram, this.gl.LINK_STATUS)) {
-                alert('Could not initialise shaders');
-            }
+            this.envSphere = this.initShaderProgram(envVertexShader, envFragmentShader, {
+                aPos: 'aPos'
+            }, {
+                uPMatrix: 'uPMatrix',
+                uMVMatrix: 'uMVMatrix',
+                uEnvironmentMap: 'uEnvironmentMap'
+            });
 
-            this.gl.useProgram(envToCubemapShaderProgram);
+            this.convoluteDiffuseEnv = this.initShaderProgram(convoluteEnvDiffuseVertexShader, convoluteEnvDiffuseFragmentShader, {
+                aPos: 'aPos'
+            }, {
+                uPMatrix: 'uPMatrix',
+                uMVMatrix: 'uMVMatrix',
+                uEnvironmentMap: 'uEnvironmentMap'
+            });
 
-            this.envToCubemapShaderProgramLocations.vertexPositionAttribute = this.gl.getAttribLocation(envToCubemapShaderProgram, 'aPos');
-            this.envToCubemapShaderProgramLocations.pMatrixUniform = this.gl.getUniformLocation(envToCubemapShaderProgram, 'uPMatrix');
-            this.envToCubemapShaderProgramLocations.mvMatrixUniform = this.gl.getUniformLocation(envToCubemapShaderProgram, 'uMVMatrix');
-            this.envToCubemapShaderProgramLocations.envMapSamplerUniform = this.gl.getUniformLocation(envToCubemapShaderProgram, 'uEquirectangularMap');
+            this.prefilterEnv = this.initShaderProgram(prefilterEnvVertexShader, prefilterEnvFragmentShader, {
+                aPos: 'aPos'
+            }, {
+                uPMatrix: 'uPMatrix',
+                uMVMatrix: 'uMVMatrix',
+                uEnvironmentMap: 'uEnvironmentMap',
+                uRoughness: 'uRoughness'
+            });
 
-            const envVertex = this.envVertexShader = getShader(this.gl, envVertexShader, this.gl.VERTEX_SHADER);
-            const envFragment = this.envFragmentShader = getShader(this.gl, envFragmentShader, this.gl.FRAGMENT_SHADER);
-            const envShaderProgram = this.envShaderProgram = this.gl.createProgram();
-            this.gl.attachShader(envShaderProgram, envVertex);
-            this.gl.attachShader(envShaderProgram, envFragment);
-            this.gl.linkProgram(envShaderProgram);
-
-            if (!this.gl.getProgramParameter(envShaderProgram, this.gl.LINK_STATUS)) {
-                alert('Could not initialise shaders');
-            }
-
-            this.gl.useProgram(envShaderProgram);
-
-            this.envShaderProgramLocations.vertexPositionAttribute = this.gl.getAttribLocation(envShaderProgram, 'aPos');
-            this.envShaderProgramLocations.pMatrixUniform = this.gl.getUniformLocation(envShaderProgram, 'uPMatrix');
-            this.envShaderProgramLocations.mvMatrixUniform = this.gl.getUniformLocation(envShaderProgram, 'uMVMatrix');
-            this.envShaderProgramLocations.envMapSamplerUniform = this.gl.getUniformLocation(envShaderProgram, 'uEnvironmentMap');
-
-
-            const convoluteDiffuseEnvVertex = this.convoluteDiffuseEnvVertexShader = getShader(this.gl, convoluteEnvDiffuseVertexShader, this.gl.VERTEX_SHADER);
-            const convoluteDiffuseEnvFragment = this.convoluteDiffuseEnvFragmentShader = getShader(this.gl, convoluteEnvDiffuseFragmentShader, this.gl.FRAGMENT_SHADER);
-            const convoluteDiffuseEnvShaderProgram = this.convoluteDiffuseEnvShaderProgram = this.gl.createProgram();
-            this.gl.attachShader(convoluteDiffuseEnvShaderProgram, convoluteDiffuseEnvVertex);
-            this.gl.attachShader(convoluteDiffuseEnvShaderProgram, convoluteDiffuseEnvFragment);
-            this.gl.linkProgram(convoluteDiffuseEnvShaderProgram);
-
-            if (!this.gl.getProgramParameter(convoluteDiffuseEnvShaderProgram, this.gl.LINK_STATUS)) {
-                alert('Could not initialise shaders');
-            }
-
-            this.gl.useProgram(convoluteDiffuseEnvShaderProgram);
-
-            this.convoluteDiffuseEnvShaderProgramLocations.vertexPositionAttribute = this.gl.getAttribLocation(convoluteDiffuseEnvShaderProgram, 'aPos');
-            this.convoluteDiffuseEnvShaderProgramLocations.pMatrixUniform = this.gl.getUniformLocation(convoluteDiffuseEnvShaderProgram, 'uPMatrix');
-            this.convoluteDiffuseEnvShaderProgramLocations.mvMatrixUniform = this.gl.getUniformLocation(convoluteDiffuseEnvShaderProgram, 'uMVMatrix');
-            this.convoluteDiffuseEnvShaderProgramLocations.envMapSamplerUniform = this.gl.getUniformLocation(convoluteDiffuseEnvShaderProgram, 'uEnvironmentMap');
-
-
-            const prefilterEnvVertex = this.prefilterEnvVertexShader = getShader(this.gl, prefilterEnvVertexShader, this.gl.VERTEX_SHADER);
-            const prefilterEnvFragment = this.prefilterEnvFragmentShader = getShader(this.gl, prefilterEnvFragmentShader, this.gl.FRAGMENT_SHADER);
-            const prefilterEnvShaderProgram = this.prefilterEnvShaderProgram = this.gl.createProgram();
-            this.gl.attachShader(prefilterEnvShaderProgram, prefilterEnvVertex);
-            this.gl.attachShader(prefilterEnvShaderProgram, prefilterEnvFragment);
-            this.gl.linkProgram(prefilterEnvShaderProgram);
-
-            if (!this.gl.getProgramParameter(prefilterEnvShaderProgram, this.gl.LINK_STATUS)) {
-                alert('Could not initialise shaders');
-            }
-
-            this.gl.useProgram(prefilterEnvShaderProgram);
-
-            this.prefilterEnvShaderProgramLocations.vertexPositionAttribute = this.gl.getAttribLocation(prefilterEnvShaderProgram, 'aPos');
-            this.prefilterEnvShaderProgramLocations.pMatrixUniform = this.gl.getUniformLocation(prefilterEnvShaderProgram, 'uPMatrix');
-            this.prefilterEnvShaderProgramLocations.mvMatrixUniform = this.gl.getUniformLocation(prefilterEnvShaderProgram, 'uMVMatrix');
-            this.prefilterEnvShaderProgramLocations.envMapSamplerUniform = this.gl.getUniformLocation(prefilterEnvShaderProgram, 'uEnvironmentMap');
-            this.prefilterEnvShaderProgramLocations.roughnessUniform = this.gl.getUniformLocation(prefilterEnvShaderProgram, 'uRoughness');
-
-
-            const integrateBRDFVertex = this.integrateBRDFVertexShader = getShader(this.gl, integrateBRDFVertexShader, this.gl.VERTEX_SHADER);
-            const integrateBRDFFragment = this.integrateBRDFFragmentShader = getShader(this.gl, integrateBRDFFragmentShader, this.gl.FRAGMENT_SHADER);
-            const integrateBRDFShaderProgram = this.integrateBRDFShaderProgram = this.gl.createProgram();
-            this.gl.attachShader(integrateBRDFShaderProgram, integrateBRDFVertex);
-            this.gl.attachShader(integrateBRDFShaderProgram, integrateBRDFFragment);
-            this.gl.linkProgram(integrateBRDFShaderProgram);
-
-            if (!this.gl.getProgramParameter(integrateBRDFShaderProgram, this.gl.LINK_STATUS)) {
-                alert('Could not initialise shaders');
-            }
-
-            this.gl.useProgram(integrateBRDFShaderProgram);
-
-            this.integrateBRDFShaderProgramLocations.vertexPositionAttribute = this.gl.getAttribLocation(integrateBRDFShaderProgram, 'aPos');
+            this.integrateBRDF = this.initShaderProgram(integrateBRDFVertexShader, integrateBRDFFragmentShader, {
+                aPos: 'aPos'
+            }, {});
         }
     }
 
@@ -2177,14 +2051,14 @@ export class ModelRenderer {
         this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, framebuffer);
         this.gl.framebufferTexture2D(this.gl.FRAMEBUFFER, this.gl.COLOR_ATTACHMENT0, this.gl.TEXTURE_2D, this.brdfLUT, 0);
 
-        this.gl.useProgram(this.integrateBRDFShaderProgram);
+        this.gl.useProgram(this.integrateBRDF.program);
 
         this.gl.viewport(0, 0, BRDF_LUT_SIZE, BRDF_LUT_SIZE);
         this.gl.clear(this.gl.COLOR_BUFFER_BIT | this.gl.DEPTH_BUFFER_BIT);
 
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.squareVertexBuffer);
-        this.gl.enableVertexAttribArray(this.integrateBRDFShaderProgramLocations.vertexPositionAttribute);
-        this.gl.vertexAttribPointer(this.integrateBRDFShaderProgramLocations.vertexPositionAttribute, 2, this.gl.FLOAT, false, 0, 0);
+        this.gl.enableVertexAttribArray(this.integrateBRDF.attributes.aPos);
+        this.gl.vertexAttribPointer(this.integrateBRDF.attributes.aPos, 2, this.gl.FLOAT, false, 0, 0);
 
         this.gl.drawArrays(this.gl.TRIANGLES, 0, 6);
 
