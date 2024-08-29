@@ -432,7 +432,7 @@ function generateGeosetVertexGroup (arr: Uint8Array|Uint16Array): string {
     if (!arr.length) {
         return '';
     }
-    
+
     let middle = '';
 
     for (let i = 0; i < arr.length; ++i) {
@@ -745,6 +745,7 @@ function generateParticleEmitter2Chunk (particleEmitter2: ParticleEmitter2) {
         generateIntPropIfNotEmpty('LifeSpan', particleEmitter2.LifeSpan, 0) +
         generateIntPropIfNotEmpty('TailLength', particleEmitter2.TailLength, 0) +
         generateIntPropIfNotEmpty('PriorityPlane', particleEmitter2.PriorityPlane, 0) +
+        generateIntPropIfNotEmpty('ReplaceableId', particleEmitter2.ReplaceableId, null) +
         (particleEmitter2.Flags & ParticleEmitter2Flags.SortPrimsFarZ ? generateBooleanProp('SortPrimsFarZ') : '') +
         (particleEmitter2.Flags & ParticleEmitter2Flags.LineEmitter ? generateBooleanProp('LineEmitter') : '') +
         (particleEmitter2.Flags & ParticleEmitter2Flags.ModelSpace ? generateBooleanProp('ModelSpace') : '') +
@@ -868,7 +869,7 @@ function generateBindPose (model: Model): string {
 }
 
 function generateBindPoseChunk (bindPose: BindPose): string {
-    const middle = generateBlockStart('Matrices', bindPose.Matrices.length, 1) + 
+    const middle = generateBlockStart('Matrices', bindPose.Matrices.length, 1) +
         bindPose.Matrices.map(item => {
             return generateTab(2) + generateArray(item);
         }).join('\n') + '\n' +

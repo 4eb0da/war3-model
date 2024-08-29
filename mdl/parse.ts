@@ -1104,7 +1104,7 @@ function parseParticleEmitter2 (state: State, model: Model): void {
                     break;
             }
             res[keyword] = parseAnimVector(state, type);
-        } else if (keyword === 'Variation' || keyword === 'Gravity') {
+        } else if (keyword === 'Variation' || keyword === 'Gravity' || keyword === 'ReplaceableId' || keyword === 'PriorityPlane') {
             res[keyword] = parseNumber(state);
         } else if (keyword === 'SortPrimsFarZ' || keyword === 'Unshaded' || keyword === 'LineEmitter' ||
             keyword === 'Unfogged' || keyword === 'ModelSpace' || keyword === 'XYQuad') {
