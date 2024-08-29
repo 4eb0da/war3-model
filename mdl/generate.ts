@@ -744,6 +744,7 @@ function generateParticleEmitter2Chunk (particleEmitter2: ParticleEmitter2) {
         generateIntPropIfNotEmpty('Time', particleEmitter2.Time, 0) +
         generateIntPropIfNotEmpty('LifeSpan', particleEmitter2.LifeSpan, 0) +
         generateIntPropIfNotEmpty('TailLength', particleEmitter2.TailLength, 0) +
+        generateIntPropIfNotEmpty('PriorityPlane', particleEmitter2.PriorityPlane, 0) +
         (particleEmitter2.Flags & ParticleEmitter2Flags.SortPrimsFarZ ? generateBooleanProp('SortPrimsFarZ') : '') +
         (particleEmitter2.Flags & ParticleEmitter2Flags.LineEmitter ? generateBooleanProp('LineEmitter') : '') +
         (particleEmitter2.Flags & ParticleEmitter2Flags.ModelSpace ? generateBooleanProp('ModelSpace') : '') +
