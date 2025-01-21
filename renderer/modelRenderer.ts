@@ -1463,7 +1463,7 @@ export class ModelRenderer {
                     this.gl.uniform1i(this.shaderProgramLocations.hasShadowMapUniform, 0);
                 }
 
-                const envTexture = this.model.Textures[material.Layers[5]?.TextureID as number].Image;
+                const envTexture = this.model.Textures[material.Layers[5]?.TextureID as number]?.Image;
                 const irradianceMap = this.rendererData.irradianceMap[envTexture];
                 const prefilteredEnv = this.rendererData.prefilteredEnvMap[envTexture];
                 if (useEnvironmentMap && irradianceMap) {
@@ -2599,13 +2599,23 @@ export class ModelRenderer {
             this.gl.uniformMatrix3fv(this.shaderProgramLocations.tVertexAnimUniform, false, identifyMat3);
         }
 
-        this.gl.activeTexture(this.gl.TEXTURE1);
-        this.gl.bindTexture(this.gl.TEXTURE_2D, this.rendererData.textures[normalTexture.Image]);
-        this.gl.uniform1i(this.shaderProgramLocations.normalSamplerUniform, 1);
+        if (this.model.Version === 1100) {
+            this.gl.activeTexture(this.gl.TEXTURE1);
+            this.gl.bindTexture(this.gl.TEXTURE_2D, null);
+            this.gl.uniform1i(this.shaderProgramLocations.normalSamplerUniform, 1);
 
-        this.gl.activeTexture(this.gl.TEXTURE2);
-        this.gl.bindTexture(this.gl.TEXTURE_2D, this.rendererData.textures[ormTexture.Image]);
-        this.gl.uniform1i(this.shaderProgramLocations.ormSamplerUniform, 2);
+            this.gl.activeTexture(this.gl.TEXTURE2);
+            this.gl.bindTexture(this.gl.TEXTURE_2D, null);
+            this.gl.uniform1i(this.shaderProgramLocations.ormSamplerUniform, 2);
+        } else {
+            this.gl.activeTexture(this.gl.TEXTURE1);
+            this.gl.bindTexture(this.gl.TEXTURE_2D, this.rendererData.textures[normalTexture.Image]);
+            this.gl.uniform1i(this.shaderProgramLocations.normalSamplerUniform, 1);
+
+            this.gl.activeTexture(this.gl.TEXTURE2);
+            this.gl.bindTexture(this.gl.TEXTURE_2D, this.rendererData.textures[ormTexture.Image]);
+            this.gl.uniform1i(this.shaderProgramLocations.ormSamplerUniform, 2);
+        }
 
         this.gl.uniform3fv(this.shaderProgramLocations.replaceableColorUniform, this.rendererData.teamColor);
     }
