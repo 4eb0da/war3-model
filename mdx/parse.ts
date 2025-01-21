@@ -251,7 +251,7 @@ function parseMaterials (model: Model, state: State, size: number): void {
         material.PriorityPlane = state.int32();
         material.RenderMode = state.int32();
 
-        if (model.Version >= 900) {
+        if (model.Version >= 900 && model.Version < 1100) {
             material.Shader = state.str(80);
         }
 
@@ -282,6 +282,24 @@ function parseMaterials (model: Model, state: State, size: number): void {
                     layer.FresnelColor = state.float32Array(3);
                     layer.FresnelOpacity = state.float32();
                     layer.FresnelTeamColor = state.float32();
+                }
+            }
+
+            if (model.Version >= 1100) {
+                state.int32(); // hd flag
+                const textureCount = state.int32();
+
+                for (let j = 0; j < textureCount; j++) {
+                    const textureId = state.int32(); //layer_texture.id
+                    layer.CoordId = state.int32(); //slot
+
+                    const keyword = state.keyword()
+                    if (keyword === 'KMFT') {
+                        layer.TextureID = state.animVector(AnimVectorType.INT1);
+                    } else {
+                        layer.TextureID = textureId;
+                        state.pos -=4
+                    }
                 }
             }
 

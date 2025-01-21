@@ -71,7 +71,8 @@
   "exports": {
     ".": {
       "require": "./dist/war3-model.js",
-      "import": "./dist/es/war3-model.js"
+      "import": "./dist/es/war3-model.js",
+      "types": "./dist/war3-model.d.ts"
     },
     "./dist/": "./dist/"
   }
