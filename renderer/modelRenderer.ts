@@ -2274,15 +2274,17 @@ export class ModelRenderer {
         this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, framebuffer);
         this.gl.framebufferTexture2D(this.gl.FRAMEBUFFER, this.gl.COLOR_ATTACHMENT0, this.gl.TEXTURE_2D, this.brdfLUT, 0);
 
-        this.gl.useProgram(this.integrateBRDF.program);
-
+        if (this.isHD) {
+            this.gl.useProgram(this.integrateBRDF.program);
+        }
         this.gl.viewport(0, 0, BRDF_LUT_SIZE, BRDF_LUT_SIZE);
         this.gl.clear(this.gl.COLOR_BUFFER_BIT | this.gl.DEPTH_BUFFER_BIT);
 
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.squareVertexBuffer);
-        this.gl.enableVertexAttribArray(this.integrateBRDF.attributes.aPos);
-        this.gl.vertexAttribPointer(this.integrateBRDF.attributes.aPos, 2, this.gl.FLOAT, false, 0, 0);
-
+        if (this.isHD) {
+            this.gl.enableVertexAttribArray(this.integrateBRDF.attributes.aPos);
+            this.gl.vertexAttribPointer(this.integrateBRDF.attributes.aPos, 2, this.gl.FLOAT, false, 0, 0);
+        }
         this.gl.drawArrays(this.gl.TRIANGLES, 0, 6);
 
         this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
