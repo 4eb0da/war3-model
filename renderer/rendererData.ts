@@ -21,6 +21,7 @@ export interface RendererData {
     geosetAnims: GeosetAnim[];
     geosetAlpha: number[];
     materialLayerTextureID: number[][];
+    materialLayerTextureIDs: number[][];
     teamColor: vec3;
     cameraPos: vec3;
     cameraQuat: quat;

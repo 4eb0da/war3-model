@@ -91,6 +91,9 @@ export interface Layer {
     FresnelOpacity?: AnimVector|number;
     /* Since Version: 1000 */
     FresnelTeamColor?: AnimVector|number;
+    /* Since version: 1100 */
+    ShaderTypeId?: number;
+    TextureIDs?: (AnimVector|number)[];
 }
 
 export enum MaterialRenderMode {

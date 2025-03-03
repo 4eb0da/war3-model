@@ -1131,6 +1131,7 @@ export class ModelRenderer {
             geosetAnims: [],
             geosetAlpha: [],
             materialLayerTextureID: [],
+            materialLayerTextureIDs: [],
             teamColor: null,
             cameraPos: null,
             cameraQuat: null,
@@ -1190,6 +1191,7 @@ export class ModelRenderer {
 
         for (let i = 0; i < model.Materials.length; ++i) {
             this.rendererData.materialLayerTextureID[i] = new Array(model.Materials[i].Layers.length);
+            this.rendererData.materialLayerTextureIDs[i] = new Array(model.Materials[i].Layers.length).fill([]);
         }
 
         this.interp = new ModelInterp(this.rendererData);
@@ -1375,9 +1377,26 @@ export class ModelRenderer {
             this.rendererData.geosetAlpha[i] = this.findAlpha(i);
         }
 
-        for (let i = 0; i < this.rendererData.materialLayerTextureID.length; ++i) {
-            for (let j = 0; j < this.rendererData.materialLayerTextureID[i].length; ++j) {
-                this.updateLayerTextureId(i, j);
+        for (let materialId = 0; materialId < this.rendererData.materialLayerTextureID.length; ++materialId) {
+            for (let layerId = 0; layerId < this.rendererData.materialLayerTextureID[materialId].length; ++layerId) {
+                const layer = this.model.Materials[materialId].Layers[layerId];
+                const TextureID: AnimVector|number = layer.TextureID;
+                const TextureIDs: (AnimVector|number)[] = layer.TextureIDs;
+
+                if (typeof TextureIDs !== 'undefined') {
+                    for (let i = 0; i < TextureIDs.length; ++i) {
+                        const id = TextureIDs[i];
+                        if (typeof id  === 'number') {
+                            this.rendererData.materialLayerTextureIDs[materialId][layerId][i] = id;
+                        } else {
+                            this.rendererData.materialLayerTextureIDs[materialId][layerId][i] = this.interp.num(id);
+                        }
+                    }
+                } else if (typeof TextureID === 'number') {
+                    this.rendererData.materialLayerTextureID[materialId][layerId] = TextureID;
+                } else {
+                    this.rendererData.materialLayerTextureID[materialId][layerId] = this.interp.num(TextureID);
+                }
             }
         }
     }
@@ -1929,16 +1948,6 @@ export class ModelRenderer {
         this.gl.deleteFramebuffer(framebuffer);
     }
 
-    private updateLayerTextureId (materialId: number, layerId: number): void {
-        const TextureID: AnimVector|number = this.model.Materials[materialId].Layers[layerId].TextureID;
-
-        if (typeof TextureID === 'number') {
-            this.rendererData.materialLayerTextureID[materialId][layerId] = TextureID;
-        } else {
-            this.rendererData.materialLayerTextureID[materialId][layerId] = this.interp.num(TextureID);
-        }
-    }
-
     private initShaderProgram<A extends string, U extends string>(
         vertex: string,
         fragment: string,
@@ -2274,17 +2283,15 @@ export class ModelRenderer {
         this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, framebuffer);
         this.gl.framebufferTexture2D(this.gl.FRAMEBUFFER, this.gl.COLOR_ATTACHMENT0, this.gl.TEXTURE_2D, this.brdfLUT, 0);
 
-        if (this.isHD) {
-            this.gl.useProgram(this.integrateBRDF.program);
-        }
+        this.gl.useProgram(this.integrateBRDF.program);
+
         this.gl.viewport(0, 0, BRDF_LUT_SIZE, BRDF_LUT_SIZE);
         this.gl.clear(this.gl.COLOR_BUFFER_BIT | this.gl.DEPTH_BUFFER_BIT);
 
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.squareVertexBuffer);
-        if (this.isHD) {
-            this.gl.enableVertexAttribArray(this.integrateBRDF.attributes.aPos);
-            this.gl.vertexAttribPointer(this.integrateBRDF.attributes.aPos, 2, this.gl.FLOAT, false, 0, 0);
-        }
+        this.gl.enableVertexAttribArray(this.integrateBRDF.attributes.aPos);
+        this.gl.vertexAttribPointer(this.integrateBRDF.attributes.aPos, 2, this.gl.FLOAT, false, 0, 0);
+
         this.gl.drawArrays(this.gl.TRIANGLES, 0, 6);
 
         this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
@@ -2505,11 +2512,12 @@ export class ModelRenderer {
     private setLayerPropsHD (materialID: number, layers: Layer[]): void {
         const baseLayer = layers[0];
         const textures = this.rendererData.materialLayerTextureID[materialID];
-        const diffuseTextureID = textures[0];
+        const texturesHD = this.rendererData.materialLayerTextureIDs[materialID];
+        const diffuseTextureID = baseLayer?.ShaderTypeId === 1 ? texturesHD[0][0] : textures[0];
         const diffuseTexture = this.model.Textures[diffuseTextureID];
-        const normalTextureID = textures[1];
+        const normalTextureID = baseLayer?.ShaderTypeId === 1 ? texturesHD[0][1] : textures[1];
         const normalTexture = this.model.Textures[normalTextureID];
-        const ormTextureID = textures[2];
+        const ormTextureID = baseLayer?.ShaderTypeId === 1 ? texturesHD[0][2] : textures[2];
         const ormTexture = this.model.Textures[ormTextureID];
         // const emissiveTextureID = textures[3];
         // const emissiveTexture = this.model.Textures[emissiveTextureID];
@@ -2601,23 +2609,13 @@ export class ModelRenderer {
             this.gl.uniformMatrix3fv(this.shaderProgramLocations.tVertexAnimUniform, false, identifyMat3);
         }
 
-        if (this.model.Version === 1100) {
-            this.gl.activeTexture(this.gl.TEXTURE1);
-            this.gl.bindTexture(this.gl.TEXTURE_2D, null);
-            this.gl.uniform1i(this.shaderProgramLocations.normalSamplerUniform, 1);
+        this.gl.activeTexture(this.gl.TEXTURE1);
+        this.gl.bindTexture(this.gl.TEXTURE_2D, this.rendererData.textures[normalTexture.Image]);
+        this.gl.uniform1i(this.shaderProgramLocations.normalSamplerUniform, 1);
 
-            this.gl.activeTexture(this.gl.TEXTURE2);
-            this.gl.bindTexture(this.gl.TEXTURE_2D, null);
-            this.gl.uniform1i(this.shaderProgramLocations.ormSamplerUniform, 2);
-        } else {
-            this.gl.activeTexture(this.gl.TEXTURE1);
-            this.gl.bindTexture(this.gl.TEXTURE_2D, this.rendererData.textures[normalTexture.Image]);
-            this.gl.uniform1i(this.shaderProgramLocations.normalSamplerUniform, 1);
-
-            this.gl.activeTexture(this.gl.TEXTURE2);
-            this.gl.bindTexture(this.gl.TEXTURE_2D, this.rendererData.textures[ormTexture.Image]);
-            this.gl.uniform1i(this.shaderProgramLocations.ormSamplerUniform, 2);
-        }
+        this.gl.activeTexture(this.gl.TEXTURE2);
+        this.gl.bindTexture(this.gl.TEXTURE_2D, this.rendererData.textures[ormTexture.Image]);
+        this.gl.uniform1i(this.shaderProgramLocations.ormSamplerUniform, 2);
 
         this.gl.uniform3fv(this.shaderProgramLocations.replaceableColorUniform, this.rendererData.teamColor);
     }

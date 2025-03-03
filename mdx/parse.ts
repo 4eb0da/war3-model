@@ -286,19 +286,20 @@ function parseMaterials (model: Model, state: State, size: number): void {
             }
 
             if (model.Version >= 1100) {
-                state.int32(); // hd flag
+                layer.ShaderTypeId = state.int32(); // hd flag
                 const textureCount = state.int32();
+                layer.TextureIDs = [];
 
                 for (let j = 0; j < textureCount; j++) {
                     const textureId = state.int32(); //layer_texture.id
-                    layer.CoordId = state.int32(); //slot
+                    const textureType = state.int32();
 
                     const keyword = state.keyword()
                     if (keyword === 'KMFT') {
-                        layer.TextureID = state.animVector(AnimVectorType.INT1);
+                        layer.TextureIDs[textureType] = state.animVector(AnimVectorType.INT1);
                     } else {
-                        layer.TextureID = textureId;
-                        state.pos -=4
+                        layer.TextureIDs[textureType] = textureId;
+                        state.pos -= 4;
                     }
                 }
             }
@@ -1013,7 +1014,7 @@ function parseFaceFX (model: Model, state: State, size: number): void {
     }
 
     const startPos = state.pos;
-    
+
     model.FaceFX = model.FaceFX || [];
 
     while (state.pos < startPos + size) {
@@ -1035,7 +1036,7 @@ function parseBindPose (model: Model, state: State, size: number): void {
     }
 
     const startPos = state.pos;
-    
+
     model.BindPoses = model.BindPoses || [];
 
     const len = state.int32();
@@ -1060,7 +1061,7 @@ function parseParticleEmitterPopcorn (model: Model, state: State, size: number):
     }
 
     const startPos = state.pos;
-    
+
     model.ParticleEmitterPopcorns = model.ParticleEmitterPopcorns || [];
 
     while (state.pos < startPos + size) {
