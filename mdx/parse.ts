@@ -290,11 +290,11 @@ function parseMaterials (model: Model, state: State, size: number): void {
                 const textureCount = state.int32();
                 layer.TextureIDs = [];
 
-                for (let j = 0; j < textureCount; j++) {
+                for (let j = 0; j < textureCount; ++j) {
                     const textureId = state.int32(); //layer_texture.id
                     const textureType = state.int32();
 
-                    const keyword = state.keyword()
+                    const keyword = state.keyword();
                     if (keyword === 'KMFT') {
                         layer.TextureIDs[textureType] = state.animVector(AnimVectorType.INT1);
                     } else {

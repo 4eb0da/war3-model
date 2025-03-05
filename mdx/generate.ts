@@ -278,6 +278,23 @@ function byteLengthLayer (model: Model, layer: Layer): number {
             4 /* FresnelTeamColor */ :
             0
         ) +
+        (model.Version >= 1100 ?
+            4 /* ShaderTypeId */ +
+            4 /* textureCount */ +
+            (layer.TextureIDs ?
+                layer.TextureIDs.reduce<number>((acc, item) => {
+                    return acc +
+                        4 /* textureId */ +
+                        4 /* textureType */ +
+                        (typeof item === 'object' ?
+                            4 /* keyword */ + byteLengthAnimVector(item as AnimVector, AnimVectorType.INT1) :
+                            0
+                        );
+                }, 0) :
+                0
+            ) :
+            0
+        ) +
         (layer.Alpha !== null && typeof layer.Alpha !== 'number' ?
             4 /* keyword */ + byteLengthAnimVector(layer.Alpha as AnimVector, AnimVectorType.FLOAT1) :
             0
@@ -310,7 +327,7 @@ function byteLengthMaterial (model: Model, material: Material): number {
         4 /* RenderMode */ +
         4 /* LAYS keyword */ +
         4 /* layer count */ +
-        (model.Version >= 900 ? 80 : 0) /* Shader */ +
+        (model.Version >= 900 && model.Version < 1100 ? 80 : 0) /* Shader */ +
         sum(material.Layers.map(layer => byteLengthLayer(model, layer)));
 }
 
@@ -336,7 +353,7 @@ function generateMaterials (model: Model, stream: Stream): void {
         stream.int32(byteLengthMaterial(model, material));
         stream.int32(material.PriorityPlane);
         stream.int32(material.RenderMode);
-        if (model.Version >= 900) {
+        if (model.Version >= 900 && model.Version < 1100) {
             stream.str(material.Shader || '', 80);
         }
         stream.keyword('LAYS');
@@ -358,6 +375,21 @@ function generateMaterials (model: Model, stream: Stream): void {
                     stream.float32Array(layer.FresnelColor instanceof Float32Array ? layer.FresnelColor : new Float32Array([1, 1, 1]));
                     stream.float32(typeof layer.FresnelOpacity === 'number' ? layer.FresnelOpacity : 0);
                     stream.float32(typeof layer.FresnelTeamColor === 'number' ? layer.FresnelTeamColor : 0);
+                }
+            }
+
+            if (model.Version >= 1100) {
+                stream.int32(layer.ShaderTypeId || 0);
+                const textures = layer.TextureIDs?.length || 0;
+                stream.int32(textures);
+                for (let i = 0; i < textures; ++i) {
+                    const id = layer.TextureIDs[i];
+                    stream.int32(typeof id === 'number' ? id : 0);
+                    stream.int32(i);
+                    if (typeof id === 'object') {
+                        stream.keyword('KMFT');
+                        stream.animVector(id, AnimVectorType.INT1);
+                    }
                 }
             }
 
@@ -1599,7 +1631,7 @@ function generateParticleEmitterPopcorns (model: Model, stream: Stream): void {
         stream.float32(typeof emitter.LifeSpan === 'number' ? emitter.LifeSpan : 0);
         stream.float32(typeof emitter.EmissionRate === 'number' ? emitter.EmissionRate : 1);
         stream.float32(typeof emitter.Speed === 'number' ? emitter.Speed : 0);
-        
+
         if (emitter.Color instanceof Float32Array) {
             stream.float32(emitter.Color[0]);
             stream.float32(emitter.Color[1]);
