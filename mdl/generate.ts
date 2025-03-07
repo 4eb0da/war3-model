@@ -298,7 +298,7 @@ function generateMaterials (model: Model): string {
 function generateMaterialChunk (model: Model, material: Material): string {
     let shader = '';
 
-    if (model.Version >= 900 && material.Shader) {
+    if (model.Version >= 900 && model.Version < 1100 && material.Shader) {
         shader = generateWrappedStringProp('Shader', material.Shader, false, 2);
     }
 
@@ -344,11 +344,29 @@ function generateLayerChunk (model: Model, layer: Layer) {
             middle += (layer.FresnelTeamColor !== undefined ? generateAnimVectorProp('FresnelTeamColor', layer.FresnelTeamColor, 0, 3) : '');
         }
     }
+    if (model.Version >= 1100) {
+        middle += generateIntProp('ShaderTypeId', layer.ShaderTypeId || 0, null, 3);
+
+        if (layer.TextureIDs) {
+            const mapping = [
+                'TextureID',
+                'NormalTextureID',
+                'ORMTextureID',
+                'EmissiveTextureID',
+                'TeamColorTextureID',
+                'ReflectionsTextureID'
+            ];
+
+            for (let i = 0, len = Math.min(6, layer.TextureIDs.length); i < len; ++i) {
+                middle += generateAnimVectorProp(mapping[i], layer.TextureIDs[i], null, 3);
+            }
+        }
+    }
 
     return generateBlockStart('Layer', null, 2) +
         generateStringProp('FilterMode', generateFilterMode(layer.FilterMode), null, 3) +
         (layer.Alpha !== undefined ? generateAnimVectorProp('Alpha', layer.Alpha, 1, 3) : '') +
-        (layer.TextureID !== undefined ? generateAnimVectorProp('TextureID', layer.TextureID, null, 3) : '') +
+        ((layer.TextureID !== undefined && layer.TextureIDs === undefined) ? generateAnimVectorProp('TextureID', layer.TextureID, null, 3) : '') +
         (layer.Shading & LayerShading.TwoSided ? generateBooleanProp('TwoSided', 3) : '') +
         (layer.Shading & LayerShading.Unshaded ? generateBooleanProp('Unshaded', 3) : '') +
         (layer.Shading & LayerShading.Unfogged ? generateBooleanProp('Unfogged', 3) : '') +
