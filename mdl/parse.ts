@@ -5,6 +5,7 @@ import {
     LightType, TVertexAnim, RibbonEmitter, ParticleEmitter2FilterMode, ParticleEmitter, ParticleEmitterFlags, NodeType,
     EventObject, Sequence, ModelInfo, Geoset, GeosetAnimInfo, FaceFX, BindPose, ParticleEmitterPopcorn, ParticleEmitterPopcornFlags
 } from '../model';
+import { LAYER_TEXTURE_NAME_MAP } from '../renderer/util';
 
 class State {
     public readonly str: string;
@@ -423,7 +424,7 @@ function parseLayer (state: State, model: Model): Layer {
             keyword = parseKeyword(state);
         }
 
-        if (!isStatic && keyword === 'TextureID') {
+        if (!isStatic && (keyword === 'TextureID' || model.Version >= 1100 && keyword in LAYER_TEXTURE_NAME_MAP)) {
             res[keyword] = parseAnimVector(state, AnimVectorType.INT1);
         } else if (!isStatic && (keyword === 'Alpha')) {
             res[keyword] = parseAnimVector(state, AnimVectorType.FLOAT1);
@@ -473,6 +474,9 @@ function parseLayer (state: State, model: Model): Layer {
         }
 
         parseSymbol(state, ',');
+
+        parseComment(state);
+        parseSpace(state);
     }
 
     strictParseSymbol(state, '}');
@@ -510,7 +514,7 @@ function parseMaterials (state: State, model: Model): void {
                 obj[keyword] = parseNumber(state);
             } else if (keyword === 'ConstantColor' || keyword === 'SortPrimsFarZ' || keyword === 'FullResolution') {
                 obj.RenderMode |= MaterialRenderMode[keyword];
-            } else if (model.Version >= 900 && keyword === 'Shader') {
+            } else if (model.Version >= 900 && model.Version <= 1100 && keyword === 'Shader') {
                 obj[keyword] = parseString(state);
             } else {
                 throw new Error('Unknown material property ' + keyword);
@@ -670,9 +674,7 @@ function parseGeoset (state: State, model: Model): void {
             } else if (keyword === 'Tangents') {
                 res.Tangents = parseGeosetPart(state, 4, GeosetPartType.FLOAT) as Float32Array;
             } else if (keyword === 'SkinWeights') {
-                const count = parseNumber(state);
-                const arr = new Uint8Array(count * 4);
-                res.SkinWeights = parseArray(state, arr, 0) as Uint8Array;
+                res.SkinWeights = parseGeosetPart(state, 8, GeosetPartType.INT) as Uint8Array;
             }
         }
     }
@@ -799,6 +801,8 @@ function parseNode (state: State, type: string, model: Model): Node {
         }
 
         parseSymbol(state, ',');
+        parseComment(state);
+        parseSpace(state);
     }
 
     strictParseSymbol(state, '}');
@@ -1488,6 +1492,7 @@ function parseBindPose (state: State, model: Model): void {
     for (let i = 0; i < count; ++i) {
         const matrix = new Float32Array(12);
         parseArray(state, matrix, 0);
+        parseSymbol(state, ',');
         res.Matrices.push(matrix);
     }
 

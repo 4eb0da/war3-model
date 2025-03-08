@@ -93,7 +93,11 @@ export interface Layer {
     FresnelTeamColor?: AnimVector|number;
     /* Since version: 1100 */
     ShaderTypeId?: number;
-    TextureIDs?: (AnimVector|number)[];
+    NormalTextureID?: AnimVector|number;
+    ORMTextureID?: AnimVector|number;
+    EmissiveTextureID?: AnimVector|number;
+    TeamColorTextureID?: AnimVector|number;
+    ReflectionsTextureID?: AnimVector|number;
 }
 
 export enum MaterialRenderMode {

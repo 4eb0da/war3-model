@@ -3,6 +3,7 @@ import {
     GeosetAnimInfo, GeosetAnim, Node, Bone, Helper, Attachment, EventObject, CollisionShape, CollisionShapeType,
     ParticleEmitter2, ParticleEmitter2FramesFlags, Camera, Light, TVertexAnim, RibbonEmitter, ParticleEmitter, FaceFX, BindPose, ParticleEmitterPopcorn
 } from '../model';
+import { LAYER_TEXTURE_ID_MAP } from '../renderer/util';
 
 const BIG_ENDIAN = true;
 const NONE = -1;
@@ -288,7 +289,6 @@ function parseMaterials (model: Model, state: State, size: number): void {
             if (model.Version >= 1100) {
                 layer.ShaderTypeId = state.int32(); // hd flag
                 const textureCount = state.int32();
-                layer.TextureIDs = [];
 
                 for (let j = 0; j < textureCount; ++j) {
                     const textureId = state.int32(); //layer_texture.id
@@ -296,9 +296,9 @@ function parseMaterials (model: Model, state: State, size: number): void {
 
                     const keyword = state.keyword();
                     if (keyword === 'KMFT') {
-                        layer.TextureIDs[textureType] = state.animVector(AnimVectorType.INT1);
+                        layer[LAYER_TEXTURE_ID_MAP[textureType]] = state.animVector(AnimVectorType.INT1);
                     } else {
-                        layer.TextureIDs[textureType] = textureId;
+                        layer[LAYER_TEXTURE_ID_MAP[textureType]] = textureId;
                         state.pos -= 4;
                     }
                 }

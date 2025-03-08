@@ -80,3 +80,21 @@ export function getShader (gl: WebGLRenderingContext, source: string, type: numb
 export function isWebGL2 (gl: WebGLRenderingContext | WebGL2RenderingContext): gl is WebGL2RenderingContext {
     return gl instanceof WebGL2RenderingContext;
 }
+
+export const LAYER_TEXTURE_NAME_MAP = {
+    'TextureID': 0,
+    'NormalTextureID': 1,
+    'ORMTextureID': 2,
+    'EmissiveTextureID': 3,
+    'TeamColorTextureID': 4,
+    'ReflectionsTextureID': 5
+};
+
+export const LAYER_TEXTURE_ID_MAP = [
+    'TextureID',
+    'NormalTextureID',
+    'ORMTextureID',
+    'EmissiveTextureID',
+    'TeamColorTextureID',
+    'ReflectionsTextureID'
+];

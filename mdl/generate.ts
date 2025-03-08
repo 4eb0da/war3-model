@@ -5,6 +5,7 @@ import {
     ParticleEmitter2Flags, ParticleEmitter2FramesFlags, RibbonEmitter, EventObject, Camera, CollisionShape,
     CollisionShapeType, ParticleEmitter, ParticleEmitterFlags, FaceFX, BindPose, ParticleEmitterPopcorn, ParticleEmitterPopcornFlags
 } from '../model';
+import { LAYER_TEXTURE_ID_MAP } from '../renderer/util';
 
 const FLOAT_PRESICION = 6;
 const EPSILON = 1e-6;
@@ -61,7 +62,7 @@ function generateNumber (val: number): string {
         .replace(negativeZeroRegExp, '0');
 }
 
-function generateArray (arr: Float32Array|Int32Array|Uint32Array, reverse = false): string {
+function generateArray (arr: Float32Array|Int32Array|Uint32Array|Uint8Array, reverse = false): string {
     let middle = '';
 
     if (reverse) {
@@ -347,26 +348,18 @@ function generateLayerChunk (model: Model, layer: Layer) {
     if (model.Version >= 1100) {
         middle += generateIntProp('ShaderTypeId', layer.ShaderTypeId || 0, null, 3);
 
-        if (layer.TextureIDs) {
-            const mapping = [
-                'TextureID',
-                'NormalTextureID',
-                'ORMTextureID',
-                'EmissiveTextureID',
-                'TeamColorTextureID',
-                'ReflectionsTextureID'
-            ];
-
-            for (let i = 0, len = Math.min(6, layer.TextureIDs.length); i < len; ++i) {
-                middle += generateAnimVectorProp(mapping[i], layer.TextureIDs[i], null, 3);
+        LAYER_TEXTURE_ID_MAP.slice(1).forEach(name => {
+            const val = layer[name];
+            if (val !== undefined) {
+                middle += generateAnimVectorProp(name, val, null, 3);
             }
-        }
+        });
     }
 
     return generateBlockStart('Layer', null, 2) +
         generateStringProp('FilterMode', generateFilterMode(layer.FilterMode), null, 3) +
         (layer.Alpha !== undefined ? generateAnimVectorProp('Alpha', layer.Alpha, 1, 3) : '') +
-        ((layer.TextureID !== undefined && layer.TextureIDs === undefined) ? generateAnimVectorProp('TextureID', layer.TextureID, null, 3) : '') +
+        (layer.TextureID !== undefined ? generateAnimVectorProp('TextureID', layer.TextureID, null, 3) : '') +
         (layer.Shading & LayerShading.TwoSided ? generateBooleanProp('TwoSided', 3) : '') +
         (layer.Shading & LayerShading.Unshaded ? generateBooleanProp('Unshaded', 3) : '') +
         (layer.Shading & LayerShading.Unfogged ? generateBooleanProp('Unfogged', 3) : '') +
@@ -412,7 +405,7 @@ function generateGeosetChunk (model: Model, geoset: Geoset): string {
         middle += (geoset.LevelOfDetail !== undefined ? generateIntProp('LevelOfDetail', geoset.LevelOfDetail) : '') +
             (geoset.Name ? generateWrappedStringProp('Name', geoset.Name) : '') +
             (geoset.Tangents ? generateGeosetArray('Tangents', geoset.Tangents, 4) : '') +
-            (geoset.SkinWeights ? generrateGeosetSkinWeights(geoset.SkinWeights) : '');
+            (geoset.SkinWeights ? generateGeosetArray('SkinWeights', geoset.SkinWeights, 8) : '');
     }
 
     return generateBlockStart('Geoset') +
@@ -433,7 +426,7 @@ function generateGeosetChunk (model: Model, geoset: Geoset): string {
         generateBlockEnd();
 }
 
-function generateGeosetArray (name: string, arr: Float32Array, elemLength: number): string {
+function generateGeosetArray (name: string, arr: Float32Array|Uint8Array, elemLength: number): string {
     let middle = '';
     const elemCount = arr.length / elemLength;
 
@@ -482,24 +475,6 @@ function generateGeosetGroups (groups: number[][]): string {
     return generateBlockStart(`Groups ${groups.length} ${totalMatrices}`, null, 1) +
         middle +
         generateBlockEnd(1);
-}
-
-function generrateGeosetSkinWeights (skinWeights: Uint8Array): string {
-    let res = generateBlockStart('SkinWeights', skinWeights.length / 4, 1);
-    for (let i = 0; i < skinWeights.length; ++i) {
-        if (i % 8 === 0) {
-            res += generateTab(2);
-        } else {
-            res += ' ';
-        }
-        res += skinWeights[i] + ',';
-        if ((i + 1) % 8 === 0) {
-            res += '\n';
-        }
-    }
-    res += generateBlockEnd(1);
-
-    return res;
 }
 
 function generateGeosetAnimInfos (anims: GeosetAnimInfo[]): string {
@@ -889,7 +864,7 @@ function generateBindPose (model: Model): string {
 function generateBindPoseChunk (bindPose: BindPose): string {
     const middle = generateBlockStart('Matrices', bindPose.Matrices.length, 1) +
         bindPose.Matrices.map(item => {
-            return generateTab(2) + generateArray(item);
+            return generateTab(2) + generateArray(item) + ',';
         }).join('\n') + '\n' +
         generateBlockEnd(1);
 

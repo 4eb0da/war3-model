@@ -1131,7 +1131,8 @@ export class ModelRenderer {
             geosetAnims: [],
             geosetAlpha: [],
             materialLayerTextureID: [],
-            materialLayerTextureIDs: [],
+            materialLayerNormalTextureID: [],
+            materialLayerOrmTextureID: [],
             teamColor: null,
             cameraPos: null,
             cameraQuat: null,
@@ -1191,7 +1192,8 @@ export class ModelRenderer {
 
         for (let i = 0; i < model.Materials.length; ++i) {
             this.rendererData.materialLayerTextureID[i] = new Array(model.Materials[i].Layers.length);
-            this.rendererData.materialLayerTextureIDs[i] = new Array(model.Materials[i].Layers.length).fill([]);
+            this.rendererData.materialLayerNormalTextureID[i] = new Array(model.Materials[i].Layers.length);
+            this.rendererData.materialLayerOrmTextureID[i] = new Array(model.Materials[i].Layers.length);
         }
 
         this.interp = new ModelInterp(this.rendererData);
@@ -1262,8 +1264,13 @@ export class ModelRenderer {
 
         if (this.model.Version >= 1000 && isWebGL2(this.gl)) {
             this.model.Materials.forEach(material => {
-                if (material.Shader === 'Shader_HD_DefaultUnit' && material.Layers.length === 6 && typeof material.Layers[5].TextureID === 'number') {
-                    this.rendererData.requiredEnvMaps[this.model.Textures[material.Layers[5].TextureID].Image] = true;
+                let layer;
+                if (
+                    material.Shader === 'Shader_HD_DefaultUnit' && material.Layers.length === 6 && typeof material.Layers[5].TextureID === 'number' ||
+                    this.model.Version >= 1100 && (layer = material.Layers.find(it => it.ShaderTypeId === 1 && it.ReflectionsTextureID)) && typeof layer.ReflectionsTextureID === 'number'
+                ) {
+                    const id = this.model.Version >= 1100 && layer ? layer.ReflectionsTextureID : material.Layers[5].TextureID;
+                    this.rendererData.requiredEnvMaps[this.model.Textures[id].Image] = true;
                 }
             });
         }
@@ -1381,21 +1388,19 @@ export class ModelRenderer {
             for (let layerId = 0; layerId < this.rendererData.materialLayerTextureID[materialId].length; ++layerId) {
                 const layer = this.model.Materials[materialId].Layers[layerId];
                 const TextureID: AnimVector|number = layer.TextureID;
-                const TextureIDs: (AnimVector|number)[] = layer.TextureIDs;
+                const NormalTextureID: AnimVector|number = layer.NormalTextureID;
+                const ORMTextureID: AnimVector|number = layer.ORMTextureID;
 
-                if (typeof TextureIDs !== 'undefined') {
-                    for (let i = 0; i < TextureIDs.length; ++i) {
-                        const id = TextureIDs[i];
-                        if (typeof id  === 'number') {
-                            this.rendererData.materialLayerTextureIDs[materialId][layerId][i] = id;
-                        } else {
-                            this.rendererData.materialLayerTextureIDs[materialId][layerId][i] = this.interp.num(id);
-                        }
-                    }
-                } else if (typeof TextureID === 'number') {
+                if (typeof TextureID === 'number') {
                     this.rendererData.materialLayerTextureID[materialId][layerId] = TextureID;
                 } else {
                     this.rendererData.materialLayerTextureID[materialId][layerId] = this.interp.num(TextureID);
+                }
+                if (typeof NormalTextureID !== 'undefined') {
+                    this.rendererData.materialLayerNormalTextureID[materialId][layerId] = typeof NormalTextureID === 'number' ? NormalTextureID : this.interp.num(NormalTextureID);
+                }
+                if (typeof ORMTextureID !== 'undefined') {
+                    this.rendererData.materialLayerOrmTextureID[materialId][layerId] = typeof ORMTextureID === 'number' ? ORMTextureID : this.interp.num(ORMTextureID);
                 }
             }
         }
@@ -1482,7 +1487,8 @@ export class ModelRenderer {
                     this.gl.uniform1i(this.shaderProgramLocations.hasShadowMapUniform, 0);
                 }
 
-                const envTexture = this.model.Textures[material.Layers[5]?.TextureID as number]?.Image;
+                const envTextureId = this.model.Version >= 1100 && material.Layers.find(it => it.ShaderTypeId === 1 && typeof it.ReflectionsTextureID === 'number')?.ReflectionsTextureID || material.Layers[5]?.TextureID;
+                const envTexture = this.model.Textures[envTextureId as number]?.Image;
                 const irradianceMap = this.rendererData.irradianceMap[envTexture];
                 const prefilteredEnv = this.rendererData.prefilteredEnvMap[envTexture];
                 if (useEnvironmentMap && irradianceMap) {
@@ -2265,7 +2271,7 @@ export class ModelRenderer {
     }
 
     private initBRDFLUT(): void {
-        if (!isWebGL2(this.gl) || !this.colorBufferFloatExt) {
+        if (!isWebGL2(this.gl) || !this.isHD || !this.colorBufferFloatExt) {
             return;
         }
 
@@ -2512,12 +2518,13 @@ export class ModelRenderer {
     private setLayerPropsHD (materialID: number, layers: Layer[]): void {
         const baseLayer = layers[0];
         const textures = this.rendererData.materialLayerTextureID[materialID];
-        const texturesHD = this.rendererData.materialLayerTextureIDs[materialID];
-        const diffuseTextureID = baseLayer?.ShaderTypeId === 1 ? texturesHD[0][0] : textures[0];
+        const normalTextres = this.rendererData.materialLayerNormalTextureID[materialID];
+        const ormTextres = this.rendererData.materialLayerOrmTextureID[materialID];
+        const diffuseTextureID = textures[0];
         const diffuseTexture = this.model.Textures[diffuseTextureID];
-        const normalTextureID = baseLayer?.ShaderTypeId === 1 ? texturesHD[0][1] : textures[1];
+        const normalTextureID = baseLayer?.ShaderTypeId === 1 ? normalTextres[0] : textures[1];
         const normalTexture = this.model.Textures[normalTextureID];
-        const ormTextureID = baseLayer?.ShaderTypeId === 1 ? texturesHD[0][2] : textures[2];
+        const ormTextureID = baseLayer?.ShaderTypeId === 1 ? ormTextres[0] : textures[2];
         const ormTexture = this.model.Textures[ormTextureID];
         // const emissiveTextureID = textures[3];
         // const emissiveTexture = this.model.Textures[emissiveTextureID];

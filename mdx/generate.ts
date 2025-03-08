@@ -3,6 +3,7 @@ import {
     Bone, Light, Attachment, ParticleEmitter2, ParticleEmitter2FramesFlags, RibbonEmitter, Camera, EventObject,
     CollisionShape, CollisionShapeType, ParticleEmitter, BindPose, ParticleEmitterPopcorn
 } from '../model';
+import { LAYER_TEXTURE_ID_MAP } from '../renderer/util';
 
 const BIG_ENDIAN = true;
 const NONE = -1;
@@ -281,25 +282,25 @@ function byteLengthLayer (model: Model, layer: Layer): number {
         (model.Version >= 1100 ?
             4 /* ShaderTypeId */ +
             4 /* textureCount */ +
-            (layer.TextureIDs ?
-                layer.TextureIDs.reduce<number>((acc, item) => {
-                    return acc +
+            LAYER_TEXTURE_ID_MAP.reduce((acc, name) => {
+                return acc + (
+                    typeof layer[name] !== 'undefined' ?
                         4 /* textureId */ +
                         4 /* textureType */ +
-                        (typeof item === 'object' ?
-                            4 /* keyword */ + byteLengthAnimVector(item as AnimVector, AnimVectorType.INT1) :
+                        (typeof layer[name] === 'object' ?
+                            4 /* keyword */ + byteLengthAnimVector(layer[name] as AnimVector, AnimVectorType.INT1) :
                             0
-                        );
-                }, 0) :
-                0
-            ) :
+                        ) :
+                    0
+                );
+            }, 0) :
             0
         ) +
         (layer.Alpha !== null && typeof layer.Alpha !== 'number' ?
             4 /* keyword */ + byteLengthAnimVector(layer.Alpha as AnimVector, AnimVectorType.FLOAT1) :
             0
         ) +
-        (layer.TextureID !== null && typeof layer.TextureID !== 'number' ?
+        (model.Version < 1100 && layer.TextureID !== null && typeof layer.TextureID !== 'number' ?
             4 /* keyword */ + byteLengthAnimVector(layer.TextureID as AnimVector, AnimVectorType.INT1) :
             0
         ) +
@@ -363,7 +364,7 @@ function generateMaterials (model: Model, stream: Stream): void {
             stream.int32(byteLengthLayer(model, layer));
             stream.int32(layer.FilterMode);
             stream.int32(layer.Shading);
-            stream.int32(typeof layer.TextureID === 'number' ? layer.TextureID : 0);
+            stream.int32((model.Version < 1100 || layer.ShaderTypeId === 0) && typeof layer.TextureID === 'number' ? layer.TextureID : 0);
             stream.int32(layer.TVertexAnimId !== null ? layer.TVertexAnimId : NONE);
             stream.int32(layer.CoordId);
             stream.float32(typeof layer.Alpha === 'number' ? layer.Alpha : 1);
@@ -380,10 +381,13 @@ function generateMaterials (model: Model, stream: Stream): void {
 
             if (model.Version >= 1100) {
                 stream.int32(layer.ShaderTypeId || 0);
-                const textures = layer.TextureIDs?.length || 0;
+                const textures = LAYER_TEXTURE_ID_MAP.filter(name => layer[name] !== undefined).length;
                 stream.int32(textures);
-                for (let i = 0; i < textures; ++i) {
-                    const id = layer.TextureIDs[i];
+                for (let i = 0; i < LAYER_TEXTURE_ID_MAP.length; ++i) {
+                    const id = layer[LAYER_TEXTURE_ID_MAP[i]];
+                    if (id === undefined) {
+                        continue;
+                    }
                     stream.int32(typeof id === 'number' ? id : 0);
                     stream.int32(i);
                     if (typeof id === 'object') {
