@@ -51,11 +51,11 @@ After conversion `mdx binary file` -> `in-memory structure` -> `mdx binary file`
 
 ## Reforged format is supported
 
-New versions 900 and 1000 are supported in parsers, generators and viewer.
+New versions 900, 1000 and 1100 are supported in parsers, generators and viewer.
 
 ## MDL/MDX support
 
-* Format versions 800 (classic War3), 1000 and 1100 (Reforged)
+* Format versions 800 (classic War3), 900, 1000 and 1100 (Reforged)
 * All standart features like Sequences, Bones, Cameras, etc
 * Multiple texture chunks (mdx only)
 * Multiple sequences/nodes with the same name (not quite sure is it feature or not, but War3 actually contains such models)
