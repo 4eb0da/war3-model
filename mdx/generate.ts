@@ -389,9 +389,9 @@ function generateMaterials (model: Model, stream: Stream): void {
                         continue;
                     }
                     stream.int32(typeof id === 'number' ? id : 0);
-                    stream.int32(i);
+                    stream.int32(typeof id === 'number' ? i : 0); // ?
                     if (typeof id === 'object') {
-                        stream.keyword('KMFT');
+                        stream.keyword('KMTF');
                         stream.animVector(id, AnimVectorType.INT1);
                     }
                 }
@@ -401,7 +401,7 @@ function generateMaterials (model: Model, stream: Stream): void {
                 stream.keyword('KMTA');
                 stream.animVector(layer.Alpha, AnimVectorType.FLOAT1);
             }
-            if (layer.TextureID && typeof layer.TextureID !== 'number') {
+            if (model.Version < 1100 && layer.TextureID && typeof layer.TextureID !== 'number') {
                 stream.keyword('KMTF');
                 stream.animVector(layer.TextureID, AnimVectorType.INT1);
             }
