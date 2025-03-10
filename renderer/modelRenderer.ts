@@ -1408,6 +1408,7 @@ export class ModelRenderer {
 
     public render (mvMatrix: mat4, pMatrix: mat4, {
         wireframe,
+        levelOfDetail = 0,
         useEnvironmentMap = false,
         shadowMapTexture,
         shadowMapMatrix,
@@ -1415,6 +1416,7 @@ export class ModelRenderer {
         shadowSmoothingStep
     } : {
         wireframe: boolean;
+        levelOfDetail?: number;
         useEnvironmentMap?: boolean;
         shadowMapTexture?: WebGLTexture;
         shadowMapMatrix?: mat4;
@@ -1455,7 +1457,7 @@ export class ModelRenderer {
             if (this.rendererData.geosetAlpha[i] < 1e-6) {
                 continue;
             }
-            if (geoset.LevelOfDetail > 0) {
+            if (geoset.LevelOfDetail !== undefined && geoset.LevelOfDetail !== levelOfDetail) {
                 continue;
             }
 
@@ -2157,10 +2159,6 @@ export class ModelRenderer {
     private initBuffers (): void {
         for (let i = 0; i < this.model.Geosets.length; ++i) {
             const geoset = this.model.Geosets[i];
-
-            if (geoset.LevelOfDetail > 0) {
-                continue;
-            }
 
             this.vertexBuffer[i] = this.gl.createBuffer();
             if (this.softwareSkinning) {

@@ -38,6 +38,7 @@ let showSkeleton = false;
 let skeletonNodes: string[] | null = null;
 let shadow = true;
 let ibl = true;
+let lod = 0;
 
 const cameraBasePos: vec3 = vec3.create();
 const cameraPos: vec3 = vec3.create();
@@ -199,6 +200,7 @@ function drawScene() {
         modelRenderer.renderEnvironment(mvMatrix, pMatrix);
     }
     modelRenderer.render(mvMatrix, pMatrix, {
+        levelOfDetail: lod,
         wireframe,
         useEnvironmentMap: ibl,
         shadowMapTexture: shadow ? framebufferDepthTexture : undefined,
@@ -373,6 +375,12 @@ function initControls() {
     setShowSkeleton(skeletonCheck.checked);
     skeletonCheck.addEventListener('input', () => {
         setShowSkeleton(skeletonCheck.checked);
+    });
+
+    const lodSelect = document.getElementById('lod') as HTMLInputElement;
+    lod = Number(lodSelect.value);
+    lodSelect.addEventListener('change', () => {
+        lod = Number(lodSelect.value);
     });
 }
 
