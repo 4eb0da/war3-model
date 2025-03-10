@@ -47,20 +47,22 @@ fs.writeFileSync('out.png', PNG.sync.write(png));
 
 100% of both old classic Warcraft 3 and Reforged models can be parsed.
 
-After conversion `mdx binary file` -> `in-memory structure` -> `mdx binary file` ~99.7% (7908/7927) of them would be byte-to-byte identical (19 of them contains unused data).
+After conversion `mdx binary file` -> `in-memory structure` -> `mdx binary file` ~99.7% (8753/8773) of them would be byte-to-byte identical (some of them contains unused data).
 
 ## Reforged format is supported
 
-New versions 900 and 1000 are supported in parsers, generators and viewer.
+New versions 900 (not sure), 1000 and 1100 are supported in parsers, generators and viewer.
 
 ## MDL/MDX support
+
+* Format versions 800 (classic War3), 900 (not tested), 1000 and 1100 (Reforged)
 * All standart features like Sequences, Bones, Cameras, etc
 * Multiple texture chunks (mdx only)
 * Multiple sequences/nodes with the same name (not quite sure is it feature or not, but War3 actually contains such models)
 * SoundTrack not supported
-* Reforged data
 
 ## Renderer support
+
 * Standart geometry/animation
 * Custom team color setting
 * ReplaceableId 1/2
@@ -70,12 +72,13 @@ New versions 900 and 1000 are supported in parsers, generators and viewer.
 * Billboarded/BillboardedLockXYZ, w/o DontInherit/CameraAnchored
 * RibbonEmitter (w/o Gravity and TextureSlot/Color animation)
 * ParticleEmitter2 (with Tail/Head/Both/Squirt(?))
-* Reforged PBR lightning (orm textures, specular, normal mapping, etc)
+* Reforged PBR lightning (orm textures, specular, normal mapping, env textures, etc)
 * No Light nodes support (Light, Unshaded, etc)
 * No render priority support (PriorityPlane and others)
 * BLP / DDS are supported
 
 ## BLP support
+
 * BLP1 only (not BLP0 and BLP2 support)
 * Decoder only, no encoder
 * Direct & jpeg data
@@ -87,6 +90,7 @@ New versions 900 and 1000 are supported in parsers, generators and viewer.
 * dxt1, dxt3, dxt5, ati2 (also known as bc5)
 
 ## Thanks
+
 * Magos (MDX specification, War3 Model Editor app/source)
 * GhostWolf (aka flowtsohg) (MDX specification, BLP decoder code)
 * Алексей (MdlVis app/source)

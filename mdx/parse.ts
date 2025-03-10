@@ -3,6 +3,7 @@ import {
     GeosetAnimInfo, GeosetAnim, Node, Bone, Helper, Attachment, EventObject, CollisionShape, CollisionShapeType,
     ParticleEmitter2, ParticleEmitter2FramesFlags, Camera, Light, TVertexAnim, RibbonEmitter, ParticleEmitter, FaceFX, BindPose, ParticleEmitterPopcorn
 } from '../model';
+import { LAYER_TEXTURE_ID_MAP } from '../renderer/util';
 
 const BIG_ENDIAN = true;
 const NONE = -1;
@@ -251,7 +252,7 @@ function parseMaterials (model: Model, state: State, size: number): void {
         material.PriorityPlane = state.int32();
         material.RenderMode = state.int32();
 
-        if (model.Version >= 900) {
+        if (model.Version >= 900 && model.Version < 1100) {
             material.Shader = state.str(80);
         }
 
@@ -282,6 +283,26 @@ function parseMaterials (model: Model, state: State, size: number): void {
                     layer.FresnelColor = state.float32Array(3);
                     layer.FresnelOpacity = state.float32();
                     layer.FresnelTeamColor = state.float32();
+                }
+            }
+
+            if (model.Version >= 1100) {
+                layer.ShaderTypeId = state.int32(); // hd flag
+                const textureCount = state.int32();
+
+                for (let j = 0; j < textureCount; ++j) {
+                    const textureId = state.int32(); //layer_texture.id
+                    // const textureType = state.int32();
+                    state.int32();
+                    const textureType = j;
+
+                    const keyword = state.keyword();
+                    if (keyword === 'KMTF') {
+                        layer[LAYER_TEXTURE_ID_MAP[textureType]] = state.animVector(AnimVectorType.INT1);
+                    } else {
+                        layer[LAYER_TEXTURE_ID_MAP[textureType]] = textureId;
+                        state.pos -= 4;
+                    }
                 }
             }
 
@@ -995,7 +1016,7 @@ function parseFaceFX (model: Model, state: State, size: number): void {
     }
 
     const startPos = state.pos;
-    
+
     model.FaceFX = model.FaceFX || [];
 
     while (state.pos < startPos + size) {
@@ -1017,7 +1038,7 @@ function parseBindPose (model: Model, state: State, size: number): void {
     }
 
     const startPos = state.pos;
-    
+
     model.BindPoses = model.BindPoses || [];
 
     const len = state.int32();
@@ -1042,7 +1063,7 @@ function parseParticleEmitterPopcorn (model: Model, state: State, size: number):
     }
 
     const startPos = state.pos;
-    
+
     model.ParticleEmitterPopcorns = model.ParticleEmitterPopcorns || [];
 
     while (state.pos < startPos + size) {

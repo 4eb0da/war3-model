@@ -3,6 +3,7 @@ import {
     Bone, Light, Attachment, ParticleEmitter2, ParticleEmitter2FramesFlags, RibbonEmitter, Camera, EventObject,
     CollisionShape, CollisionShapeType, ParticleEmitter, BindPose, ParticleEmitterPopcorn
 } from '../model';
+import { LAYER_TEXTURE_ID_MAP } from '../renderer/util';
 
 const BIG_ENDIAN = true;
 const NONE = -1;
@@ -278,11 +279,28 @@ function byteLengthLayer (model: Model, layer: Layer): number {
             4 /* FresnelTeamColor */ :
             0
         ) +
+        (model.Version >= 1100 ?
+            4 /* ShaderTypeId */ +
+            4 /* textureCount */ +
+            LAYER_TEXTURE_ID_MAP.reduce((acc, name) => {
+                return acc + (
+                    typeof layer[name] !== 'undefined' ?
+                        4 /* textureId */ +
+                        4 /* textureType */ +
+                        (typeof layer[name] === 'object' ?
+                            4 /* keyword */ + byteLengthAnimVector(layer[name] as AnimVector, AnimVectorType.INT1) :
+                            0
+                        ) :
+                    0
+                );
+            }, 0) :
+            0
+        ) +
         (layer.Alpha !== null && typeof layer.Alpha !== 'number' ?
             4 /* keyword */ + byteLengthAnimVector(layer.Alpha as AnimVector, AnimVectorType.FLOAT1) :
             0
         ) +
-        (layer.TextureID !== null && typeof layer.TextureID !== 'number' ?
+        (model.Version < 1100 && layer.TextureID !== null && typeof layer.TextureID !== 'number' ?
             4 /* keyword */ + byteLengthAnimVector(layer.TextureID as AnimVector, AnimVectorType.INT1) :
             0
         ) +
@@ -310,7 +328,7 @@ function byteLengthMaterial (model: Model, material: Material): number {
         4 /* RenderMode */ +
         4 /* LAYS keyword */ +
         4 /* layer count */ +
-        (model.Version >= 900 ? 80 : 0) /* Shader */ +
+        (model.Version >= 900 && model.Version < 1100 ? 80 : 0) /* Shader */ +
         sum(material.Layers.map(layer => byteLengthLayer(model, layer)));
 }
 
@@ -336,7 +354,7 @@ function generateMaterials (model: Model, stream: Stream): void {
         stream.int32(byteLengthMaterial(model, material));
         stream.int32(material.PriorityPlane);
         stream.int32(material.RenderMode);
-        if (model.Version >= 900) {
+        if (model.Version >= 900 && model.Version < 1100) {
             stream.str(material.Shader || '', 80);
         }
         stream.keyword('LAYS');
@@ -346,7 +364,7 @@ function generateMaterials (model: Model, stream: Stream): void {
             stream.int32(byteLengthLayer(model, layer));
             stream.int32(layer.FilterMode);
             stream.int32(layer.Shading);
-            stream.int32(typeof layer.TextureID === 'number' ? layer.TextureID : 0);
+            stream.int32(model.Version < 1100 && typeof layer.TextureID === 'number' ? layer.TextureID : 0);
             stream.int32(layer.TVertexAnimId !== null ? layer.TVertexAnimId : NONE);
             stream.int32(layer.CoordId);
             stream.float32(typeof layer.Alpha === 'number' ? layer.Alpha : 1);
@@ -361,11 +379,29 @@ function generateMaterials (model: Model, stream: Stream): void {
                 }
             }
 
+            if (model.Version >= 1100) {
+                stream.int32(layer.ShaderTypeId || 0);
+                const textures = LAYER_TEXTURE_ID_MAP.filter(name => layer[name] !== undefined).length;
+                stream.int32(textures);
+                for (let i = 0; i < LAYER_TEXTURE_ID_MAP.length; ++i) {
+                    const id = layer[LAYER_TEXTURE_ID_MAP[i]];
+                    if (id === undefined) {
+                        continue;
+                    }
+                    stream.int32(typeof id === 'number' ? id : 0);
+                    stream.int32(typeof id === 'number' ? i : 0); // ?
+                    if (typeof id === 'object') {
+                        stream.keyword('KMTF');
+                        stream.animVector(id, AnimVectorType.INT1);
+                    }
+                }
+            }
+
             if (layer.Alpha && typeof layer.Alpha !== 'number') {
                 stream.keyword('KMTA');
                 stream.animVector(layer.Alpha, AnimVectorType.FLOAT1);
             }
-            if (layer.TextureID && typeof layer.TextureID !== 'number') {
+            if (model.Version < 1100 && layer.TextureID && typeof layer.TextureID !== 'number') {
                 stream.keyword('KMTF');
                 stream.animVector(layer.TextureID, AnimVectorType.INT1);
             }
@@ -1599,7 +1635,7 @@ function generateParticleEmitterPopcorns (model: Model, stream: Stream): void {
         stream.float32(typeof emitter.LifeSpan === 'number' ? emitter.LifeSpan : 0);
         stream.float32(typeof emitter.EmissionRate === 'number' ? emitter.EmissionRate : 1);
         stream.float32(typeof emitter.Speed === 'number' ? emitter.Speed : 0);
-        
+
         if (emitter.Color instanceof Float32Array) {
             stream.float32(emitter.Color[0]);
             stream.float32(emitter.Color[1]);
