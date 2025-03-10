@@ -364,7 +364,7 @@ function generateMaterials (model: Model, stream: Stream): void {
             stream.int32(byteLengthLayer(model, layer));
             stream.int32(layer.FilterMode);
             stream.int32(layer.Shading);
-            stream.int32((model.Version < 1100 || layer.ShaderTypeId === 0) && typeof layer.TextureID === 'number' ? layer.TextureID : 0);
+            stream.int32(model.Version < 1100 && typeof layer.TextureID === 'number' ? layer.TextureID : 0);
             stream.int32(layer.TVertexAnimId !== null ? layer.TVertexAnimId : NONE);
             stream.int32(layer.CoordId);
             stream.float32(typeof layer.Alpha === 'number' ? layer.Alpha : 1);
