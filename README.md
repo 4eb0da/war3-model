@@ -47,15 +47,15 @@ fs.writeFileSync('out.png', PNG.sync.write(png));
 
 100% of both old classic Warcraft 3 and Reforged models can be parsed.
 
-After conversion `mdx binary file` -> `in-memory structure` -> `mdx binary file` ~99.7% (7908/7927) of them would be byte-to-byte identical (19 of them contains unused data).
+After conversion `mdx binary file` -> `in-memory structure` -> `mdx binary file` ~99.7% (8753/8773) of them would be byte-to-byte identical (some of them contains unused data).
 
 ## Reforged format is supported
 
-New versions 900, 1000 and 1100 are supported in parsers, generators and viewer.
+New versions 900 (not sure), 1000 and 1100 are supported in parsers, generators and viewer.
 
 ## MDL/MDX support
 
-* Format versions 800 (classic War3), 900, 1000 and 1100 (Reforged)
+* Format versions 800 (classic War3), 900 (not tested), 1000 and 1100 (Reforged)
 * All standart features like Sequences, Bones, Cameras, etc
 * Multiple texture chunks (mdx only)
 * Multiple sequences/nodes with the same name (not quite sure is it feature or not, but War3 actually contains such models)
