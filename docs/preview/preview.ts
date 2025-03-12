@@ -159,7 +159,7 @@ function drawScene() {
         cameraBasePos,
         Math.cos(cameraTheta) * Math.cos(cameraPhi) * cameraDistance,
         Math.cos(cameraTheta) * Math.sin(cameraPhi) * cameraDistance,
-        Math.sin(cameraTheta) * cameraDistance
+        cameraTargetZ + Math.sin(cameraTheta) * cameraDistance
     );
     cameraTarget[2] = cameraTargetZ;
 
@@ -320,12 +320,6 @@ function initControls() {
         modelRenderer.setSequence(parseInt(select.value, 10));
     });
 
-    const inputZ = document.getElementById('targetZ') as HTMLInputElement;
-    cameraTargetZ = parseInt(inputZ.value, 10);
-    inputZ.addEventListener('input', () => {
-        cameraTargetZ = parseInt(inputZ.value, 10);
-    });
-
     const inputDistance = document.getElementById('distance') as HTMLInputElement;
     cameraDistance = parseInt(inputDistance.value, 10);
     inputDistance.addEventListener('input', () => {
@@ -386,6 +380,7 @@ function initControls() {
 
 function initCameraMove() {
     let down = false;
+    let isMiddle = false;
     let downX, downY;
 
     function coords(event) {
@@ -408,10 +403,11 @@ function initCameraMove() {
     }
 
     function pointerDown(event: PointerEvent) {
-        if (event.target !== canvas || event.button) {
+        if (event.target !== canvas || event.button > 1) {
             return;
         }
 
+        isMiddle = event.button === 1;
         down = true;
 
         [downX, downY] = coords(event);
@@ -433,14 +429,23 @@ function initCameraMove() {
 
         const [x, y] = coords(event);
 
-        cameraPhi += -1 * (x - downX) * 0.01;
-        cameraTheta += (y - downY) * 0.01;
+        if (isMiddle) {
+            cameraTargetZ += (y - downY) * .2;
 
-        if (cameraTheta > Math.PI / 2 * 0.98) {
-            cameraTheta = Math.PI / 2 * 0.98;
-        }
-        if (cameraTheta < -Math.PI / 2 * 0.98) {
-            cameraTheta = -Math.PI / 2 * 0.98;
+            const min = model?.Info.MinimumExtent[2] || 0;
+            const max = model?.Info.MaximumExtent[2] || 100;
+
+            cameraTargetZ = Math.max(min, Math.min(max, cameraTargetZ));
+        } else {
+            cameraPhi += -1 * (x - downX) * 0.01;
+            cameraTheta += (y - downY) * 0.01;
+
+            if (cameraTheta > Math.PI / 2 * 0.98) {
+                cameraTheta = Math.PI / 2 * 0.98;
+            }
+            if (cameraTheta < -Math.PI / 2 * 0.98) {
+                cameraTheta = -Math.PI / 2 * 0.98;
+            }
         }
 
         downX = x;
