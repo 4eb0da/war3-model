@@ -39,6 +39,7 @@ let skeletonNodes: string[] | null = null;
 let shadow = true;
 let ibl = true;
 let lod = 0;
+let isAnimationPlaying = true;
 
 const cameraBasePos: vec3 = vec3.create();
 const cameraPos: vec3 = vec3.create();
@@ -59,7 +60,10 @@ function updateModel(timestamp: number) {
     // delta /= 10;
     start = timestamp;
 
-    modelRenderer.update(delta);
+    if (isAnimationPlaying) {
+        modelRenderer.update(delta);
+    }
+    updateAnimationFrame();
 }
 
 function initGL() {
@@ -257,6 +261,7 @@ function processModelLoading() {
     modelRenderer.initGL(gl);
 
     setAnimationList();
+    updateAnimationFrame();
 }
 
 /* function setSampleTextures () {
@@ -376,6 +381,23 @@ function initControls() {
     lodSelect.addEventListener('change', () => {
         lod = Number(lodSelect.value);
     });
+
+    const toggleAnimation = document.querySelector<HTMLInputElement>('#toggle_animation') as HTMLInputElement;
+    toggleAnimation.addEventListener('click', () => {
+        isAnimationPlaying = !isAnimationPlaying;
+        toggleAnimation.textContent = isAnimationPlaying ? '⏸' : '⏵';
+    });
+
+    const frameRange = document.querySelector<HTMLInputElement>('#frame_range') as HTMLInputElement;
+    const frameInput = document.querySelector<HTMLInputElement>('#frame_input') as HTMLInputElement;
+    frameRange.addEventListener('input', () => {
+        modelRenderer.setFrame(Number(frameRange.value));
+        modelRenderer.update(0);
+    });
+    frameInput.addEventListener('input', () => {
+        modelRenderer.setFrame(Number(frameInput.value));
+        modelRenderer.update(0);
+    });
 }
 
 function initCameraMove() {
@@ -488,6 +510,24 @@ function updateCanvasSize() {
 
     canvas.width = width * dpr;
     canvas.height = height * dpr;
+}
+
+function updateAnimationFrame() {
+    const index = modelRenderer.getSequence();
+    const animation = model.Sequences[index];
+    const frame = Math.round(modelRenderer.getFrame());
+
+    const range = document.querySelector<HTMLInputElement>('#frame_range');
+    const input = document.querySelector<HTMLInputElement>('#frame_input');
+    const select = document.getElementById('select') as HTMLSelectElement;
+
+    range.setAttribute('min', String(animation.Interval[0]));
+    range.setAttribute('max', String(animation.Interval[1]));
+    range.value = String(frame);
+
+    input.value = String(frame);
+
+    select.value = String(index);
 }
 
 function setAnimationList() {

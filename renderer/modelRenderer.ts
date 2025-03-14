@@ -1364,6 +1364,26 @@ export class ModelRenderer {
         this.rendererData.frame = this.rendererData.animationInfo.Interval[0];
     }
 
+    public getSequence (): number {
+        return this.rendererData.animation;
+    }
+
+    public setFrame (frame: number): void {
+        const index = this.model.Sequences.findIndex(it => it.Interval[0] <= frame && it.Interval[1] >= frame);
+
+        if (index < 0) {
+            return;
+        }
+
+        this.rendererData.animation = index;
+        this.rendererData.animationInfo = this.model.Sequences[this.rendererData.animation];
+        this.rendererData.frame = frame;
+    }
+
+    public getFrame (): number {
+        return this.rendererData.frame;
+    }
+
     public setTeamColor (color: vec3): void {
         vec3.copy(this.rendererData.teamColor, color);
     }
