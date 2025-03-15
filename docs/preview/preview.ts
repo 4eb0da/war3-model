@@ -317,12 +317,16 @@ const inputColor = document.getElementById('color') as HTMLInputElement;
 
 function initControls() {
     inputColor.addEventListener('input', () => {
-        modelRenderer.setTeamColor(parseColor(inputColor.value));
+        if (modelRenderer) {
+            modelRenderer.setTeamColor(parseColor(inputColor.value));
+        }
     });
 
     const select = document.getElementById('select') as HTMLSelectElement;
     select.addEventListener('input', () => {
-        modelRenderer.setSequence(parseInt(select.value, 10));
+        if (modelRenderer) {
+            modelRenderer.setSequence(parseInt(select.value, 10));
+        }
     });
 
     const inputDistance = document.getElementById('distance') as HTMLInputElement;
@@ -391,12 +395,16 @@ function initControls() {
     const frameRange = document.querySelector<HTMLInputElement>('#frame_range') as HTMLInputElement;
     const frameInput = document.querySelector<HTMLInputElement>('#frame_input') as HTMLInputElement;
     frameRange.addEventListener('input', () => {
-        modelRenderer.setFrame(Number(frameRange.value));
-        modelRenderer.update(0);
+        if (modelRenderer) {
+            modelRenderer.setFrame(Number(frameRange.value));
+            modelRenderer.update(0);
+        }
     });
     frameInput.addEventListener('input', () => {
-        modelRenderer.setFrame(Number(frameInput.value));
-        modelRenderer.update(0);
+        if (modelRenderer) {
+            modelRenderer.setFrame(Number(frameInput.value));
+            modelRenderer.update(0);
+        }
     });
 }
 
@@ -513,6 +521,10 @@ function updateCanvasSize() {
 }
 
 function updateAnimationFrame() {
+    if (!modelRenderer) {
+        return;
+    }
+
     const index = modelRenderer.getSequence();
     const animation = model.Sequences[index];
     const frame = Math.round(modelRenderer.getFrame());
