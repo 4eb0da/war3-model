@@ -18,17 +18,69 @@
         <canvas id="canvas" width="300" height="300"></canvas>
     </div>
     <div class="controls">
-        <label>Team color <input type="color" id="color" value="#ff0000"></label>
-        <label>Animation <select id="select"><option>None</option></select></label>
-        <label>Target z <input type="range" id="targetZ" value="50" min="0" max="200"></label>
-        <label>Camera distance <input type="range" id="distance" value="500" min="100" max="1000"></label>
-        <label>Wireframe <input type="checkbox" id="wireframe"></label>
-        <fieldset class="skeleton-group">
-            <label>Show skeleton <input type="checkbox" id="show_skeleton"></label>
-            <label>Skeleton nodes <select id="skeleton" disabled><option value="*">All</option></select></label>
+        <label class="row">
+            Team color
+            <div class="sub">
+                <input type="color" id="color" value="#ff0000">
+            </div>
+        </label>
+        <div class="row">
+            Animation
+            <div class="sub sub_flex">
+                <select id="select"><option>None</option></select>
+            </div>
+            <div class="sub sub_flex">
+                <button id="toggle_animation">⏸</button>
+                <input type="range" id="frame_range">
+                <input type="number" id="frame_input">
+            </div>
+        </div>
+        <label class="row">
+            Camera distance
+            <div class="sub sub_flex">
+                <input type="range" id="distance" value="500" min="100" max="1000">
+            </div>
+        </label>
+        <label class="row">
+            Wireframe
+            <div class="sub">
+                <input type="checkbox" id="wireframe">
+            </div>
+        </label>
+        <fieldset class="skeleton-group row">
+            <label>
+                Skeleton
+                <div class="sub">
+                    <input type="checkbox" id="show_skeleton">
+                </div>
+            </label>
+            <div class="sub sub_flex">
+                <label>Skeleton nodes <select id="skeleton" disabled><option value="*">All</option></select></label>
+            </div>
         </fieldset>
-        <label>Shadow <input type="checkbox" id="shadow" checked></label>
-        <label>IBL <input type="checkbox" id="ibl" checked></label>
+        <label class="row">
+            Shadow
+            <div class="sub">
+                <input type="checkbox" id="shadow" checked>
+            </div>
+        </label>
+        <label class="row">
+            Image-based lightning
+            <div class="sub">
+                <input type="checkbox" id="ibl">
+            </div>
+        </label>
+        <label class="row">
+            Level of Detail
+            <div class="sub">
+                <select id="lod">
+                    <option value="0">0</option>
+                    <option value="1">1</option>
+                    <option value="2">2</option>
+                    <option value="3">3</option>
+                </select>
+            </div>
+        </label>
     </div>
 </div>
 <script src="dist/main.js"></script>

@@ -1364,6 +1364,26 @@ export class ModelRenderer {
         this.rendererData.frame = this.rendererData.animationInfo.Interval[0];
     }
 
+    public getSequence (): number {
+        return this.rendererData.animation;
+    }
+
+    public setFrame (frame: number): void {
+        const index = this.model.Sequences.findIndex(it => it.Interval[0] <= frame && it.Interval[1] >= frame);
+
+        if (index < 0) {
+            return;
+        }
+
+        this.rendererData.animation = index;
+        this.rendererData.animationInfo = this.model.Sequences[this.rendererData.animation];
+        this.rendererData.frame = frame;
+    }
+
+    public getFrame (): number {
+        return this.rendererData.frame;
+    }
+
     public setTeamColor (color: vec3): void {
         vec3.copy(this.rendererData.teamColor, color);
     }
@@ -1408,6 +1428,7 @@ export class ModelRenderer {
 
     public render (mvMatrix: mat4, pMatrix: mat4, {
         wireframe,
+        levelOfDetail = 0,
         useEnvironmentMap = false,
         shadowMapTexture,
         shadowMapMatrix,
@@ -1415,6 +1436,7 @@ export class ModelRenderer {
         shadowSmoothingStep
     } : {
         wireframe: boolean;
+        levelOfDetail?: number;
         useEnvironmentMap?: boolean;
         shadowMapTexture?: WebGLTexture;
         shadowMapMatrix?: mat4;
@@ -1455,7 +1477,7 @@ export class ModelRenderer {
             if (this.rendererData.geosetAlpha[i] < 1e-6) {
                 continue;
             }
-            if (geoset.LevelOfDetail > 0) {
+            if (geoset.LevelOfDetail !== undefined && geoset.LevelOfDetail !== levelOfDetail) {
                 continue;
             }
 
@@ -2157,10 +2179,6 @@ export class ModelRenderer {
     private initBuffers (): void {
         for (let i = 0; i < this.model.Geosets.length; ++i) {
             const geoset = this.model.Geosets[i];
-
-            if (geoset.LevelOfDetail > 0) {
-                continue;
-            }
 
             this.vertexBuffer[i] = this.gl.createBuffer();
             if (this.softwareSkinning) {

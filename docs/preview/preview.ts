@@ -38,6 +38,8 @@ let showSkeleton = false;
 let skeletonNodes: string[] | null = null;
 let shadow = true;
 let ibl = true;
+let lod = 0;
+let isAnimationPlaying = true;
 
 const cameraBasePos: vec3 = vec3.create();
 const cameraPos: vec3 = vec3.create();
@@ -58,7 +60,10 @@ function updateModel(timestamp: number) {
     // delta /= 10;
     start = timestamp;
 
-    modelRenderer.update(delta);
+    if (isAnimationPlaying) {
+        modelRenderer.update(delta);
+    }
+    updateAnimationFrame();
 }
 
 function initGL() {
@@ -158,7 +163,7 @@ function drawScene() {
         cameraBasePos,
         Math.cos(cameraTheta) * Math.cos(cameraPhi) * cameraDistance,
         Math.cos(cameraTheta) * Math.sin(cameraPhi) * cameraDistance,
-        Math.sin(cameraTheta) * cameraDistance
+        cameraTargetZ + Math.sin(cameraTheta) * cameraDistance
     );
     cameraTarget[2] = cameraTargetZ;
 
@@ -199,6 +204,7 @@ function drawScene() {
         modelRenderer.renderEnvironment(mvMatrix, pMatrix);
     }
     modelRenderer.render(mvMatrix, pMatrix, {
+        levelOfDetail: lod,
         wireframe,
         useEnvironmentMap: ibl,
         shadowMapTexture: shadow ? framebufferDepthTexture : undefined,
@@ -255,6 +261,7 @@ function processModelLoading() {
     modelRenderer.initGL(gl);
 
     setAnimationList();
+    updateAnimationFrame();
 }
 
 /* function setSampleTextures () {
@@ -310,18 +317,16 @@ const inputColor = document.getElementById('color') as HTMLInputElement;
 
 function initControls() {
     inputColor.addEventListener('input', () => {
-        modelRenderer.setTeamColor(parseColor(inputColor.value));
+        if (modelRenderer) {
+            modelRenderer.setTeamColor(parseColor(inputColor.value));
+        }
     });
 
     const select = document.getElementById('select') as HTMLSelectElement;
     select.addEventListener('input', () => {
-        modelRenderer.setSequence(parseInt(select.value, 10));
-    });
-
-    const inputZ = document.getElementById('targetZ') as HTMLInputElement;
-    cameraTargetZ = parseInt(inputZ.value, 10);
-    inputZ.addEventListener('input', () => {
-        cameraTargetZ = parseInt(inputZ.value, 10);
+        if (modelRenderer) {
+            modelRenderer.setSequence(parseInt(select.value, 10));
+        }
     });
 
     const inputDistance = document.getElementById('distance') as HTMLInputElement;
@@ -374,10 +379,38 @@ function initControls() {
     skeletonCheck.addEventListener('input', () => {
         setShowSkeleton(skeletonCheck.checked);
     });
+
+    const lodSelect = document.getElementById('lod') as HTMLInputElement;
+    lod = Number(lodSelect.value);
+    lodSelect.addEventListener('change', () => {
+        lod = Number(lodSelect.value);
+    });
+
+    const toggleAnimation = document.querySelector<HTMLInputElement>('#toggle_animation') as HTMLInputElement;
+    toggleAnimation.addEventListener('click', () => {
+        isAnimationPlaying = !isAnimationPlaying;
+        toggleAnimation.textContent = isAnimationPlaying ? '⏸' : '⏵';
+    });
+
+    const frameRange = document.querySelector<HTMLInputElement>('#frame_range') as HTMLInputElement;
+    const frameInput = document.querySelector<HTMLInputElement>('#frame_input') as HTMLInputElement;
+    frameRange.addEventListener('input', () => {
+        if (modelRenderer) {
+            modelRenderer.setFrame(Number(frameRange.value));
+            modelRenderer.update(0);
+        }
+    });
+    frameInput.addEventListener('input', () => {
+        if (modelRenderer) {
+            modelRenderer.setFrame(Number(frameInput.value));
+            modelRenderer.update(0);
+        }
+    });
 }
 
 function initCameraMove() {
     let down = false;
+    let isMiddle = false;
     let downX, downY;
 
     function coords(event) {
@@ -400,10 +433,11 @@ function initCameraMove() {
     }
 
     function pointerDown(event: PointerEvent) {
-        if (event.target !== canvas || event.button) {
+        if (event.target !== canvas || event.button > 1) {
             return;
         }
 
+        isMiddle = event.button === 1;
         down = true;
 
         [downX, downY] = coords(event);
@@ -425,14 +459,23 @@ function initCameraMove() {
 
         const [x, y] = coords(event);
 
-        cameraPhi += -1 * (x - downX) * 0.01;
-        cameraTheta += (y - downY) * 0.01;
+        if (isMiddle) {
+            cameraTargetZ += (y - downY) * .2;
 
-        if (cameraTheta > Math.PI / 2 * 0.98) {
-            cameraTheta = Math.PI / 2 * 0.98;
-        }
-        if (cameraTheta < -Math.PI / 2 * 0.98) {
-            cameraTheta = -Math.PI / 2 * 0.98;
+            const min = model?.Info.MinimumExtent[2] || 0;
+            const max = model?.Info.MaximumExtent[2] || 100;
+
+            cameraTargetZ = Math.max(min, Math.min(max, cameraTargetZ));
+        } else {
+            cameraPhi += -1 * (x - downX) * 0.01;
+            cameraTheta += (y - downY) * 0.01;
+
+            if (cameraTheta > Math.PI / 2 * 0.98) {
+                cameraTheta = Math.PI / 2 * 0.98;
+            }
+            if (cameraTheta < -Math.PI / 2 * 0.98) {
+                cameraTheta = -Math.PI / 2 * 0.98;
+            }
         }
 
         downX = x;
@@ -475,6 +518,28 @@ function updateCanvasSize() {
 
     canvas.width = width * dpr;
     canvas.height = height * dpr;
+}
+
+function updateAnimationFrame() {
+    if (!modelRenderer) {
+        return;
+    }
+
+    const index = modelRenderer.getSequence();
+    const animation = model.Sequences[index];
+    const frame = Math.round(modelRenderer.getFrame());
+
+    const range = document.querySelector<HTMLInputElement>('#frame_range');
+    const input = document.querySelector<HTMLInputElement>('#frame_input');
+    const select = document.getElementById('select') as HTMLSelectElement;
+
+    range.setAttribute('min', String(animation.Interval[0]));
+    range.setAttribute('max', String(animation.Interval[1]));
+    range.value = String(frame);
+
+    input.value = String(frame);
+
+    select.value = String(index);
 }
 
 function setAnimationList() {

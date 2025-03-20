@@ -12,14 +12,32 @@ body {
 canvas {
     display: block;
     flex: 1 1 auto;
+    min-width: 0;
 }
 
 .controls {
     display: flex;
-    align-items: center;
+    flex-direction: column;
     background: #fff;
     padding: 5px 10px;
     box-sizing: border-box;
+}
+
+.row {
+    margin: 8px 0;
+}
+
+.row_flex {
+    display: flex;
+    flex-direction: row;
+}
+
+.sub {
+    margin-top: 4px;
+}
+
+#frame_input {
+    width: 5em;
 }
 
 .skeleton-group {
@@ -27,18 +45,30 @@ canvas {
     border: none;
 }
 
+select {
+    flex: 1 1 auto;
+    font-size: 16px;
+    width: 200px;
+}
+
 label {
     display: inline-block;
-    margin: 2px 5px;
     white-space: nowrap;
 }
+
 input {
+    flex: 1 1 auto;
     vertical-align: middle;
+    font-size: 16px;
+}
+
+button {
+    font-size: 16px;
 }
 
 .container {
     display: flex;
-    flex-direction: column;
+    flex-direction: row;
     height: 100%;
 }
 
@@ -46,6 +76,7 @@ input {
     position: relative;
     display: flex;
     flex: 1 1 auto;
+    min-width: 0;
     min-height: 0;
 }
 
