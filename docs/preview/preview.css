@@ -16,11 +16,14 @@ canvas {
 }
 
 .controls {
+    box-sizing: border-box;
     display: flex;
     flex-direction: column;
     background: #fff;
+    min-width: 350px;
     padding: 5px 10px;
     box-sizing: border-box;
+    overflow: auto;
 }
 
 .row {
@@ -90,6 +93,7 @@ button {
     right: 20px;
     bottom: 20px;
     pointer-events: none;
+    overflow: hidden;
 }
 
 .container_drag .drag-root {

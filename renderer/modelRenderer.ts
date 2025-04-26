@@ -16,7 +16,7 @@ export type DDS_FORMAT = WEBGL_compressed_texture_s3tc['COMPRESSED_RGBA_S3TC_DXT
     WEBGL_compressed_texture_s3tc['COMPRESSED_RGBA_S3TC_DXT5_EXT'] |
     WEBGL_compressed_texture_s3tc['COMPRESSED_RGB_S3TC_DXT1_EXT'];
 
-const MAX_NODES = 256;
+const MAX_NODES = 254;
 
 const ENV_MAP_SIZE = 2048;
 const ENV_CONVOLUTE_DIFFUSE_SIZE = 32;
@@ -271,11 +271,9 @@ const fragmentShaderHDOld = `
     uniform vec3 uLightPos;
     uniform vec3 uLightColor;
     uniform vec3 uCameraPos;
-    uniform bool uHasShadowMap;
+    uniform vec3 uShadowParams;
     uniform sampler2D uShadowMapSampler;
     uniform mat4 uShadowMapLightMatrix;
-    uniform float uShadowBias;
-    uniform float uShadowSmoothingStep;
 
     const float PI = 3.14159265359;
     const float gamma = 2.2;
@@ -364,7 +362,9 @@ const fragmentShaderHDOld = `
 
         totalLight = (kD * baseColor.rgb / PI + specular) * radiance * lightFactor;
 
-        if (uHasShadowMap) {
+        if (uShadowParams[0] > .5) {
+            float shadowBias = uShadowParams[1];
+            float shadowStep = uShadowParams[2];
             vec4 fragInLightPos = uShadowMapLightMatrix * vec4(vFragPos, 1.);
             vec3 shadowMapCoord = fragInLightPos.xyz / fragInLightPos.w;
 
@@ -372,26 +372,26 @@ const fragmentShaderHDOld = `
             float step = 1. / float(passes);
 
             float lightDepth = texture2D(uShadowMapSampler, shadowMapCoord.xy).r;
-            float lightDepth0 = texture2D(uShadowMapSampler, vec2(shadowMapCoord.x + uShadowSmoothingStep, shadowMapCoord.y)).r;
-            float lightDepth1 = texture2D(uShadowMapSampler, vec2(shadowMapCoord.x, shadowMapCoord.y + uShadowSmoothingStep)).r;
-            float lightDepth2 = texture2D(uShadowMapSampler, vec2(shadowMapCoord.x, shadowMapCoord.y - uShadowSmoothingStep)).r;
-            float lightDepth3 = texture2D(uShadowMapSampler, vec2(shadowMapCoord.x - uShadowSmoothingStep, shadowMapCoord.y)).r;
+            float lightDepth0 = texture2D(uShadowMapSampler, vec2(shadowMapCoord.x + shadowStep, shadowMapCoord.y)).r;
+            float lightDepth1 = texture2D(uShadowMapSampler, vec2(shadowMapCoord.x, shadowMapCoord.y + shadowStep)).r;
+            float lightDepth2 = texture2D(uShadowMapSampler, vec2(shadowMapCoord.x, shadowMapCoord.y - shadowStep)).r;
+            float lightDepth3 = texture2D(uShadowMapSampler, vec2(shadowMapCoord.x - shadowStep, shadowMapCoord.y)).r;
             float currentDepth = shadowMapCoord.z;
 
             float visibility = 0.;
-            if (lightDepth > currentDepth - uShadowBias) {
+            if (lightDepth > currentDepth - shadowBias) {
                 visibility += step;
             }
-            if (lightDepth0 > currentDepth - uShadowBias) {
+            if (lightDepth0 > currentDepth - shadowBias) {
                 visibility += step;
             }
-            if (lightDepth1 > currentDepth - uShadowBias) {
+            if (lightDepth1 > currentDepth - shadowBias) {
                 visibility += step;
             }
-            if (lightDepth2 > currentDepth - uShadowBias) {
+            if (lightDepth2 > currentDepth - shadowBias) {
                 visibility += step;
             }
-            if (lightDepth3 > currentDepth - uShadowBias) {
+            if (lightDepth3 > currentDepth - shadowBias) {
                 visibility += step;
             }
 
@@ -437,11 +437,9 @@ const fragmentShaderHDNew = `#version 300 es
     uniform vec3 uLightPos;
     uniform vec3 uLightColor;
     uniform vec3 uCameraPos;
-    uniform bool uHasShadowMap;
+    uniform vec3 uShadowParams;
     uniform sampler2D uShadowMapSampler;
     uniform mat4 uShadowMapLightMatrix;
-    uniform float uShadowBias;
-    uniform float uShadowSmoothingStep;
     uniform bool uHasEnv;
     uniform samplerCube uIrradianceMap;
     uniform samplerCube uPrefilteredEnv;
@@ -540,7 +538,9 @@ const fragmentShaderHDNew = `#version 300 es
 
         totalLight = (kD * baseColor.rgb / PI + specular) * radiance * lightFactor;
 
-        if (uHasShadowMap) {
+        if (uShadowParams[0] > .5) {
+            float shadowBias = uShadowParams[1];
+            float shadowStep = uShadowParams[2];
             vec4 fragInLightPos = uShadowMapLightMatrix * vec4(vFragPos, 1.);
             vec3 shadowMapCoord = fragInLightPos.xyz / fragInLightPos.w;
 
@@ -548,26 +548,26 @@ const fragmentShaderHDNew = `#version 300 es
             float step = 1. / float(passes);
 
             float lightDepth = texture(uShadowMapSampler, shadowMapCoord.xy).r;
-            float lightDepth0 = texture(uShadowMapSampler, vec2(shadowMapCoord.x + uShadowSmoothingStep, shadowMapCoord.y)).r;
-            float lightDepth1 = texture(uShadowMapSampler, vec2(shadowMapCoord.x, shadowMapCoord.y + uShadowSmoothingStep)).r;
-            float lightDepth2 = texture(uShadowMapSampler, vec2(shadowMapCoord.x, shadowMapCoord.y - uShadowSmoothingStep)).r;
-            float lightDepth3 = texture(uShadowMapSampler, vec2(shadowMapCoord.x - uShadowSmoothingStep, shadowMapCoord.y)).r;
+            float lightDepth0 = texture(uShadowMapSampler, vec2(shadowMapCoord.x + shadowStep, shadowMapCoord.y)).r;
+            float lightDepth1 = texture(uShadowMapSampler, vec2(shadowMapCoord.x, shadowMapCoord.y + shadowStep)).r;
+            float lightDepth2 = texture(uShadowMapSampler, vec2(shadowMapCoord.x, shadowMapCoord.y - shadowStep)).r;
+            float lightDepth3 = texture(uShadowMapSampler, vec2(shadowMapCoord.x - shadowStep, shadowMapCoord.y)).r;
             float currentDepth = shadowMapCoord.z;
 
             float visibility = 0.;
-            if (lightDepth > currentDepth - uShadowBias) {
+            if (lightDepth > currentDepth - shadowBias) {
                 visibility += step;
             }
-            if (lightDepth0 > currentDepth - uShadowBias) {
+            if (lightDepth0 > currentDepth - shadowBias) {
                 visibility += step;
             }
-            if (lightDepth1 > currentDepth - uShadowBias) {
+            if (lightDepth1 > currentDepth - shadowBias) {
                 visibility += step;
             }
-            if (lightDepth2 > currentDepth - uShadowBias) {
+            if (lightDepth2 > currentDepth - shadowBias) {
                 visibility += step;
             }
-            if (lightDepth3 > currentDepth - uShadowBias) {
+            if (lightDepth3 > currentDepth - shadowBias) {
                 visibility += step;
             }
 
@@ -1028,11 +1028,9 @@ export class ModelRenderer {
         lightPosUniform: WebGLUniformLocation | null;
         lightColorUniform: WebGLUniformLocation | null;
         cameraPosUniform: WebGLUniformLocation | null;
-        hasShadowMapUniform: WebGLUniformLocation | null;
+        shadowParamsUniform: WebGLUniformLocation | null;
         shadowMapSamplerUniform: WebGLUniformLocation | null;
         shadowMapLightMatrixUniform: WebGLUniformLocation | null;
-        shadowBiasUniform: WebGLUniformLocation | null;
-        shadowSmoothingStepUniform: WebGLUniformLocation | null;
         hasEnvUniform: WebGLUniformLocation | null;
         irradianceMapUniform: WebGLUniformLocation | null;
         prefilteredEnvUniform: WebGLUniformLocation | null;
@@ -1101,11 +1099,9 @@ export class ModelRenderer {
             lightPosUniform: null,
             lightColorUniform: null,
             cameraPosUniform: null,
-            hasShadowMapUniform: null,
+            shadowParamsUniform: null,
             shadowMapSamplerUniform: null,
             shadowMapLightMatrixUniform: null,
-            shadowBiasUniform: null,
-            shadowSmoothingStepUniform: null,
             hasEnvUniform: null,
             irradianceMapUniform: null,
             prefilteredEnvUniform: null,
@@ -1496,17 +1492,14 @@ export class ModelRenderer {
                 this.gl.uniform3fv(this.shaderProgramLocations.cameraPosUniform, this.rendererData.cameraPos);
 
                 if (shadowMapTexture && shadowMapMatrix) {
-                    this.gl.uniform1i(this.shaderProgramLocations.hasShadowMapUniform, 1);
+                    this.gl.uniform3f(this.shaderProgramLocations.shadowParamsUniform, 1, shadowBias ?? 1e-6, shadowSmoothingStep ?? 1 / 1024);
 
                     this.gl.activeTexture(this.gl.TEXTURE3);
                     this.gl.bindTexture(this.gl.TEXTURE_2D, shadowMapTexture);
                     this.gl.uniform1i(this.shaderProgramLocations.shadowMapSamplerUniform, 3);
                     this.gl.uniformMatrix4fv(this.shaderProgramLocations.shadowMapLightMatrixUniform, false, shadowMapMatrix);
-
-                    this.gl.uniform1f(this.shaderProgramLocations.shadowBiasUniform, shadowBias ?? 1e-6);
-                    this.gl.uniform1f(this.shaderProgramLocations.shadowSmoothingStepUniform, shadowSmoothingStep ?? 1 / 1024);
                 } else {
-                    this.gl.uniform1i(this.shaderProgramLocations.hasShadowMapUniform, 0);
+                    this.gl.uniform3f(this.shaderProgramLocations.shadowParamsUniform, 0, 0, 0);
                 }
 
                 const envTextureId = this.model.Version >= 1100 && material.Layers.find(it => it.ShaderTypeId === 1 && typeof it.ReflectionsTextureID === 'number')?.ReflectionsTextureID || material.Layers[5]?.TextureID;
@@ -2094,11 +2087,9 @@ export class ModelRenderer {
             this.shaderProgramLocations.lightColorUniform = this.gl.getUniformLocation(shaderProgram, 'uLightColor');
             this.shaderProgramLocations.cameraPosUniform = this.gl.getUniformLocation(shaderProgram, 'uCameraPos');
 
-            this.shaderProgramLocations.hasShadowMapUniform = this.gl.getUniformLocation(shaderProgram, 'uHasShadowMap');
+            this.shaderProgramLocations.shadowParamsUniform = this.gl.getUniformLocation(shaderProgram, 'uShadowParams');
             this.shaderProgramLocations.shadowMapSamplerUniform = this.gl.getUniformLocation(shaderProgram, 'uShadowMapSampler');
             this.shaderProgramLocations.shadowMapLightMatrixUniform = this.gl.getUniformLocation(shaderProgram, 'uShadowMapLightMatrix');
-            this.shaderProgramLocations.shadowBiasUniform = this.gl.getUniformLocation(shaderProgram, 'uShadowBias');
-            this.shaderProgramLocations.shadowSmoothingStepUniform = this.gl.getUniformLocation(shaderProgram, 'uShadowSmoothingStep');
 
             this.shaderProgramLocations.hasEnvUniform = this.gl.getUniformLocation(shaderProgram, 'uHasEnv');
             this.shaderProgramLocations.irradianceMapUniform = this.gl.getUniformLocation(shaderProgram, 'uIrradianceMap');

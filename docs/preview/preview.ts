@@ -486,7 +486,12 @@ function initCameraMove() {
         down = false;
     }
 
+    const controls = document.querySelector<HTMLDivElement>('.controls');
     function wheel(event) {
+        if (controls.contains(event.target)) {
+            return;
+        }
+
         updateCameraDistance(cameraDistance * (1 - event.wheelDelta / 600));
     }
 
