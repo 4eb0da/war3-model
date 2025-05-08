@@ -1,3 +1,5 @@
+/// <reference types="@webgpu/types" />
+
 import { vec3, mat4, quat } from 'gl-matrix';
 import { decodeDds, parseHeaders } from 'dds-parser';
 
@@ -13,6 +15,8 @@ let model: Model;
 let modelRenderer: ModelRenderer;
 let canvas: HTMLCanvasElement;
 let gl: WebGLRenderingContext | WebGL2RenderingContext;
+let gpuContext: GPUCanvasContext;
+let gpuDevice: GPUDevice;
 const pMatrix = mat4.create();
 const mvMatrix = mat4.create();
 const lightMVMatrix = mat4.create();
@@ -66,21 +70,37 @@ function updateModel(timestamp: number) {
     updateAnimationFrame();
 }
 
-function initGL() {
-    if (gl) {
+async function initGL() {
+    if (gl || gpuDevice) {
         return;
     }
 
     try {
+        try {
+            const adapter = await navigator.gpu?.requestAdapter();
+            gpuDevice = await adapter?.requestDevice();
+            gpuContext = canvas.getContext('webgpu');
+            gpuContext.configure({
+                device: gpuDevice,
+                format: navigator.gpu.getPreferredCanvasFormat(),
+                alphaMode: 'premultiplied'
+              });
+            return;
+        } catch (err) {
+            // do nothing
+        }
+
         const opts: WebGLContextAttributes = {
             antialias: false,
             alpha: false
         };
 
-        gl = canvas.getContext('webgl2', opts) ||
-            canvas.getContext('webgl', opts) ||
-            canvas.getContext('experimental-webgl', opts) as
-            (WebGL2RenderingContext | WebGLRenderingContext);
+        if (!gpuContext) {
+            gl = canvas.getContext('webgl2', opts) ||
+                canvas.getContext('webgl', opts) ||
+                canvas.getContext('experimental-webgl', opts) as
+                (WebGL2RenderingContext | WebGLRenderingContext);
+        }
 
         let supportShadows = false;
         if (gl instanceof WebGLRenderingContext) {
@@ -156,7 +176,9 @@ function calcCameraQuat(cameraPos: vec3, cameraTarget: vec3): quat {
 }
 
 function drawScene() {
-    gl.depthMask(true);
+    if (gl) {
+        gl.depthMask(true);
+    }
     mat4.perspective(pMatrix, Math.PI / 4, canvas.width / canvas.height, 0.1, 3000.0);
 
     vec3.set(
@@ -196,8 +218,10 @@ function drawScene() {
         gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     }
 
-    gl.viewport(0, 0, canvas.width, canvas.height);
-    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    if (gl) {
+        gl.viewport(0, 0, canvas.width, canvas.height);
+        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    }
 
     modelRenderer.setCamera(cameraPos, cameraQuat);
     if (ibl) {
@@ -251,14 +275,18 @@ function handleLoadedTexture(): void {
     }
 } */
 
-function processModelLoading() {
+async function processModelLoading() {
     console.log(model);
 
     modelRenderer = new ModelRenderer(model);
     modelRenderer.setTeamColor(parseColor(inputColor.value));
 
-    initGL();
-    modelRenderer.initGL(gl);
+    await initGL();
+    if (gpuDevice) {
+        modelRenderer.initGPUDevice(canvas, gpuDevice, gpuContext);
+    } else {
+        modelRenderer.initGL(gl);
+    }
 
     setAnimationList();
     updateAnimationFrame();
@@ -628,7 +656,7 @@ function initDragDrop() {
         const reader = new FileReader();
         const isMDX = file.name.indexOf('.mdx') > -1;
 
-        reader.onload = () => {
+        reader.onload = async () => {
             try {
                 if (isMDX) {
                     model = parseMDX(reader.result as ArrayBuffer);
@@ -641,7 +669,7 @@ function initDragDrop() {
                 return;
             }
 
-            processModelLoading();
+            await processModelLoading();
             setTextures(textures);
             setDragDropTextures();
         };

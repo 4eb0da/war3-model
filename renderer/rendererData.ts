@@ -31,6 +31,7 @@ export interface RendererData {
     shadowBias: number;
     shadowSmoothingStep: number;
     textures: {[key: string]: WebGLTexture};
+    gpuTextures: {[key: string]: GPUTexture};
     requiredEnvMaps: {[key: string]: boolean};
     envTextures: {[key: string]: WebGLTexture};
     irradianceMap: {[key: string]: WebGLTexture};

@@ -1,4 +1,5 @@
 /// <reference types="vite/client" />
+/// <reference types="@webgpu/types" />
 
 import type {DdsInfo} from 'dds-parser';
 import {
@@ -30,6 +31,7 @@ import prefilterEnvVertexShader from './shaders/webgl/prefilterEnv.vs.glsl?raw';
 import prefilterEnvFragmentShader from './shaders/webgl/prefilterEnv.fs.glsl?raw';
 import integrateBRDFVertexShader from './shaders/webgl/integrateBRDF.vs.glsl?raw';
 import integrateBRDFFragmentShader from './shaders/webgl/integrateBRDF.fs.glsl?raw';
+import sdShaderSource from './shaders/webgpu/sd.wgsl?raw';
 
 // actually, all is number
 export type DDS_FORMAT = WEBGL_compressed_texture_s3tc['COMPRESSED_RGBA_S3TC_DXT1_EXT'] |
@@ -56,6 +58,7 @@ interface WebGLProgramObject<A extends string, U extends string> {
 const vertexShaderHardwareSkinning = vertexShaderHardwareSkinningSource.replace(/\$\{MAX_NODES}/g, String(MAX_NODES));
 const vertexShaderHDHardwareSkinningOld = vertexShaderHDHardwareSkinningOldSource.replace(/\$\{MAX_NODES}/g, String(MAX_NODES));
 const vertexShaderHDHardwareSkinningNew = vertexShaderHDHardwareSkinningNewSource.replace(/\$\{MAX_NODES}/g, String(MAX_NODES));
+const sdShader = sdShaderSource.replace(/\$\{MAX_NODES}/g, String(MAX_NODES));
 
 const translation = vec3.create();
 const rotation = quat.create();
@@ -88,12 +91,18 @@ const texCoordMat3: mat3 = mat3.create();
 export class ModelRenderer {
     private isHD: boolean;
 
+    private canvas: HTMLCanvasElement;
     private gl: WebGL2RenderingContext | WebGLRenderingContext;
+    private device: GPUDevice;
+    private gpuContext: GPUCanvasContext;
     private anisotropicExt: EXT_texture_filter_anisotropic | null;
     private colorBufferFloatExt: EXT_color_buffer_float | null;
     private vertexShader: WebGLShader | null;
     private fragmentShader: WebGLShader | null;
     private shaderProgram: WebGLProgram | null;
+    private gpuShaderModule: GPUShaderModule | null;
+    private gpuPipeline: GPURenderPipeline | null;
+    private gpuRenderPassDescriptor: GPURenderPassDescriptor | null;
     private shaderProgramLocations: {
         vertexPositionAttribute: number | null;
         normalsAttribute: number | null;
@@ -162,6 +171,17 @@ export class ModelRenderer {
     private prefilterEnv: WebGLProgramObject<'aPos', 'uPMatrix' | 'uMVMatrix' | 'uEnvironmentMap' | 'uRoughness'>;
     private integrateBRDF: WebGLProgramObject<'aPos', never>;
 
+    private gpuDepthTexture: GPUTexture;
+    private gpuVertexBuffer: GPUBuffer[] = [];
+    private gpuNormalBuffer: GPUBuffer[] = [];
+    private gpuTexCoordBuffer: GPUBuffer[] = [];
+    private gpuGroupBuffer: GPUBuffer[] = [];
+    private gpuIndexBuffer: GPUBuffer[] = [];
+    private gpuVSUniformsBuffer: GPUBuffer;
+    // private gpuFSUniformsBuffer: GPUBuffer;
+    private gpuSampler: GPUSampler;
+    private gpuEmptyTexture: GPUTexture;
+
     constructor(model: Model) {
         this.isHD = model.Geosets?.some(it => it.SkinWeights?.length > 0);
 
@@ -224,6 +244,7 @@ export class ModelRenderer {
             shadowBias: 0,
             shadowSmoothingStep: 0,
             textures: {},
+            gpuTextures: {},
             envTextures: {},
             requiredEnvMaps: {},
             irradianceMap: {},
@@ -367,6 +388,37 @@ export class ModelRenderer {
         this.ribbonsController.initGL(glContext);
     }
 
+    public async initGPUDevice (canvas: HTMLCanvasElement, device: GPUDevice, context: GPUCanvasContext): Promise<void> {
+        this.canvas = canvas;
+        this.device = device;
+        this.gpuContext = context;
+
+        if (this.model.Version >= 1000 && isWebGL2(this.gl)) {
+            this.model.Materials.forEach(material => {
+                let layer;
+                if (
+                    material.Shader === 'Shader_HD_DefaultUnit' && material.Layers.length === 6 && typeof material.Layers[5].TextureID === 'number' ||
+                    this.model.Version >= 1100 && (layer = material.Layers.find(it => it.ShaderTypeId === 1 && it.ReflectionsTextureID)) && typeof layer.ReflectionsTextureID === 'number'
+                ) {
+                    const id = this.model.Version >= 1100 && layer ? layer.ReflectionsTextureID : material.Layers[5].TextureID;
+                    this.rendererData.requiredEnvMaps[this.model.Textures[id].Image] = true;
+                }
+            });
+        }
+
+        this.initGPUShaders();
+        this.initGPUPipeline();
+        this.initGPUBuffers();
+        this.initGPUUniformBuffers();
+        this.initGPUDepthTexture();
+        this.initGPUEmptyTexture();
+        // this.initCube();
+        // this.initSquare();
+        // this.initBRDFLUT();
+        // this.particlesController.initGL(glContext);
+        // this.ribbonsController.initGL(glContext);
+    }
+
     public setTextureImage (path: string, img: HTMLImageElement, flags: TextureFlags | 0): void {
         this.rendererData.textures[path] = this.gl.createTexture();
         this.gl.bindTexture(this.gl.TEXTURE_2D, this.rendererData.textures[path]);
@@ -382,16 +434,35 @@ export class ModelRenderer {
     }
 
     public setTextureImageData (path: string, imageData: ImageData[], flags: TextureFlags): void {
-        this.rendererData.textures[path] = this.gl.createTexture();
-        this.gl.bindTexture(this.gl.TEXTURE_2D, this.rendererData.textures[path]);
-        // this.gl.pixelStorei(this.gl.UNPACK_FLIP_Y_WEBGL, true);
-        for (let i = 0; i < imageData.length; ++i) {
-            this.gl.texImage2D(this.gl.TEXTURE_2D, i, this.gl.RGBA, this.gl.RGBA, this.gl.UNSIGNED_BYTE, imageData[i]);
-        }
-        this.setTextureParameters(flags, false);
-        this.processEnvMaps(path);
+        if (this.device) {
+            const texture = this.rendererData.gpuTextures[path] = this.device.createTexture({
+                size: [imageData[0].width, imageData[0].height],
+                format: 'rgba8unorm',
+                usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+            });
+            for (let i = 0; i < 1/* imageData.length */; ++i) {
+                this.device.queue.writeTexture(
+                    {
+                        texture,
+                        mipLevel: i
+                    },
+                    imageData[i].data,
+                    { bytesPerRow: imageData[0].width * 4 },
+                    { width: imageData[0].width, height: imageData[0].height },
+                );
+            }
+        } else {
+            this.rendererData.textures[path] = this.gl.createTexture();
+            this.gl.bindTexture(this.gl.TEXTURE_2D, this.rendererData.textures[path]);
+            // this.gl.pixelStorei(this.gl.UNPACK_FLIP_Y_WEBGL, true);
+            for (let i = 0; i < imageData.length; ++i) {
+                this.gl.texImage2D(this.gl.TEXTURE_2D, i, this.gl.RGBA, this.gl.RGBA, this.gl.UNSIGNED_BYTE, imageData[i]);
+            }
+            this.setTextureParameters(flags, false);
+            this.processEnvMaps(path);
 
-        this.gl.bindTexture(this.gl.TEXTURE_2D, null);
+            this.gl.bindTexture(this.gl.TEXTURE_2D, null);
+        }
     }
 
     public setTextureCompressedImage (path: string, format: DDS_FORMAT, imageData: ArrayBuffer, ddsInfo: DdsInfo, flags: TextureFlags): void {
@@ -526,6 +597,124 @@ export class ModelRenderer {
         shadowBias?: number;
         shadowSmoothingStep?: number;
     }): void {
+        if (this.device) {
+            this.gpuRenderPassDescriptor.colorAttachments[0].view =
+                this.gpuContext.getCurrentTexture().createView();
+
+            this.gpuRenderPassDescriptor.depthStencilAttachment = {
+                view: this.gpuDepthTexture.createView(),
+                depthClearValue: 1,
+                depthLoadOp: 'clear',
+                depthStoreOp: 'store'
+            };
+
+            const encoder = this.device.createCommandEncoder();
+            const pass = encoder.beginRenderPass(this.gpuRenderPassDescriptor);
+            pass.setPipeline(this.gpuPipeline);
+
+            const VSUniformsValues = new ArrayBuffer(128 + 64 * MAX_NODES);
+            const VSUniformsViews = {
+                mvMatrix: new Float32Array(VSUniformsValues, 0, 16),
+                pMatrix: new Float32Array(VSUniformsValues, 64, 16),
+                nodesMatrices: new Float32Array(VSUniformsValues, 128, 16 * MAX_NODES),
+            };
+            VSUniformsViews.mvMatrix.set(mvMatrix);
+            VSUniformsViews.pMatrix.set(pMatrix);
+            for (let j = 0; j < MAX_NODES; ++j) {
+                if (this.rendererData.nodes[j]) {
+                    VSUniformsViews.nodesMatrices.set(this.rendererData.nodes[j].matrix, j * 16);
+                }
+            }
+            this.device.queue.writeBuffer(this.gpuVSUniformsBuffer, 0, VSUniformsValues);
+
+            for (let i = 0; i < this.model.Geosets.length; ++i) {
+                const geoset = this.model.Geosets[i];
+                if (this.rendererData.geosetAlpha[i] < 1e-6) {
+                    continue;
+                }
+                if (geoset.LevelOfDetail !== undefined && geoset.LevelOfDetail !== levelOfDetail) {
+                    continue;
+                }
+    
+                const materialID = geoset.MaterialID;
+                const material = this.model.Materials[materialID];
+
+                if (this.isHD) {
+                    // todo
+                } else {
+                    pass.setVertexBuffer(0, this.gpuVertexBuffer[i]);
+                    pass.setVertexBuffer(1, this.gpuNormalBuffer[i]);
+                    pass.setVertexBuffer(2, this.gpuTexCoordBuffer[i]);
+                    pass.setVertexBuffer(3, this.gpuGroupBuffer[i]);
+                    pass.setIndexBuffer(this.gpuIndexBuffer[i], 'uint16');
+
+                    for (let j = 0; j < material.Layers.length; ++j) {
+                        const gpuFSUniformsBuffer = this.device.createBuffer({
+                            label: 'fs uniforms',
+                            size: 80,
+                            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+                        });
+
+                        const layer = material.Layers[j];
+                        const textureID = this.rendererData.materialLayerTextureID[materialID][j];
+                        const texture = this.model.Textures[textureID];
+
+                        const FSUniformsValues = new ArrayBuffer(80);
+                        const FSUniformsViews = {
+                            replaceableColor: new Float32Array(FSUniformsValues, 0, 3),
+                            replaceableType: new Uint32Array(FSUniformsValues, 12, 1),
+                            discardAlphaLevel: new Float32Array(FSUniformsValues, 16, 1),
+                            tVertexAnim: new Float32Array(FSUniformsValues, 32, 12),
+                        };
+                        FSUniformsViews.replaceableColor.set(this.rendererData.teamColor);
+                        FSUniformsViews.replaceableType.set([texture.ReplaceableId || 0]);
+                        FSUniformsViews.discardAlphaLevel.set([layer.FilterMode === FilterMode.Transparent ? .75 : 0]);
+                        // todo
+                        // FSUniformsViews.tVertexAnim.set([layer.FilterMode === FilterMode.Transparent ? .75 : 0]);
+                        this.device.queue.writeBuffer(gpuFSUniformsBuffer, 0, FSUniformsValues);
+
+                        const vsBindGroup = this.device.createBindGroup({
+                            layout: this.gpuPipeline.getBindGroupLayout(0),
+                            entries: [
+                                {
+                                    binding: 0,
+                                    resource: { buffer: this.gpuVSUniformsBuffer }
+                                }
+                            ]
+                        });
+                        const fsBindGroup = this.device.createBindGroup({
+                            layout: this.gpuPipeline.getBindGroupLayout(1),
+                            entries: [
+                                {
+                                    binding: 0,
+                                    resource: { buffer: gpuFSUniformsBuffer }
+                                },
+                                {
+                                    binding: 1,
+                                    resource: this.gpuSampler
+                                },
+                                {
+                                    binding: 2,
+                                    resource: (this.rendererData.gpuTextures[texture.Image] || this.gpuEmptyTexture).createView()
+                                }
+                            ]
+                        });
+
+                        pass.setBindGroup(0, vsBindGroup);
+                        pass.setBindGroup(1, fsBindGroup);
+
+                        pass.drawIndexed(geoset.Faces.length);
+                    }
+                }
+            }
+
+            pass.end();
+
+            const commandBuffer = encoder.finish();
+            this.device.queue.submit([commandBuffer]);
+            return;
+        }
+
         this.gl.useProgram(this.shaderProgram);
 
         this.gl.uniformMatrix4fv(this.shaderProgramLocations.pMatrixUniform, false, pMatrix);
@@ -1236,6 +1425,62 @@ export class ModelRenderer {
         }
     }
 
+    private initGPUShaders (): void {
+        if (this.gpuShaderModule) {
+            return;
+        }
+
+        this.gpuShaderModule = this.device.createShaderModule({
+            label: 'sd',
+            code: sdShader
+        });
+
+        this.gpuSampler = this.device.createSampler({
+            minFilter: 'linear',
+            magFilter: 'linear',
+            mipmapFilter: 'linear'
+        });
+
+        // if (this.isHD && isWebGL2(this.gl)) {
+        //     this.envToCubemap = this.initShaderProgram(envToCubemapVertexShader, envToCubemapFragmentShader, {
+        //         aPos: 'aPos'
+        //     }, {
+        //         uPMatrix: 'uPMatrix',
+        //         uMVMatrix: 'uMVMatrix',
+        //         uEquirectangularMap: 'uEquirectangularMap'
+        //     });
+
+        //     this.envSphere = this.initShaderProgram(envVertexShader, envFragmentShader, {
+        //         aPos: 'aPos'
+        //     }, {
+        //         uPMatrix: 'uPMatrix',
+        //         uMVMatrix: 'uMVMatrix',
+        //         uEnvironmentMap: 'uEnvironmentMap'
+        //     });
+
+        //     this.convoluteDiffuseEnv = this.initShaderProgram(convoluteEnvDiffuseVertexShader, convoluteEnvDiffuseFragmentShader, {
+        //         aPos: 'aPos'
+        //     }, {
+        //         uPMatrix: 'uPMatrix',
+        //         uMVMatrix: 'uMVMatrix',
+        //         uEnvironmentMap: 'uEnvironmentMap'
+        //     });
+
+        //     this.prefilterEnv = this.initShaderProgram(prefilterEnvVertexShader, prefilterEnvFragmentShader, {
+        //         aPos: 'aPos'
+        //     }, {
+        //         uPMatrix: 'uPMatrix',
+        //         uMVMatrix: 'uMVMatrix',
+        //         uEnvironmentMap: 'uEnvironmentMap',
+        //         uRoughness: 'uRoughness'
+        //     });
+
+        //     this.integrateBRDF = this.initShaderProgram(integrateBRDFVertexShader, integrateBRDFFragmentShader, {
+        //         aPos: 'aPos'
+        //     }, {});
+        // }
+    }
+
     private createWireframeBuffer (index: number): void {
         const faces = this.model.Geosets[index].Faces;
         const lines = new Uint16Array(faces.length * 2);
@@ -1303,6 +1548,197 @@ export class ModelRenderer {
             this.gl.bindBuffer(this.gl.ELEMENT_ARRAY_BUFFER, this.indexBuffer[i]);
             this.gl.bufferData(this.gl.ELEMENT_ARRAY_BUFFER, geoset.Faces, this.gl.STATIC_DRAW);
         }
+    }
+
+    private initGPUPipeline (): void {
+        this.gpuPipeline = this.device.createRenderPipeline({
+            label: 'sd pipeline',
+            layout: 'auto',
+            vertex: {
+                module: this.gpuShaderModule,
+                buffers: [{
+                    arrayStride: 12,
+                    attributes: [{
+                        shaderLocation: 0,
+                        offset: 0,
+                        format: 'float32x3' as const
+                    }]
+                }, {
+                    arrayStride: 12,
+                    attributes: [{
+                        shaderLocation: 1,
+                        offset: 0,
+                        format: 'float32x3' as const
+                    }]
+                }, {
+                    arrayStride: 8,
+                    attributes: [{
+                        shaderLocation: 2,
+                        offset: 0,
+                        format: 'float32x2' as const
+                    }]
+                }, {
+                    arrayStride: 4,
+                    attributes: [{
+                        shaderLocation: 3,
+                        offset: 0,
+                        format: 'uint8x4' as const
+                    }]
+                }]
+            },
+            fragment: {
+                module: this.gpuShaderModule,
+                targets: [{
+                    format: navigator.gpu.getPreferredCanvasFormat(),
+                    blend: {
+                        color: {
+                            operation: 'add',
+                            srcFactor: 'src-alpha',
+                            dstFactor: 'one-minus-src-alpha'
+                        },
+                        alpha: {
+                            operation: 'add',
+                            srcFactor: 'one',
+                            dstFactor: 'one-minus-src-alpha'
+                        }
+                    } as const
+                }]
+            },
+            depthStencil: {
+                depthWriteEnabled: true,
+                depthCompare: 'less-equal',//'less',
+                format: 'depth24plus'
+            }
+        });
+
+        this.gpuRenderPassDescriptor = {
+            label: 'basic renderPass',
+            colorAttachments: [
+                {
+                    view: null,
+                    clearValue: [0, 0, 0, 1],
+                    loadOp: 'clear' as const,
+                    storeOp: 'store' as const
+                }
+            ]
+        };
+    }
+
+    private initGPUBuffers (): void {
+        for (let i = 0; i < this.model.Geosets.length; ++i) {
+            const geoset = this.model.Geosets[i];
+
+            this.gpuVertexBuffer[i] = this.device.createBuffer({
+                label: `vertex ${i}`,
+                size: geoset.Vertices.byteLength,
+                usage: GPUBufferUsage.VERTEX,
+                mappedAtCreation: true
+            });
+            new Float32Array(
+                this.gpuVertexBuffer[i].getMappedRange(0, this.gpuVertexBuffer[i].size)
+            ).set(geoset.Vertices);
+            this.gpuVertexBuffer[i].unmap();
+
+            this.gpuNormalBuffer[i] = this.device.createBuffer({
+                label: `normal ${i}`,
+                size: geoset.Normals.byteLength,
+                usage: GPUBufferUsage.VERTEX,
+                mappedAtCreation: true
+            });
+            new Float32Array(
+                this.gpuNormalBuffer[i].getMappedRange(0, this.gpuNormalBuffer[i].size)
+            ).set(geoset.Normals);
+            this.gpuNormalBuffer[i].unmap();
+
+            this.gpuTexCoordBuffer[i] = this.device.createBuffer({
+                label: `texCoord ${i}`,
+                size: geoset.TVertices[0].byteLength,
+                usage: GPUBufferUsage.VERTEX,
+                mappedAtCreation: true
+            });
+            new Float32Array(
+                this.gpuTexCoordBuffer[i].getMappedRange(0, this.gpuTexCoordBuffer[i].size)
+            ).set(geoset.TVertices[0]);
+            this.gpuTexCoordBuffer[i].unmap();
+
+            if (this.isHD) {
+                // this.skinWeightBuffer[i] = this.gl.createBuffer();
+                // this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.skinWeightBuffer[i]);
+                // this.gl.bufferData(this.gl.ARRAY_BUFFER, geoset.SkinWeights, this.gl.STATIC_DRAW);
+
+                // this.tangentBuffer[i] = this.gl.createBuffer();
+                // this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.tangentBuffer[i]);
+                // this.gl.bufferData(this.gl.ARRAY_BUFFER, geoset.Tangents, this.gl.STATIC_DRAW);
+            } else {
+                const buffer = new Uint8Array(geoset.VertexGroup.length * 4);
+                for (let j = 0; j < buffer.length; j += 4) {
+                    const index = j / 4;
+                    const group = geoset.Groups[geoset.VertexGroup[index]];
+                    buffer[j] = group[0];
+                    buffer[j + 1] = group.length > 1 ? group[1] : MAX_NODES;
+                    buffer[j + 2] = group.length > 2 ? group[2] : MAX_NODES;
+                    buffer[j + 3] = group.length > 3 ? group[3] : MAX_NODES;
+                }
+                this.gpuGroupBuffer[i] = this.device.createBuffer({
+                    label: `group ${i}`,
+                    size: 4 * geoset.VertexGroup.length,
+                    usage: GPUBufferUsage.VERTEX,
+                    mappedAtCreation: true
+                });
+                new Uint8Array(
+                    this.gpuGroupBuffer[i].getMappedRange(0, this.gpuGroupBuffer[i].size)
+                ).set(buffer);
+                this.gpuGroupBuffer[i].unmap();
+            }
+
+            const size = Math.ceil(geoset.Faces.byteLength / 4) * 4;
+            this.gpuIndexBuffer[i] = this.device.createBuffer({
+                label: `index ${i}`,
+                size: 2 * size,
+                usage: GPUBufferUsage.INDEX,
+                mappedAtCreation: true
+            });
+            new Uint16Array(
+                this.gpuIndexBuffer[i].getMappedRange(0, size)
+            ).set(geoset.Faces);
+            this.gpuIndexBuffer[i].unmap();
+        }
+    }
+
+    private initGPUUniformBuffers (): void {
+        this.gpuVSUniformsBuffer = this.device.createBuffer({
+            label: 'vs uniforms',
+            size: 128 + 64 * MAX_NODES,
+            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+        });
+        // this.gpuFSUniformsBuffer = this.device.createBuffer({
+        //     label: 'fs uniforms',
+        //     size: 80,
+        //     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+        // });
+    }
+
+    private initGPUDepthTexture (): void {
+        this.gpuDepthTexture = this.device.createTexture({
+            size: [this.canvas.width, this.canvas.height],
+            format: 'depth24plus',
+            usage: GPUTextureUsage.RENDER_ATTACHMENT,
+        });
+    }
+
+    private initGPUEmptyTexture (): void {
+        const texture = this.gpuEmptyTexture = this.device.createTexture({
+            size: [1, 1],
+            format: 'rgba8unorm',
+            usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+        });
+
+        this.device.queue.writeTexture(
+            { texture },
+            new Uint8Array([255, 255, 255, 255]),
+            { bytesPerRow: 1 * 4 },
+            { width: 1, height: 1 },
+        );
     }
 
     private initCube (): void {

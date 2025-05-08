@@ -32,6 +32,7 @@
     "lint": "eslint --ext .ts ."
   },
   "dependencies": {
+    "@webgpu/types": "0.1.60",
     "gl-matrix": "3.3.0"
   },
   "devDependencies": {
