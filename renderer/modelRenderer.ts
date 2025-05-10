@@ -32,6 +32,7 @@ import prefilterEnvFragmentShader from './shaders/webgl/prefilterEnv.fs.glsl?raw
 import integrateBRDFVertexShader from './shaders/webgl/integrateBRDF.vs.glsl?raw';
 import integrateBRDFFragmentShader from './shaders/webgl/integrateBRDF.fs.glsl?raw';
 import sdShaderSource from './shaders/webgpu/sd.wgsl?raw';
+import { generateMips } from './generateMips';
 
 // actually, all is number
 export type DDS_FORMAT = WEBGL_compressed_texture_s3tc['COMPRESSED_RGBA_S3TC_DXT1_EXT'] |
@@ -181,7 +182,7 @@ export class ModelRenderer {
     private gpuVSUniformsBindGroup: GPUBindGroup;
     private gpuFSUniformsBuffers: GPUBuffer[][] = [];
     private gpuFSUniformsBindGroups: GPUBindGroup[][] = [];
-    private gpuSampler: GPUSampler;
+    private gpuSamplers: GPUSampler[] = [];
     private gpuEmptyTexture: GPUTexture;
 
     constructor(model: Model) {
@@ -422,17 +423,36 @@ export class ModelRenderer {
     }
 
     public setTextureImage (path: string, img: HTMLImageElement, flags: TextureFlags | 0): void {
-        this.rendererData.textures[path] = this.gl.createTexture();
-        this.gl.bindTexture(this.gl.TEXTURE_2D, this.rendererData.textures[path]);
-        // this.gl.pixelStorei(this.gl.UNPACK_FLIP_Y_WEBGL, true);
-        this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, this.gl.RGBA, this.gl.UNSIGNED_BYTE, img);
-        this.setTextureParameters(flags, true);
+        if (this.device) {
+            const texture = this.rendererData.gpuTextures[path] = this.device.createTexture({
+                size: [img.width, img.height],
+                format: 'rgba8unorm',
+                usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT
+            });
+            this.device.queue.copyExternalImageToTexture(
+                {
+                    source: img
+                },
+                { texture },
+                {
+                    width: img.width,
+                    height: img.height
+                }
+            );
+            generateMips(this.device, texture);
+        } else {
+            this.rendererData.textures[path] = this.gl.createTexture();
+            this.gl.bindTexture(this.gl.TEXTURE_2D, this.rendererData.textures[path]);
+            // this.gl.pixelStorei(this.gl.UNPACK_FLIP_Y_WEBGL, true);
+            this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, this.gl.RGBA, this.gl.UNSIGNED_BYTE, img);
+            this.setTextureParameters(flags, true);
 
-        this.gl.generateMipmap(this.gl.TEXTURE_2D);
+            this.gl.generateMipmap(this.gl.TEXTURE_2D);
 
-        this.processEnvMaps(path);
+            this.processEnvMaps(path);
 
-        this.gl.bindTexture(this.gl.TEXTURE_2D, null);
+            this.gl.bindTexture(this.gl.TEXTURE_2D, null);
+        }
     }
 
     public setTextureImageData (path: string, imageData: ImageData[], flags: TextureFlags): void {
@@ -658,13 +678,17 @@ export class ModelRenderer {
                         this.gpuFSUniformsBuffers[materialID] ||= [];
                         let gpuFSUniformsBuffer = this.gpuFSUniformsBuffers[materialID][j];
 
+                        let needWriteBuffer = typeof layer.TVertexAnimId === 'number';
                         if (!gpuFSUniformsBuffer) {
                             gpuFSUniformsBuffer = this.gpuFSUniformsBuffers[materialID][j] = this.device.createBuffer({
                                 label: `fs uniforms ${materialID} ${j}`,
                                 size: 80,
                                 usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
                             });
+                            needWriteBuffer = true;
+                        }
     
+                        if (needWriteBuffer) {
                             const FSUniformsValues = new ArrayBuffer(80);
                             const FSUniformsViews = {
                                 replaceableColor: new Float32Array(FSUniformsValues, 0, 3),
@@ -675,8 +699,7 @@ export class ModelRenderer {
                             FSUniformsViews.replaceableColor.set(this.rendererData.teamColor);
                             FSUniformsViews.replaceableType.set([texture.ReplaceableId || 0]);
                             FSUniformsViews.discardAlphaLevel.set([layer.FilterMode === FilterMode.Transparent ? .75 : 0]);
-                            // todo
-                            // FSUniformsViews.tVertexAnim.set([layer.FilterMode === FilterMode.Transparent ? .75 : 0]);
+                            FSUniformsViews.tVertexAnim.set(this.getTexCoordMatrix(layer));
                             this.device.queue.writeBuffer(gpuFSUniformsBuffer, 0, FSUniformsValues);
                         }
 
@@ -693,7 +716,7 @@ export class ModelRenderer {
                                     },
                                     {
                                         binding: 1,
-                                        resource: this.gpuSampler
+                                        resource: this.gpuSamplers[textureID]
                                     },
                                     {
                                         binding: 2,
@@ -1438,11 +1461,20 @@ export class ModelRenderer {
             code: sdShader
         });
 
-        this.gpuSampler = this.device.createSampler({
-            minFilter: 'linear',
-            magFilter: 'linear',
-            mipmapFilter: 'linear'
-        });
+        for (let i = 0; i < this.model.Textures.length; ++i) {
+            const texture = this.model.Textures[i];
+            const flags = texture.Flags;
+            const addressModeU: GPUAddressMode = flags & TextureFlags.WrapWidth ? 'repeat' : 'clamp-to-edge';
+            const addressModeV: GPUAddressMode = flags & TextureFlags.WrapHeight ? 'repeat' : 'clamp-to-edge';
+            this.gpuSamplers[i] = this.device.createSampler({
+                label: `texture sampler ${i}`,
+                minFilter: 'linear',
+                magFilter: 'linear',
+                mipmapFilter: 'linear',
+                addressModeU,
+                addressModeV
+            });
+        }
 
         // if (this.isHD && isWebGL2(this.gl)) {
         //     this.envToCubemap = this.initShaderProgram(envToCubemapVertexShader, envToCubemapFragmentShader, {
@@ -1961,6 +1993,31 @@ export class ModelRenderer {
         return interpRes;
     }
 
+    private getTexCoordMatrix (layer: Layer): mat3 {
+        if (typeof layer.TVertexAnimId === 'number') {
+            const anim: TVertexAnim = this.rendererData.model.TextureAnims[layer.TVertexAnimId];
+            const translationRes = this.interp.vec3(translation, anim.Translation);
+            const rotationRes = this.interp.quat(rotation, anim.Rotation);
+            const scalingRes = this.interp.vec3(scaling, anim.Scaling);
+            mat4.fromRotationTranslationScale(
+                texCoordMat4,
+                rotationRes || defaultRotation,
+                translationRes || defaultTranslation,
+                scalingRes || defaultScaling
+            );
+            mat3.set(
+                texCoordMat3,
+                texCoordMat4[0], texCoordMat4[1], 0,
+                texCoordMat4[4], texCoordMat4[5], 0,
+                texCoordMat4[12], texCoordMat4[13], 0
+            );
+
+            return texCoordMat3;
+        } else {
+            return identifyMat3;
+        }
+    }
+
     private setLayerProps (layer: Layer, textureID: number): void {
         const texture = this.model.Textures[textureID];
 
@@ -2030,28 +2087,7 @@ export class ModelRenderer {
             this.gl.depthMask(false);
         }
 
-        if (typeof layer.TVertexAnimId === 'number') {
-            const anim: TVertexAnim = this.rendererData.model.TextureAnims[layer.TVertexAnimId];
-            const translationRes = this.interp.vec3(translation, anim.Translation);
-            const rotationRes = this.interp.quat(rotation, anim.Rotation);
-            const scalingRes = this.interp.vec3(scaling, anim.Scaling);
-            mat4.fromRotationTranslationScale(
-                texCoordMat4,
-                rotationRes || defaultRotation,
-                translationRes || defaultTranslation,
-                scalingRes || defaultScaling
-            );
-            mat3.set(
-                texCoordMat3,
-                texCoordMat4[0], texCoordMat4[1], 0,
-                texCoordMat4[4], texCoordMat4[5], 0,
-                texCoordMat4[12], texCoordMat4[13], 0
-            );
-
-            this.gl.uniformMatrix3fv(this.shaderProgramLocations.tVertexAnimUniform, false, texCoordMat3);
-        } else {
-            this.gl.uniformMatrix3fv(this.shaderProgramLocations.tVertexAnimUniform, false, identifyMat3);
-        }
+        this.gl.uniformMatrix3fv(this.shaderProgramLocations.tVertexAnimUniform, false, this.getTexCoordMatrix(layer));
     }
 
     private setLayerPropsHD (materialID: number, layers: Layer[]): void {
