@@ -28,6 +28,8 @@ let rgtcExt: EXT_texture_compression_rgtc | null = null;
 const SHADOW_QUALITY = 4096;
 const FB_WIDTH = SHADOW_QUALITY;
 const FB_HEIGHT = SHADOW_QUALITY;
+const UNCAPPED_FPS = false;
+const LOG_FPS = false;
 let framebuffer: WebGLFramebuffer;
 let framebufferTexture: WebGLTexture;
 let framebufferDepthTexture: WebGLTexture;
@@ -54,6 +56,37 @@ const cameraUp: vec3 = vec3.fromValues(0, 0, 1);
 const lightPosition: vec3 = vec3.fromValues(200, 200, 200);
 const lightTarget: vec3 = vec3.fromValues(0, 0, 0);
 const lightColor: vec3 = vec3.fromValues(1, 1, 1);
+
+const messageChannel = new MessageChannel();
+function nextTick(cb: (now: number) => void): void {
+    messageChannel.port1.onmessage = () => {
+        cb(performance.now());
+    };
+
+    messageChannel.port2.postMessage('');
+}
+
+let frames = 0;
+let framesTs = 0;
+function nextFrame(cb: (now: number) => void): void {
+    if (UNCAPPED_FPS) {
+        nextTick(cb);
+    } else {
+        requestAnimationFrame(cb);
+    }
+
+    if (LOG_FPS) {
+        const now = performance.now();
+        if (now - framesTs > 1000) {
+            framesTs = now;
+            if (frames) {
+                console.log(frames);
+                frames = 0;
+            }
+        }
+        ++frames;
+    }
+}
 
 let start;
 function updateModel(timestamp: number) {
@@ -243,7 +276,7 @@ function drawScene() {
 }
 
 function tick(timestamp: number) {
-    requestAnimationFrame(tick);
+    nextFrame(tick);
     updateModel(timestamp);
     drawScene();
 }
