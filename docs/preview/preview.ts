@@ -238,7 +238,7 @@ function drawScene() {
     modelRenderer.setLightPosition(lightPosition);
     modelRenderer.setLightColor(lightColor);
 
-    if (shadow && framebuffer) {
+    if (shadow && framebuffer && model.Version >= 900) {
         gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
         gl.viewport(0, 0, FB_WIDTH, FB_HEIGHT);
         gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);

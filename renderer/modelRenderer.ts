@@ -178,7 +178,9 @@ export class ModelRenderer {
     private gpuGroupBuffer: GPUBuffer[] = [];
     private gpuIndexBuffer: GPUBuffer[] = [];
     private gpuVSUniformsBuffer: GPUBuffer;
-    // private gpuFSUniformsBuffer: GPUBuffer;
+    private gpuVSUniformsBindGroup: GPUBindGroup;
+    private gpuFSUniformsBuffers: GPUBuffer[][] = [];
+    private gpuFSUniformsBindGroups: GPUBindGroup[][] = [];
     private gpuSampler: GPUSampler;
     private gpuEmptyTexture: GPUTexture;
 
@@ -649,58 +651,59 @@ export class ModelRenderer {
                     pass.setIndexBuffer(this.gpuIndexBuffer[i], 'uint16');
 
                     for (let j = 0; j < material.Layers.length; ++j) {
-                        const gpuFSUniformsBuffer = this.device.createBuffer({
-                            label: 'fs uniforms',
-                            size: 80,
-                            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
-                        });
-
                         const layer = material.Layers[j];
                         const textureID = this.rendererData.materialLayerTextureID[materialID][j];
                         const texture = this.model.Textures[textureID];
 
-                        const FSUniformsValues = new ArrayBuffer(80);
-                        const FSUniformsViews = {
-                            replaceableColor: new Float32Array(FSUniformsValues, 0, 3),
-                            replaceableType: new Uint32Array(FSUniformsValues, 12, 1),
-                            discardAlphaLevel: new Float32Array(FSUniformsValues, 16, 1),
-                            tVertexAnim: new Float32Array(FSUniformsValues, 32, 12),
-                        };
-                        FSUniformsViews.replaceableColor.set(this.rendererData.teamColor);
-                        FSUniformsViews.replaceableType.set([texture.ReplaceableId || 0]);
-                        FSUniformsViews.discardAlphaLevel.set([layer.FilterMode === FilterMode.Transparent ? .75 : 0]);
-                        // todo
-                        // FSUniformsViews.tVertexAnim.set([layer.FilterMode === FilterMode.Transparent ? .75 : 0]);
-                        this.device.queue.writeBuffer(gpuFSUniformsBuffer, 0, FSUniformsValues);
+                        this.gpuFSUniformsBuffers[materialID] ||= [];
+                        let gpuFSUniformsBuffer = this.gpuFSUniformsBuffers[materialID][j];
 
-                        const vsBindGroup = this.device.createBindGroup({
-                            layout: this.gpuPipeline.getBindGroupLayout(0),
-                            entries: [
-                                {
-                                    binding: 0,
-                                    resource: { buffer: this.gpuVSUniformsBuffer }
-                                }
-                            ]
-                        });
-                        const fsBindGroup = this.device.createBindGroup({
-                            layout: this.gpuPipeline.getBindGroupLayout(1),
-                            entries: [
-                                {
-                                    binding: 0,
-                                    resource: { buffer: gpuFSUniformsBuffer }
-                                },
-                                {
-                                    binding: 1,
-                                    resource: this.gpuSampler
-                                },
-                                {
-                                    binding: 2,
-                                    resource: (this.rendererData.gpuTextures[texture.Image] || this.gpuEmptyTexture).createView()
-                                }
-                            ]
-                        });
+                        if (!gpuFSUniformsBuffer) {
+                            gpuFSUniformsBuffer = this.gpuFSUniformsBuffers[materialID][j] = this.device.createBuffer({
+                                label: `fs uniforms ${materialID} ${j}`,
+                                size: 80,
+                                usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+                            });
+    
+                            const FSUniformsValues = new ArrayBuffer(80);
+                            const FSUniformsViews = {
+                                replaceableColor: new Float32Array(FSUniformsValues, 0, 3),
+                                replaceableType: new Uint32Array(FSUniformsValues, 12, 1),
+                                discardAlphaLevel: new Float32Array(FSUniformsValues, 16, 1),
+                                tVertexAnim: new Float32Array(FSUniformsValues, 32, 12),
+                            };
+                            FSUniformsViews.replaceableColor.set(this.rendererData.teamColor);
+                            FSUniformsViews.replaceableType.set([texture.ReplaceableId || 0]);
+                            FSUniformsViews.discardAlphaLevel.set([layer.FilterMode === FilterMode.Transparent ? .75 : 0]);
+                            // todo
+                            // FSUniformsViews.tVertexAnim.set([layer.FilterMode === FilterMode.Transparent ? .75 : 0]);
+                            this.device.queue.writeBuffer(gpuFSUniformsBuffer, 0, FSUniformsValues);
+                        }
 
-                        pass.setBindGroup(0, vsBindGroup);
+                        this.gpuFSUniformsBindGroups[materialID] ||= [];
+                        let fsBindGroup = this.gpuFSUniformsBindGroups[materialID][j];
+                        if (!fsBindGroup) {
+                            fsBindGroup = this.gpuFSUniformsBindGroups[materialID][j] = this.device.createBindGroup({
+                                label: `fs uniforms ${materialID} ${j}`,
+                                layout: this.gpuPipeline.getBindGroupLayout(1),
+                                entries: [
+                                    {
+                                        binding: 0,
+                                        resource: { buffer: gpuFSUniformsBuffer }
+                                    },
+                                    {
+                                        binding: 1,
+                                        resource: this.gpuSampler
+                                    },
+                                    {
+                                        binding: 2,
+                                        resource: (this.rendererData.gpuTextures[texture.Image] || this.gpuEmptyTexture).createView()
+                                    }
+                                ]
+                            });
+                        }
+
+                        pass.setBindGroup(0, this.gpuVSUniformsBindGroup);
                         pass.setBindGroup(1, fsBindGroup);
 
                         pass.drawIndexed(geoset.Faces.length);
@@ -1711,11 +1714,15 @@ export class ModelRenderer {
             size: 128 + 64 * MAX_NODES,
             usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
         });
-        // this.gpuFSUniformsBuffer = this.device.createBuffer({
-        //     label: 'fs uniforms',
-        //     size: 80,
-        //     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
-        // });
+        this.gpuVSUniformsBindGroup = this.device.createBindGroup({
+            layout: this.gpuPipeline.getBindGroupLayout(0),
+            entries: [
+                {
+                    binding: 0,
+                    resource: { buffer: this.gpuVSUniformsBuffer }
+                }
+            ]
+        });
     }
 
     private initGPUDepthTexture (): void {
