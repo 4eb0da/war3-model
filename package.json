@@ -26,6 +26,7 @@
   "scripts": {
     "prepublishOnly": "npm run build-lib",
     "prepare": "husky install",
+    "dev": "vite",
     "build-lib": "rm -rf dist && vite build && rollup --config rollup.config.ts --configPlugin typescript",
     "build-samples": "rm -rf docs/dist && SAMPLES=1 npx vite build",
     "typecheck": "tsc --noEmit",

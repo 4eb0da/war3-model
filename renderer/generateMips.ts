@@ -41,7 +41,15 @@ export function generateMips(device: GPUDevice, texture: GPUTexture): void {
             label: 'mips pipeline',
             layout: 'auto',
             vertex: {
-                module
+                module,
+                buffers: [{
+                    arrayStride: 8,
+                    attributes: [{
+                        shaderLocation: 0,
+                        offset: 0,
+                        format: 'float32x2' as const
+                    }]
+                }]
             },
             fragment: {
                 module,

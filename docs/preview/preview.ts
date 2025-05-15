@@ -113,12 +113,14 @@ async function initGL() {
             const adapter = await navigator.gpu?.requestAdapter();
             gpuDevice = await adapter?.requestDevice();
             gpuContext = canvas.getContext('webgpu');
-            gpuContext.configure({
-                device: gpuDevice,
-                format: navigator.gpu.getPreferredCanvasFormat(),
-                alphaMode: 'premultiplied'
-              });
-            return;
+            if (gpuContext) {
+                gpuContext.configure({
+                    device: gpuDevice,
+                    format: navigator.gpu.getPreferredCanvasFormat(),
+                    alphaMode: 'premultiplied'
+                });
+                return;
+            }
         } catch (err) {
             // do nothing
         }

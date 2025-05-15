@@ -103,6 +103,7 @@ export class ModelRenderer {
     private shaderProgram: WebGLProgram | null;
     private gpuShaderModule: GPUShaderModule | null;
     private gpuPipeline: GPURenderPipeline | null;
+    private gpuPipelineLayout: GPUPipelineLayout | null;
     private gpuRenderPassDescriptor: GPURenderPassDescriptor | null;
     private shaderProgramLocations: {
         vertexPositionAttribute: number | null;
@@ -657,7 +658,7 @@ export class ModelRenderer {
                 if (geoset.LevelOfDetail !== undefined && geoset.LevelOfDetail !== levelOfDetail) {
                     continue;
                 }
-    
+
                 const materialID = geoset.MaterialID;
                 const material = this.model.Materials[materialID];
 
@@ -687,7 +688,7 @@ export class ModelRenderer {
                             });
                             needWriteBuffer = true;
                         }
-    
+
                         if (needWriteBuffer) {
                             const FSUniformsValues = new ArrayBuffer(80);
                             const FSUniformsViews = {
@@ -1216,7 +1217,7 @@ export class ModelRenderer {
         this.gl.bindTexture(this.gl.TEXTURE_CUBE_MAP, prefilterCubemap);
         this.gl.texStorage2D(this.gl.TEXTURE_CUBE_MAP, MAX_ENV_MIP_LEVELS, this.gl.RGBA16F, ENV_PREFILTER_SIZE, ENV_PREFILTER_SIZE);
         // for (let i = 0; i < 6; ++i) {
-            // this.gl.texImage2D(this.gl.TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, this.gl.RGB, ENV_PREFILTER_SIZE, ENV_PREFILTER_SIZE, 0, this.gl.RGB, this.gl.UNSIGNED_BYTE, null);
+        // this.gl.texImage2D(this.gl.TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, this.gl.RGB, ENV_PREFILTER_SIZE, ENV_PREFILTER_SIZE, 0, this.gl.RGB, this.gl.UNSIGNED_BYTE, null);
         // }
         for (let mip = 0; mip < MAX_ENV_MIP_LEVELS; ++mip) {
             for (let i = 0; i < 6; ++i) {
@@ -1586,9 +1587,60 @@ export class ModelRenderer {
     }
 
     private initGPUPipeline (): void {
+        const bindGroupLayout = this.device.createBindGroupLayout({
+            label: 'sd bind group layout',
+            entries: [{
+                binding: 0,
+                visibility: GPUShaderStage.VERTEX,
+                buffer: {
+                    type: 'uniform',
+                    hasDynamicOffset: false,
+                    minBindingSize: 128 + 64 * MAX_NODES
+                }
+            }] as const
+        });
+        const bindGroupLayout2 = this.device.createBindGroupLayout({
+            label: 'sd bind group layout2',
+            entries: [
+                {
+                    binding: 0,
+                    visibility: GPUShaderStage.FRAGMENT,
+                    buffer: {
+                        type: 'uniform',
+                        hasDynamicOffset: false,
+                        minBindingSize: 80
+                    }
+                },
+                {
+                    binding: 1,
+                    visibility: GPUShaderStage.FRAGMENT,
+                    sampler: {
+                        type: 'filtering'
+                    }
+                },
+                {
+                    binding: 2,
+                    visibility: GPUShaderStage.FRAGMENT,
+                    texture: {
+                        sampleType: 'float',
+                        viewDimension: '2d',
+                        multisampled: false
+                    }
+                }
+            ] as const
+        });
+
+        this.gpuPipelineLayout = this.device.createPipelineLayout({
+            label: 'sd pipeline layout',
+            bindGroupLayouts: [
+                bindGroupLayout,
+                bindGroupLayout2
+            ]
+        });
+
         this.gpuPipeline = this.device.createRenderPipeline({
             label: 'sd pipeline',
-            layout: 'auto',
+            layout: this.gpuPipelineLayout,
             vertex: {
                 module: this.gpuShaderModule,
                 buffers: [{
