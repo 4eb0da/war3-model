@@ -1735,7 +1735,7 @@ export class ModelRenderer {
                 }
             }, {
                 depthWriteEnabled: false,
-                depthCompare: 'less',
+                depthCompare: 'less-equal',
                 format: 'depth24plus'
             }),
             createPipeline('additive', {
@@ -1751,7 +1751,23 @@ export class ModelRenderer {
                 }
             }, {
                 depthWriteEnabled: false,
-                depthCompare: 'less',
+                depthCompare: 'less-equal',
+                format: 'depth24plus'
+            }),
+            createPipeline('addAlpha', {
+                color: {
+                    operation: 'add',
+                    srcFactor: 'src-alpha',
+                    dstFactor: 'one'
+                },
+                alpha: {
+                    operation: 'add',
+                    srcFactor: 'src-alpha',
+                    dstFactor: 'one'
+                }
+            }, {
+                depthWriteEnabled: false,
+                depthCompare: 'less-equal',
                 format: 'depth24plus'
             }),
             createPipeline('modulate', {
@@ -1767,7 +1783,7 @@ export class ModelRenderer {
                 }
             }, {
                 depthWriteEnabled: false,
-                depthCompare: 'less',
+                depthCompare: 'less-equal',
                 format: 'depth24plus'
             }),
             createPipeline('modulate2x', {
@@ -1783,7 +1799,7 @@ export class ModelRenderer {
                 }
             }, {
                 depthWriteEnabled: false,
-                depthCompare: 'less',
+                depthCompare: 'less-equal',
                 format: 'depth24plus'
             })
         ];
