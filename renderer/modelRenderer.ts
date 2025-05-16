@@ -101,8 +101,10 @@ export class ModelRenderer {
     private vertexShader: WebGLShader | null;
     private fragmentShader: WebGLShader | null;
     private shaderProgram: WebGLProgram | null;
+    private vsBindGroupLayout: GPUBindGroupLayout | null;
+    private fsBindGroupLayout: GPUBindGroupLayout | null;
     private gpuShaderModule: GPUShaderModule | null;
-    private gpuPipeline: GPURenderPipeline | null;
+    private gpuPipelines: GPURenderPipeline[] | null;
     private gpuPipelineLayout: GPUPipelineLayout | null;
     private gpuRenderPassDescriptor: GPURenderPassDescriptor | null;
     private shaderProgramLocations: {
@@ -633,7 +635,6 @@ export class ModelRenderer {
 
             const encoder = this.device.createCommandEncoder();
             const pass = encoder.beginRenderPass(this.gpuRenderPassDescriptor);
-            pass.setPipeline(this.gpuPipeline);
 
             const VSUniformsValues = new ArrayBuffer(128 + 64 * MAX_NODES);
             const VSUniformsViews = {
@@ -676,6 +677,9 @@ export class ModelRenderer {
                         const textureID = this.rendererData.materialLayerTextureID[materialID][j];
                         const texture = this.model.Textures[textureID];
 
+                        const pipeline = this.gpuPipelines[layer.FilterMode] || this.gpuPipelines[0];
+                        pass.setPipeline(pipeline);
+
                         this.gpuFSUniformsBuffers[materialID] ||= [];
                         let gpuFSUniformsBuffer = this.gpuFSUniformsBuffers[materialID][j];
 
@@ -709,7 +713,7 @@ export class ModelRenderer {
                         if (!fsBindGroup) {
                             fsBindGroup = this.gpuFSUniformsBindGroups[materialID][j] = this.device.createBindGroup({
                                 label: `fs uniforms ${materialID} ${j}`,
-                                layout: this.gpuPipeline.getBindGroupLayout(1),
+                                layout: this.fsBindGroupLayout,
                                 entries: [
                                     {
                                         binding: 0,
@@ -1587,7 +1591,7 @@ export class ModelRenderer {
     }
 
     private initGPUPipeline (): void {
-        const bindGroupLayout = this.device.createBindGroupLayout({
+        this.vsBindGroupLayout = this.device.createBindGroupLayout({
             label: 'sd bind group layout',
             entries: [{
                 binding: 0,
@@ -1599,7 +1603,7 @@ export class ModelRenderer {
                 }
             }] as const
         });
-        const bindGroupLayout2 = this.device.createBindGroupLayout({
+        this.fsBindGroupLayout = this.device.createBindGroupLayout({
             label: 'sd bind group layout2',
             entries: [
                 {
@@ -1633,70 +1637,156 @@ export class ModelRenderer {
         this.gpuPipelineLayout = this.device.createPipelineLayout({
             label: 'sd pipeline layout',
             bindGroupLayouts: [
-                bindGroupLayout,
-                bindGroupLayout2
+                this.vsBindGroupLayout,
+                this.fsBindGroupLayout
             ]
         });
 
-        this.gpuPipeline = this.device.createRenderPipeline({
-            label: 'sd pipeline',
-            layout: this.gpuPipelineLayout,
-            vertex: {
-                module: this.gpuShaderModule,
-                buffers: [{
-                    arrayStride: 12,
-                    attributes: [{
-                        shaderLocation: 0,
-                        offset: 0,
-                        format: 'float32x3' as const
+        const createPipeline = (name: string, blend: GPUBlendState, depth: GPUDepthStencilState) => {
+            return this.device.createRenderPipeline({
+                label: `sd pipeline ${name}`,
+                layout: this.gpuPipelineLayout,
+                vertex: {
+                    module: this.gpuShaderModule,
+                    buffers: [{
+                        arrayStride: 12,
+                        attributes: [{
+                            shaderLocation: 0,
+                            offset: 0,
+                            format: 'float32x3' as const
+                        }]
+                    }, {
+                        arrayStride: 12,
+                        attributes: [{
+                            shaderLocation: 1,
+                            offset: 0,
+                            format: 'float32x3' as const
+                        }]
+                    }, {
+                        arrayStride: 8,
+                        attributes: [{
+                            shaderLocation: 2,
+                            offset: 0,
+                            format: 'float32x2' as const
+                        }]
+                    }, {
+                        arrayStride: 4,
+                        attributes: [{
+                            shaderLocation: 3,
+                            offset: 0,
+                            format: 'uint8x4' as const
+                        }]
                     }]
-                }, {
-                    arrayStride: 12,
-                    attributes: [{
-                        shaderLocation: 1,
-                        offset: 0,
-                        format: 'float32x3' as const
+                },
+                fragment: {
+                    module: this.gpuShaderModule,
+                    targets: [{
+                        format: navigator.gpu.getPreferredCanvasFormat(),
+                        blend
                     }]
-                }, {
-                    arrayStride: 8,
-                    attributes: [{
-                        shaderLocation: 2,
-                        offset: 0,
-                        format: 'float32x2' as const
-                    }]
-                }, {
-                    arrayStride: 4,
-                    attributes: [{
-                        shaderLocation: 3,
-                        offset: 0,
-                        format: 'uint8x4' as const
-                    }]
-                }]
-            },
-            fragment: {
-                module: this.gpuShaderModule,
-                targets: [{
-                    format: navigator.gpu.getPreferredCanvasFormat(),
-                    blend: {
-                        color: {
-                            operation: 'add',
-                            srcFactor: 'src-alpha',
-                            dstFactor: 'one-minus-src-alpha'
-                        },
-                        alpha: {
-                            operation: 'add',
-                            srcFactor: 'one',
-                            dstFactor: 'one-minus-src-alpha'
-                        }
-                    } as const
-                }]
-            },
-            depthStencil: {
+                },
+                depthStencil: depth
+            });
+        };
+
+        this.gpuPipelines = [
+            createPipeline('none', {
+                color: {
+                    operation: 'add',
+                    srcFactor: 'one',
+                    dstFactor: 'zero'
+                },
+                alpha: {
+                    operation: 'add',
+                    srcFactor: 'one',
+                    dstFactor: 'zero'
+                }
+            }, {
                 depthWriteEnabled: true,
-                depthCompare: 'less-equal',//'less',
+                depthCompare: 'less-equal',
                 format: 'depth24plus'
-            }
-        });
+            }),
+            createPipeline('transparent', {
+                color: {
+                    operation: 'add',
+                    srcFactor: 'src-alpha',
+                    dstFactor: 'one-minus-src-alpha'
+                },
+                alpha: {
+                    operation: 'add',
+                    srcFactor: 'one',
+                    dstFactor: 'one-minus-src-alpha'
+                }
+            }, {
+                depthWriteEnabled: true,
+                depthCompare: 'less-equal',
+                format: 'depth24plus'
+            }),
+            createPipeline('blend', {
+                color: {
+                    operation: 'add',
+                    srcFactor: 'src-alpha',
+                    dstFactor: 'one-minus-src-alpha'
+                },
+                alpha: {
+                    operation: 'add',
+                    srcFactor: 'one',
+                    dstFactor: 'one-minus-src-alpha'
+                }
+            }, {
+                depthWriteEnabled: false,
+                depthCompare: 'less',
+                format: 'depth24plus'
+            }),
+            createPipeline('additive', {
+                color: {
+                    operation: 'add',
+                    srcFactor: 'src',
+                    dstFactor: 'one'
+                },
+                alpha: {
+                    operation: 'add',
+                    srcFactor: 'src',
+                    dstFactor: 'one'
+                }
+            }, {
+                depthWriteEnabled: false,
+                depthCompare: 'less',
+                format: 'depth24plus'
+            }),
+            createPipeline('modulate', {
+                color: {
+                    operation: 'add',
+                    srcFactor: 'zero',
+                    dstFactor: 'src'
+                },
+                alpha: {
+                    operation: 'add',
+                    srcFactor: 'zero',
+                    dstFactor: 'one'
+                }
+            }, {
+                depthWriteEnabled: false,
+                depthCompare: 'less',
+                format: 'depth24plus'
+            }),
+            createPipeline('modulate2x', {
+                color: {
+                    operation: 'add',
+                    srcFactor: 'dst',
+                    dstFactor: 'src'
+                },
+                alpha: {
+                    operation: 'add',
+                    srcFactor: 'zero',
+                    dstFactor: 'one'
+                }
+            }, {
+                depthWriteEnabled: false,
+                depthCompare: 'less',
+                format: 'depth24plus'
+            })
+        ];
 
         this.gpuRenderPassDescriptor = {
             label: 'basic renderPass',
@@ -1799,7 +1889,7 @@ export class ModelRenderer {
             usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
         });
         this.gpuVSUniformsBindGroup = this.device.createBindGroup({
-            layout: this.gpuPipeline.getBindGroupLayout(0),
+            layout: this.vsBindGroupLayout,
             entries: [
                 {
                     binding: 0,
