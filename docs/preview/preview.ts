@@ -863,7 +863,7 @@ function initDragDrop() {
                 const cleanupName = texture.Image.replace(CLEANUP_NAME_REGEXP, '$1').toLowerCase();
                 if (cleanupName in textures) {
                     promises.push(dropTexture(textures[cleanupName], texture.Image, texture.Flags));
-                } else {
+                } else if (!gpuDevice) {
                     loadTexture('empty.png', texture.Image, 0);
                 }
             }

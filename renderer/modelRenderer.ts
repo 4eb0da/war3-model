@@ -184,9 +184,6 @@ export class ModelRenderer {
     private gpuVSUniformsBuffer: GPUBuffer;
     private gpuVSUniformsBindGroup: GPUBindGroup;
     private gpuFSUniformsBuffers: GPUBuffer[][] = [];
-    private gpuFSUniformsBindGroups: GPUBindGroup[][] = [];
-    private gpuSamplers: GPUSampler[] = [];
-    private gpuEmptyTexture: GPUTexture;
 
     constructor(model: Model) {
         this.isHD = model.Geosets?.some(it => it.SkinWeights?.length > 0);
@@ -251,6 +248,8 @@ export class ModelRenderer {
             shadowSmoothingStep: 0,
             textures: {},
             gpuTextures: {},
+            gpuSamplers: [],
+            gpuEmptyTexture: null,
             envTextures: {},
             requiredEnvMaps: {},
             irradianceMap: {},
@@ -422,7 +421,7 @@ export class ModelRenderer {
         // this.initSquare();
         // this.initBRDFLUT();
         // this.particlesController.initGL(glContext);
-        // this.ribbonsController.initGL(glContext);
+        this.ribbonsController.initGPUDevice(device);
     }
 
     public setTextureImage (path: string, img: HTMLImageElement, flags: TextureFlags | 0): void {
@@ -708,28 +707,24 @@ export class ModelRenderer {
                             this.device.queue.writeBuffer(gpuFSUniformsBuffer, 0, FSUniformsValues);
                         }
 
-                        this.gpuFSUniformsBindGroups[materialID] ||= [];
-                        let fsBindGroup = this.gpuFSUniformsBindGroups[materialID][j];
-                        if (!fsBindGroup) {
-                            fsBindGroup = this.gpuFSUniformsBindGroups[materialID][j] = this.device.createBindGroup({
-                                label: `fs uniforms ${materialID} ${j}`,
-                                layout: this.fsBindGroupLayout,
-                                entries: [
-                                    {
-                                        binding: 0,
-                                        resource: { buffer: gpuFSUniformsBuffer }
-                                    },
-                                    {
-                                        binding: 1,
-                                        resource: this.gpuSamplers[textureID]
-                                    },
-                                    {
-                                        binding: 2,
-                                        resource: (this.rendererData.gpuTextures[texture.Image] || this.gpuEmptyTexture).createView()
-                                    }
-                                ]
-                            });
-                        }
+                        const fsBindGroup = this.device.createBindGroup({
+                            label: `fs uniforms ${materialID} ${j}`,
+                            layout: this.fsBindGroupLayout,
+                            entries: [
+                                {
+                                    binding: 0,
+                                    resource: { buffer: gpuFSUniformsBuffer }
+                                },
+                                {
+                                    binding: 1,
+                                    resource: this.rendererData.gpuSamplers[textureID]
+                                },
+                                {
+                                    binding: 2,
+                                    resource: (this.rendererData.gpuTextures[texture.Image] || this.rendererData.gpuEmptyTexture).createView()
+                                }
+                            ]
+                        });
 
                         pass.setBindGroup(0, this.gpuVSUniformsBindGroup);
                         pass.setBindGroup(1, fsBindGroup);
@@ -739,10 +734,14 @@ export class ModelRenderer {
                 }
             }
 
+            // this.particlesController.render(mvMatrix, pMatrix);
+            this.ribbonsController.renderGPU(pass, mvMatrix, pMatrix);
+
             pass.end();
 
             const commandBuffer = encoder.finish();
             this.device.queue.submit([commandBuffer]);
+
             return;
         }
 
@@ -1471,7 +1470,7 @@ export class ModelRenderer {
             const flags = texture.Flags;
             const addressModeU: GPUAddressMode = flags & TextureFlags.WrapWidth ? 'repeat' : 'clamp-to-edge';
             const addressModeV: GPUAddressMode = flags & TextureFlags.WrapHeight ? 'repeat' : 'clamp-to-edge';
-            this.gpuSamplers[i] = this.device.createSampler({
+            this.rendererData.gpuSamplers[i] = this.device.createSampler({
                 label: `texture sampler ${i}`,
                 minFilter: 'linear',
                 magFilter: 'linear',
@@ -1924,7 +1923,7 @@ export class ModelRenderer {
     }
 
     private initGPUEmptyTexture (): void {
-        const texture = this.gpuEmptyTexture = this.device.createTexture({
+        const texture = this.rendererData.gpuEmptyTexture = this.device.createTexture({
             size: [1, 1],
             format: 'rgba8unorm',
             usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
