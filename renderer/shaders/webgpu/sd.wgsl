@@ -53,7 +53,7 @@ struct VSOut {
     position = sum;
 
     var out: VSOut;
-    out.position = vsUniforms.pMatrix * vsUniforms.mvMatrix * position; 
+    out.position = vsUniforms.pMatrix * vsUniforms.mvMatrix * position;
     out.textureCoord = in.textureCoord;
     out.normal = in.normal;
     return out;
@@ -75,9 +75,7 @@ fn hypot(z: vec2f) -> f32 {
 @fragment fn fs(
     in: VSOut
 ) -> @location(0) vec4f {
-    // todo
-    // let texCoord: vec2f = (fsUniforms.tVertexAnim * vec3f(in.textureCoord.x, in.textureCoord.y, 1.)).xy;
-    let texCoord: vec2f = in.textureCoord;
+    let texCoord: vec2f = (fsUniforms.tVertexAnim * vec3f(in.textureCoord.x, in.textureCoord.y, 1.)).xy;
     var color: vec4f = vec4f(0.0);
 
     if (fsUniforms.replaceableType == 0) {

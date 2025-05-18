@@ -240,6 +240,7 @@ export class ModelRenderer {
             materialLayerNormalTextureID: [],
             materialLayerOrmTextureID: [],
             teamColor: null,
+            lastTeamColor: vec3.create(),
             cameraPos: null,
             cameraQuat: null,
             lightPos: null,
@@ -682,7 +683,7 @@ export class ModelRenderer {
                         this.gpuFSUniformsBuffers[materialID] ||= [];
                         let gpuFSUniformsBuffer = this.gpuFSUniformsBuffers[materialID][j];
 
-                        let needWriteBuffer = typeof layer.TVertexAnimId === 'number';
+                        let needWriteBuffer = typeof layer.TVertexAnimId === 'number' || !vec3.equals(this.rendererData.teamColor, this.rendererData.lastTeamColor);
                         if (!gpuFSUniformsBuffer) {
                             gpuFSUniformsBuffer = this.gpuFSUniformsBuffers[materialID][j] = this.device.createBuffer({
                                 label: `fs uniforms ${materialID} ${j}`,
@@ -693,6 +694,8 @@ export class ModelRenderer {
                         }
 
                         if (needWriteBuffer) {
+                            const tVetexAnim = this.getTexCoordMatrix(layer);
+
                             const FSUniformsValues = new ArrayBuffer(80);
                             const FSUniformsViews = {
                                 replaceableColor: new Float32Array(FSUniformsValues, 0, 3),
@@ -703,7 +706,9 @@ export class ModelRenderer {
                             FSUniformsViews.replaceableColor.set(this.rendererData.teamColor);
                             FSUniformsViews.replaceableType.set([texture.ReplaceableId || 0]);
                             FSUniformsViews.discardAlphaLevel.set([layer.FilterMode === FilterMode.Transparent ? .75 : 0]);
-                            FSUniformsViews.tVertexAnim.set(this.getTexCoordMatrix(layer));
+                            FSUniformsViews.tVertexAnim.set(tVetexAnim.slice(0, 3));
+                            FSUniformsViews.tVertexAnim.set(tVetexAnim.slice(3, 6), 4);
+                            FSUniformsViews.tVertexAnim.set(tVetexAnim.slice(6, 9), 8);
                             this.device.queue.writeBuffer(gpuFSUniformsBuffer, 0, FSUniformsValues);
                         }
 
@@ -741,6 +746,8 @@ export class ModelRenderer {
 
             const commandBuffer = encoder.finish();
             this.device.queue.submit([commandBuffer]);
+
+            vec3.copy(this.rendererData.lastTeamColor, this.rendererData.teamColor);
 
             return;
         }
