@@ -8,6 +8,9 @@ import {mat4} from 'gl-matrix';
 import {degToRad, rand, getShader} from './util';
 import {RendererData} from './rendererData';
 import {lerp} from './interp';
+import vertexShader from './shaders/webgl/particles.vs.glsl?raw';
+import fragmentShader from './shaders/webgl/particles.fs.glsl?raw';
+import particlesShader from './shaders/webgpu/particles.wgsl?raw';
 
 const rotateCenter: vec3 = vec3.fromValues(0, 0, 0);
 const firstColor = vec4.create();
@@ -15,66 +18,6 @@ const secondColor = vec4.create();
 const color = vec4.create();
 const tailPos = vec3.create();
 const tailCross = vec3.create();
-
-const vertexShader = `
-    attribute vec3 aVertexPosition;
-    attribute vec2 aTextureCoord;
-    attribute vec4 aColor;
-
-    uniform mat4 uMVMatrix;
-    uniform mat4 uPMatrix;
-
-    varying vec2 vTextureCoord;
-    varying vec4 vColor;
-
-    void main(void) {
-        vec4 position = vec4(aVertexPosition, 1.0);
-        gl_Position = uPMatrix * uMVMatrix * position;
-        vTextureCoord = aTextureCoord;
-        vColor = aColor;
-    }
-`;
-
-const fragmentShader = `
-    precision mediump float;
-
-    varying vec2 vTextureCoord;
-    varying vec4 vColor;
-
-    uniform sampler2D uSampler;
-    uniform vec3 uReplaceableColor;
-    uniform float uReplaceableType;
-    uniform float uDiscardAlphaLevel;
-
-    float hypot (vec2 z) {
-        float t;
-        float x = abs(z.x);
-        float y = abs(z.y);
-        t = min(x, y);
-        x = max(x, y);
-        t = t / x;
-        return (z.x == 0.0 && z.y == 0.0) ? 0.0 : x * sqrt(1.0 + t * t);
-    }
-
-    void main(void) {
-        vec2 coords = vec2(vTextureCoord.s, vTextureCoord.t);
-        if (uReplaceableType == 0.) {
-            gl_FragColor = texture2D(uSampler, coords);
-        } else if (uReplaceableType == 1.) {
-            gl_FragColor = vec4(uReplaceableColor, 1.0);
-        } else if (uReplaceableType == 2.) {
-            float dist = hypot(coords - vec2(0.5, 0.5)) * 2.;
-            float truncateDist = clamp(1. - dist * 1.4, 0., 1.);
-            float alpha = sin(truncateDist);
-            gl_FragColor = vec4(uReplaceableColor * alpha, 1.0);
-        }
-        gl_FragColor *= vColor;
-        
-        if (gl_FragColor[3] < uDiscardAlphaLevel) {
-            discard;
-        }
-    }
-`;
 
 interface Particle {
     emitter: ParticleEmitterWrapper;
@@ -88,6 +31,8 @@ interface Particle {
 }
 
 interface ParticleEmitterWrapper {
+    index: number;
+
     emission: number;
     squirtFrame: number;
     particles: Particle[];
@@ -100,21 +45,27 @@ interface ParticleEmitterWrapper {
     // xyz
     tailVertices: Float32Array;
     tailVertexBuffer: WebGLBuffer;
+    tailVertexGPUBuffer: GPUBuffer;
     // xyz
     headVertices: Float32Array;
     headVertexBuffer: WebGLBuffer;
+    headVertexGPUBuffer: GPUBuffer;
     // xy
     tailTexCoords: Float32Array;
     tailTexCoordBuffer: WebGLBuffer;
+    tailTexCoordGPUBuffer: GPUBuffer;
     // xy
     headTexCoords: Float32Array;
     headTexCoordBuffer: WebGLBuffer;
+    headTexCoordGPUBuffer: GPUBuffer;
     // rgba
     colors: Float32Array;
     colorBuffer: WebGLBuffer;
+    colorGPUBuffer: GPUBuffer;
     // 2 * triangles
     indices: Uint16Array;
     indexBuffer: WebGLBuffer;
+    indexGPUBuffer: GPUBuffer;
 }
 
 const DISCARD_ALPHA_KEY_LEVEL = 0.83;
@@ -125,6 +76,15 @@ export class ParticlesController {
     private shaderProgram: WebGLProgram;
     private vertexShader: WebGLShader;
     private fragmentShader: WebGLShader;
+
+    private device: GPUDevice;
+    private gpuShaderModule: GPUShaderModule;
+    private gpuPipelineLayout: GPUPipelineLayout;
+    private gpuPipelines: GPURenderPipeline[];
+    private vsBindGroupLayout: GPUBindGroupLayout | null;
+    private fsBindGroupLayout: GPUBindGroupLayout | null;
+    private gpuVSUniformsBuffer: GPUBuffer;
+    private gpuVSUniformsBindGroup: GPUBindGroup;
 
     private shaderProgramLocations: {
         vertexPositionAttribute: number | null;
@@ -171,8 +131,10 @@ export class ParticlesController {
                 vec3.create()
             ];
 
-            for (const particleEmitter of rendererData.model.ParticleEmitters2) {
+            for (let i = 0; i < rendererData.model.ParticleEmitters2.length; ++i) {
+                const particleEmitter = rendererData.model.ParticleEmitters2[i];
                 const emitter: ParticleEmitterWrapper = {
+                    index: i,
                     emission: 0,
                     squirtFrame: 0,
                     particles: [],
@@ -182,16 +144,22 @@ export class ParticlesController {
                     type: particleEmitter.FrameFlags,
                     tailVertices: null,
                     tailVertexBuffer: null,
+                    tailVertexGPUBuffer: null,
                     headVertices: null,
                     headVertexBuffer: null,
+                    headVertexGPUBuffer: null,
                     tailTexCoords: null,
                     tailTexCoordBuffer: null,
+                    tailTexCoordGPUBuffer: null,
                     headTexCoords: null,
                     headTexCoordBuffer: null,
+                    headTexCoordGPUBuffer: null,
                     colors: null,
                     colorBuffer: null,
+                    colorGPUBuffer: null,
                     indices: null,
-                    indexBuffer: null
+                    indexBuffer: null,
+                    indexGPUBuffer: null
                 };
 
                 emitter.baseCapacity = Math.ceil(
@@ -225,6 +193,204 @@ export class ParticlesController {
         this.gl = glContext;
 
         this.initShaders();
+    }
+
+    public initGPUDevice (device: GPUDevice): void {
+        this.device = device;
+
+        this.gpuShaderModule = device.createShaderModule({
+            label: 'particles shader module',
+            code: particlesShader
+        });
+
+        this.vsBindGroupLayout = this.device.createBindGroupLayout({
+            label: 'particles vs bind group layout',
+            entries: [ {
+                binding: 0,
+                visibility: GPUShaderStage.VERTEX,
+                buffer: {
+                    type: 'uniform',
+                    hasDynamicOffset: false,
+                    minBindingSize: 128
+                }
+            }] as const
+        });
+        this.fsBindGroupLayout = this.device.createBindGroupLayout({
+            label: 'particles bind group layout2',
+            entries: [
+                {
+                    binding: 0,
+                    visibility: GPUShaderStage.FRAGMENT,
+                    buffer: {
+                    type: 'uniform',
+                        hasDynamicOffset: false,
+                        minBindingSize: 32
+                    }
+                },
+                {
+                    binding: 1,
+                    visibility: GPUShaderStage.FRAGMENT,
+                        sampler: {
+                        type: 'filtering'
+                    }
+                },
+                {
+                    binding: 2,
+                    visibility: GPUShaderStage.FRAGMENT,
+                    texture: {
+                        sampleType: 'float',
+                        viewDimension: "2d",
+                        multisampled: false
+                    }
+                }
+            ] as const
+        });
+
+        this.gpuPipelineLayout = this.device.createPipelineLayout({
+            label: 'particles pipeline layout',
+            bindGroupLayouts: [
+                this.vsBindGroupLayout,
+                this.fsBindGroupLayout
+            ]
+        });
+
+        const createPipeline = (name: string, blend: GPUBlendState, depth: GPUDepthStencilState) => {
+            return device.createRenderPipeline({
+                label: `particles pipeline ${name}`,
+                layout: this.gpuPipelineLayout,
+                vertex: {
+                    module: this.gpuShaderModule,
+                    buffers: [{
+                        arrayStride: 12,
+                        attributes: [{
+                            shaderLocation: 0,
+                            offset: 0,
+                            format: 'float32x3' as const
+                        }]
+                    }, {
+                        arrayStride: 8,
+                        attributes: [{
+                            shaderLocation: 1,
+                            offset: 0,
+                            format: 'float32x2' as const
+                        }]
+                    }, {
+                        arrayStride: 16,
+                        attributes: [{
+                            shaderLocation: 2,
+                            offset: 0,
+                            format: 'float32x4' as const
+                        }]
+                    }]
+                },
+                fragment: {
+                    module: this.gpuShaderModule,
+                    targets: [{
+                        format: navigator.gpu.getPreferredCanvasFormat(),
+                        blend
+                    }]
+                },
+                depthStencil: depth
+            });
+        };
+
+        this.gpuPipelines = [
+            createPipeline('blend', {
+                color: {
+                    operation: 'add',
+                    srcFactor: 'src-alpha',
+                    dstFactor: 'one-minus-src-alpha'
+                },
+                alpha: {
+                    operation: 'add',
+                    srcFactor: 'one',
+                    dstFactor: 'one-minus-src-alpha'
+                }
+            }, {
+                depthWriteEnabled: false,
+                depthCompare: 'less-equal',
+                format: 'depth24plus'
+            }),
+            createPipeline('additive', {
+                color: {
+                    operation: 'add',
+                    srcFactor: 'src',
+                    dstFactor: 'one'
+                },
+                alpha: {
+                    operation: 'add',
+                    srcFactor: 'src',
+                    dstFactor: 'one'
+                }
+            }, {
+                depthWriteEnabled: false,
+                depthCompare: 'less-equal',
+                format: 'depth24plus'
+            }),
+            createPipeline('modulate', {
+                color: {
+                    operation: 'add',
+                    srcFactor: 'zero',
+                    dstFactor: 'src'
+                },
+                alpha: {
+                    operation: 'add',
+                    srcFactor: 'zero',
+                    dstFactor: 'one'
+                }
+            }, {
+                depthWriteEnabled: false,
+                depthCompare: 'less-equal',
+                format: 'depth24plus'
+            }),
+            createPipeline('modulate2x', {
+                color: {
+                    operation: 'add',
+                    srcFactor: 'dst',
+                    dstFactor: 'src'
+                },
+                alpha: {
+                    operation: 'add',
+                    srcFactor: 'zero',
+                    dstFactor: 'one'
+                }
+            }, {
+                depthWriteEnabled: false,
+                depthCompare: 'less-equal',
+                format: 'depth24plus'
+            }),
+            createPipeline('alphaKey', {
+                color: {
+                    operation: 'add',
+                    srcFactor: 'src-alpha',
+                    dstFactor: 'one'
+                },
+                alpha: {
+                    operation: 'add',
+                    srcFactor: 'src-alpha',
+                    dstFactor: 'one'
+                }
+            }, {
+                depthWriteEnabled: false,
+                depthCompare: 'less-equal',
+                format: 'depth24plus'
+            }),
+        ];
+
+        this.gpuVSUniformsBuffer = this.device.createBuffer({
+            label: 'particles vs uniforms',
+            size: 128,
+            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+        });
+        this.gpuVSUniformsBindGroup = this.device.createBindGroup({
+            layout: this.vsBindGroupLayout,
+            entries: [
+                {
+                    binding: 0,
+                    resource: { buffer: this.gpuVSUniformsBuffer }
+                }
+            ]
+        });
     }
 
     private initShaders (): void {
@@ -325,16 +491,59 @@ export class ParticlesController {
         emitter.capacity = size;
 
         if (!emitter.indexBuffer) {
-            if (emitter.type & ParticleEmitter2FramesFlags.Tail) {
-                emitter.tailVertexBuffer = this.gl.createBuffer();
-                emitter.tailTexCoordBuffer = this.gl.createBuffer();
+            if (this.gl) {
+                if (emitter.type & ParticleEmitter2FramesFlags.Tail) {
+                    emitter.tailVertexBuffer = this.gl.createBuffer();
+                    emitter.tailTexCoordBuffer = this.gl.createBuffer();
+                }
+                if (emitter.type & ParticleEmitter2FramesFlags.Head) {
+                    emitter.headVertexBuffer = this.gl.createBuffer();
+                    emitter.headTexCoordBuffer = this.gl.createBuffer();
+                }
+                emitter.colorBuffer = this.gl.createBuffer();
+                emitter.indexBuffer = this.gl.createBuffer();
+            } else if (this.device) {
+                if (emitter.type & ParticleEmitter2FramesFlags.Tail) {
+                    emitter.tailVertexGPUBuffer?.destroy();
+                    emitter.tailVertexGPUBuffer = this.device.createBuffer({
+                        label: `particles tail vertex buffer ${emitter.index}`,
+                        size: tailVertices.byteLength,
+                        usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST
+                    });
+                    emitter.tailTexCoordGPUBuffer?.destroy();
+                    emitter.tailTexCoordGPUBuffer = this.device.createBuffer({
+                        label: `particles tail texCoords buffer ${emitter.index}`,
+                        size: tailTexCoords.byteLength,
+                        usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST
+                    });
+                }
+                if (emitter.type & ParticleEmitter2FramesFlags.Head) {
+                    emitter.headVertexGPUBuffer?.destroy();
+                    emitter.headVertexGPUBuffer = this.device.createBuffer({
+                        label: `particles head vertex buffer ${emitter.index}`,
+                        size: headVertices.byteLength,
+                        usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST
+                    });
+                    emitter.headTexCoordGPUBuffer?.destroy();
+                    emitter.headTexCoordGPUBuffer = this.device.createBuffer({
+                        label: `particles head texCoords buffer ${emitter.index}`,
+                        size: headTexCoords.byteLength,
+                        usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST
+                    });
+                }
+                emitter.colorGPUBuffer?.destroy();
+                emitter.colorGPUBuffer = this.device.createBuffer({
+                    label: `particles color buffer ${emitter.index}`,
+                    size: colors.byteLength,
+                    usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST
+                });
+                emitter.indexGPUBuffer?.destroy();
+                emitter.indexGPUBuffer = this.device.createBuffer({
+                    label: `particles index buffer ${emitter.index}`,
+                    size: indices.byteLength,
+                    usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST
+                });
             }
-            if (emitter.type & ParticleEmitter2FramesFlags.Head) {
-                emitter.headVertexBuffer = this.gl.createBuffer();
-                emitter.headTexCoordBuffer = this.gl.createBuffer();
-            }
-            emitter.colorBuffer = this.gl.createBuffer();
-            emitter.indexBuffer = this.gl.createBuffer();
         }
     }
 
@@ -374,6 +583,112 @@ export class ParticlesController {
         this.gl.disableVertexAttribArray(this.shaderProgramLocations.vertexPositionAttribute);
         this.gl.disableVertexAttribArray(this.shaderProgramLocations.textureCoordAttribute);
         this.gl.disableVertexAttribArray(this.shaderProgramLocations.colorAttribute);
+    }
+
+    private renderGPUEmitterType(pass: GPURenderPassEncoder, emitter: ParticleEmitterWrapper, type: ParticleEmitter2FramesFlags): void {
+        if (type === ParticleEmitter2FramesFlags.Tail) {
+            this.device.queue.writeBuffer(emitter.tailTexCoordGPUBuffer, 0, emitter.tailTexCoords);
+            pass.setVertexBuffer(1, emitter.tailTexCoordGPUBuffer);
+        } else {
+            this.device.queue.writeBuffer(emitter.headTexCoordGPUBuffer, 0, emitter.headTexCoords);
+            pass.setVertexBuffer(1, emitter.headTexCoordGPUBuffer);
+        }
+
+        if (type === ParticleEmitter2FramesFlags.Tail) {
+            this.device.queue.writeBuffer(emitter.tailVertexGPUBuffer, 0, emitter.tailVertices);
+            pass.setVertexBuffer(0, emitter.tailVertexGPUBuffer);
+        } else {
+            this.device.queue.writeBuffer(emitter.headVertexGPUBuffer, 0, emitter.headVertices);
+            pass.setVertexBuffer(0, emitter.headVertexGPUBuffer);
+        }
+
+        pass.drawIndexed(emitter.particles.length * 6);
+    }
+
+    public renderGPU (pass: GPURenderPassEncoder, mvMatrix: mat4, pMatrix: mat4): void {
+        const VSUniformsValues = new ArrayBuffer(128);
+        const VSUniformsViews = {
+            mvMatrix: new Float32Array(VSUniformsValues, 0, 16),
+            pMatrix: new Float32Array(VSUniformsValues, 64, 16)
+        };
+        VSUniformsViews.mvMatrix.set(mvMatrix);
+        VSUniformsViews.pMatrix.set(pMatrix);
+        this.device.queue.writeBuffer(this.gpuVSUniformsBuffer, 0, VSUniformsValues);
+
+        pass.setBindGroup(0, this.gpuVSUniformsBindGroup);
+
+        for (const emitter of this.emitters) {
+            if (!emitter.particles.length) {
+                continue;
+            }
+
+            const pipeline = this.gpuPipelines[emitter.props.FilterMode] || this.gpuPipelines[0];
+            pass.setPipeline(pipeline);
+
+            const textureID = emitter.props.TextureID;
+            const texture = this.rendererData.model.Textures[textureID];
+
+            const fsUniformsValues = new ArrayBuffer(32);
+            const fsUniformsViews = {
+                replaceableColor: new Float32Array(fsUniformsValues, 0, 3),
+                replaceableType: new Uint32Array(fsUniformsValues, 12, 1),
+                discardAlphaLevel: new Float32Array(fsUniformsValues, 16, 1),
+            };
+
+            fsUniformsViews.replaceableColor.set(this.rendererData.teamColor);
+            fsUniformsViews.replaceableType.set([texture.ReplaceableId || 0]);
+            if (emitter.props.FilterMode === ParticleEmitter2FilterMode.AlphaKey) {
+                fsUniformsViews.discardAlphaLevel.set([DISCARD_ALPHA_KEY_LEVEL]);
+            } else if (
+                emitter.props.FilterMode === ParticleEmitter2FilterMode.Modulate ||
+                emitter.props.FilterMode === ParticleEmitter2FilterMode.Modulate2x
+            ) {
+                fsUniformsViews.discardAlphaLevel.set([DISCARD_MODULATE_LEVEL]);
+            } else {
+                fsUniformsViews.discardAlphaLevel.set([0]);
+            }
+
+            const fsUniformsBuffer = this.device.createBuffer({
+                label: `particles fs uniforms ${emitter.index}`,
+                size: 32,
+                usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+            });
+
+            this.device.queue.writeBuffer(fsUniformsBuffer, 0, fsUniformsValues);
+
+            const fsUniformsBindGroup = this.device.createBindGroup({
+                label: `particles fs uniforms ${emitter.index}`,
+                layout: this.fsBindGroupLayout,
+                entries: [
+                    {
+                        binding: 0,
+                        resource: { buffer: fsUniformsBuffer }
+                    },
+                    {
+                        binding: 1,
+                        resource: this.rendererData.gpuSamplers[textureID]
+                    },
+                    {
+                        binding: 2,
+                        resource: (this.rendererData.gpuTextures[texture.Image] || this.rendererData.gpuEmptyTexture).createView()
+                    }
+                ]
+            });
+
+            pass.setBindGroup(1, fsUniformsBindGroup);
+
+            this.device.queue.writeBuffer(emitter.colorGPUBuffer, 0, emitter.colors);
+            this.device.queue.writeBuffer(emitter.indexGPUBuffer, 0, emitter.indices);
+            pass.setVertexBuffer(2, emitter.colorGPUBuffer);
+            pass.setIndexBuffer(emitter.indexGPUBuffer, 'uint16');
+
+            if (emitter.type & ParticleEmitter2FramesFlags.Tail) {
+                this.renderGPUEmitterType(pass, emitter, ParticleEmitter2FramesFlags.Tail);
+            }
+            if (emitter.type & ParticleEmitter2FramesFlags.Head) {
+                this.renderGPUEmitterType(pass, emitter, ParticleEmitter2FramesFlags.Head);
+            }
+        }
     }
 
     private updateEmitter (emitter: ParticleEmitterWrapper, delta: number): void {

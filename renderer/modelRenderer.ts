@@ -420,7 +420,7 @@ export class ModelRenderer {
         // this.initCube();
         // this.initSquare();
         // this.initBRDFLUT();
-        // this.particlesController.initGL(glContext);
+        this.particlesController.initGPUDevice(device);
         this.ribbonsController.initGPUDevice(device);
     }
 
@@ -734,7 +734,7 @@ export class ModelRenderer {
                 }
             }
 
-            // this.particlesController.render(mvMatrix, pMatrix);
+            this.particlesController.renderGPU(pass, mvMatrix, pMatrix);
             this.ribbonsController.renderGPU(pass, mvMatrix, pMatrix);
 
             pass.end();

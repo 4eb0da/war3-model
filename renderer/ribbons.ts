@@ -134,7 +134,7 @@ export class RibbonsController {
         this.device = device;
 
         this.gpuShaderModule = device.createShaderModule({
-            label: 'ribbon shader module',
+            label: 'ribbons shader module',
             code: ribbonShader
         });
 
