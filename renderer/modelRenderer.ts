@@ -105,6 +105,7 @@ export class ModelRenderer {
     private fsBindGroupLayout: GPUBindGroupLayout | null;
     private gpuShaderModule: GPUShaderModule | null;
     private gpuPipelines: GPURenderPipeline[] | null;
+    private gpuWireframePipeline: GPURenderPipeline | null;
     private gpuPipelineLayout: GPUPipelineLayout | null;
     private gpuRenderPassDescriptor: GPURenderPassDescriptor | null;
     private shaderProgramLocations: {
@@ -161,6 +162,7 @@ export class ModelRenderer {
     private texCoordBuffer: WebGLBuffer[] = [];
     private indexBuffer: WebGLBuffer[] = [];
     private wireframeIndexBuffer: WebGLBuffer[] = [];
+    private wireframeIndexGPUBuffer: GPUBuffer[] = [];
     private groupBuffer: WebGLBuffer[] = [];
     private skinWeightBuffer: WebGLBuffer[] = [];
     private tangentBuffer: WebGLBuffer[] = [];
@@ -660,6 +662,10 @@ export class ModelRenderer {
                     continue;
                 }
 
+                if (wireframe && !this.wireframeIndexGPUBuffer[i]) {
+                    this.createWireframeGPUBuffer(i);
+                }
+
                 const materialID = geoset.MaterialID;
                 const material = this.model.Materials[materialID];
 
@@ -670,14 +676,14 @@ export class ModelRenderer {
                     pass.setVertexBuffer(1, this.gpuNormalBuffer[i]);
                     pass.setVertexBuffer(2, this.gpuTexCoordBuffer[i]);
                     pass.setVertexBuffer(3, this.gpuGroupBuffer[i]);
-                    pass.setIndexBuffer(this.gpuIndexBuffer[i], 'uint16');
+                    pass.setIndexBuffer(wireframe ? this.wireframeIndexGPUBuffer[i] : this.gpuIndexBuffer[i], 'uint16');
 
                     for (let j = 0; j < material.Layers.length; ++j) {
                         const layer = material.Layers[j];
                         const textureID = this.rendererData.materialLayerTextureID[materialID][j];
                         const texture = this.model.Textures[textureID];
 
-                        const pipeline = this.gpuPipelines[layer.FilterMode] || this.gpuPipelines[0];
+                        const pipeline = wireframe ? this.gpuWireframePipeline : (this.gpuPipelines[layer.FilterMode] || this.gpuPipelines[0]);
                         pass.setPipeline(pipeline);
 
                         this.gpuFSUniformsBuffers[materialID] ||= [];
@@ -734,7 +740,7 @@ export class ModelRenderer {
                         pass.setBindGroup(0, this.gpuVSUniformsBindGroup);
                         pass.setBindGroup(1, fsBindGroup);
 
-                        pass.drawIndexed(geoset.Faces.length);
+                        pass.drawIndexed(wireframe ? geoset.Faces.length * 2 : geoset.Faces.length);
                     }
                 }
             }
@@ -1545,6 +1551,31 @@ export class ModelRenderer {
         this.gl.bufferData(this.gl.ELEMENT_ARRAY_BUFFER, lines, this.gl.STATIC_DRAW);
     }
 
+    private createWireframeGPUBuffer (index: number): void {
+        const faces = this.model.Geosets[index].Faces;
+        const lines = new Uint16Array(faces.length * 2);
+
+        for (let i = 0; i < faces.length; i += 3) {
+            lines[i * 2]     = faces[i];
+            lines[i * 2 + 1] = faces[i + 1];
+            lines[i * 2 + 2] = faces[i + 1];
+            lines[i * 2 + 3] = faces[i + 2];
+            lines[i * 2 + 4] = faces[i + 2];
+            lines[i * 2 + 5] = faces[i];
+        }
+
+        this.wireframeIndexGPUBuffer[index] = this.device.createBuffer({
+            label: `wireframe ${index}`,
+            size: lines.byteLength,
+            usage: GPUBufferUsage.INDEX,
+            mappedAtCreation: true
+        });
+        new Uint16Array(
+            this.wireframeIndexGPUBuffer[index].getMappedRange(0, this.wireframeIndexGPUBuffer[index].size)
+        ).set(lines);
+        this.wireframeIndexGPUBuffer[index].unmap();
+    }
+
     private initBuffers (): void {
         for (let i = 0; i < this.model.Geosets.length; ++i) {
             const geoset = this.model.Geosets[i];
@@ -1648,7 +1679,7 @@ export class ModelRenderer {
             ]
         });
 
-        const createPipeline = (name: string, blend: GPUBlendState, depth: GPUDepthStencilState) => {
+        const createPipeline = (name: string, blend: GPUBlendState, depth: GPUDepthStencilState, extra: Partial<GPURenderPipelineDescriptor> = {}) => {
             return this.device.createRenderPipeline({
                 label: `sd pipeline ${name}`,
                 layout: this.gpuPipelineLayout,
@@ -1691,7 +1722,8 @@ export class ModelRenderer {
                         blend
                     }]
                 },
-                depthStencil: depth
+                depthStencil: depth,
+                ...extra
             });
         };
 
@@ -1809,6 +1841,27 @@ export class ModelRenderer {
                 format: 'depth24plus'
             })
         ];
+
+        this.gpuWireframePipeline = createPipeline('sd wireframe', {
+            color: {
+                operation: 'add',
+                srcFactor: 'src-alpha',
+                dstFactor: 'one-minus-src-alpha'
+            },
+            alpha: {
+                operation: 'add',
+                srcFactor: 'one',
+                dstFactor: 'one-minus-src-alpha'
+            }
+        }, {
+            depthWriteEnabled: true,
+            depthCompare: 'less-equal',
+            format: 'depth24plus'
+        }, {
+            primitive: {
+                topology: 'line-list'
+            }
+        });
 
         this.gpuRenderPassDescriptor = {
             label: 'basic renderPass',
