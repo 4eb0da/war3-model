@@ -29,7 +29,7 @@ uniform sampler2D uBRDFLUT;
 
 const float PI = 3.14159265359;
 const float gamma = 2.2;
-const float MAX_REFLECTION_LOD = ${MAX_ENV_MIP_LEVELS.toFixed(1)};
+const float MAX_REFLECTION_LOD = ${MAX_ENV_MIP_LEVELS};
 
 float distributionGGX(vec3 normal, vec3 halfWay, float roughness) {
     float a = roughness * roughness;

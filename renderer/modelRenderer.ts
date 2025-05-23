@@ -18,7 +18,7 @@ import fragmentShader from './shaders/webgl/sd.fs.glsl?raw';
 import vertexShaderHDHardwareSkinningOldSource from './shaders/webgl/hdHardwareSkinningOld.vs.glsl?raw';
 import vertexShaderHDHardwareSkinningNewSource from './shaders/webgl/hdHardwareSkinningNew.vs.glsl?raw';
 import fragmentShaderHDOld from './shaders/webgl/hdOld.fs.glsl?raw';
-import fragmentShaderHDNew from './shaders/webgl/hdNew.fs.glsl?raw';
+import fragmentShaderHDNewSource from './shaders/webgl/hdNew.fs.glsl?raw';
 import skeletonVertexShader from './shaders/webgl/skeleton.vs.glsl?raw';
 import skeletonFragmentShader from './shaders/webgl/skeleton.fs.glsl?raw';
 import envToCubemapVertexShader from './shaders/webgl/envToCubemap.vs.glsl?raw';
@@ -32,6 +32,7 @@ import prefilterEnvFragmentShader from './shaders/webgl/prefilterEnv.fs.glsl?raw
 import integrateBRDFVertexShader from './shaders/webgl/integrateBRDF.vs.glsl?raw';
 import integrateBRDFFragmentShader from './shaders/webgl/integrateBRDF.fs.glsl?raw';
 import sdShaderSource from './shaders/webgpu/sd.wgsl?raw';
+import hdShaderSource from './shaders/webgpu/hd.wgsl?raw';
 import { generateMips } from './generateMips';
 
 // actually, all is number
@@ -59,7 +60,9 @@ interface WebGLProgramObject<A extends string, U extends string> {
 const vertexShaderHardwareSkinning = vertexShaderHardwareSkinningSource.replace(/\$\{MAX_NODES}/g, String(MAX_NODES));
 const vertexShaderHDHardwareSkinningOld = vertexShaderHDHardwareSkinningOldSource.replace(/\$\{MAX_NODES}/g, String(MAX_NODES));
 const vertexShaderHDHardwareSkinningNew = vertexShaderHDHardwareSkinningNewSource.replace(/\$\{MAX_NODES}/g, String(MAX_NODES));
+const fragmentShaderHDNew = fragmentShaderHDNewSource.replace(/\$\{MAX_ENV_MIP_LEVELS}/g, String(MAX_ENV_MIP_LEVELS.toFixed(1)));
 const sdShader = sdShaderSource.replace(/\$\{MAX_NODES}/g, String(MAX_NODES));
+const hdShader = hdShaderSource.replace(/\$\{MAX_NODES}/g, String(MAX_NODES));
 
 const translation = vec3.create();
 const rotation = quat.create();
@@ -183,6 +186,8 @@ export class ModelRenderer {
     private gpuTexCoordBuffer: GPUBuffer[] = [];
     private gpuGroupBuffer: GPUBuffer[] = [];
     private gpuIndexBuffer: GPUBuffer[] = [];
+    private gpuSkinWeightBuffer: GPUBuffer[] = [];
+    private gpuTangentBuffer: GPUBuffer[] = [];
     private gpuVSUniformsBuffer: GPUBuffer;
     private gpuVSUniformsBindGroup: GPUBindGroup;
     private gpuFSUniformsBuffers: GPUBuffer[][] = [];
@@ -669,15 +674,107 @@ export class ModelRenderer {
                 const materialID = geoset.MaterialID;
                 const material = this.model.Materials[materialID];
 
-                if (this.isHD) {
-                    // todo
-                } else {
-                    pass.setVertexBuffer(0, this.gpuVertexBuffer[i]);
-                    pass.setVertexBuffer(1, this.gpuNormalBuffer[i]);
-                    pass.setVertexBuffer(2, this.gpuTexCoordBuffer[i]);
-                    pass.setVertexBuffer(3, this.gpuGroupBuffer[i]);
-                    pass.setIndexBuffer(wireframe ? this.wireframeIndexGPUBuffer[i] : this.gpuIndexBuffer[i], 'uint16');
+                pass.setVertexBuffer(0, this.gpuVertexBuffer[i]);
+                pass.setVertexBuffer(1, this.gpuNormalBuffer[i]);
+                pass.setVertexBuffer(2, this.gpuTexCoordBuffer[i]);
 
+                if (this.isHD) {
+                    pass.setVertexBuffer(3, this.gpuTangentBuffer[i]);
+                    pass.setVertexBuffer(4, this.gpuSkinWeightBuffer[i]);
+                    pass.setVertexBuffer(5, this.gpuSkinWeightBuffer[i]);
+                } else {
+                    pass.setVertexBuffer(3, this.gpuGroupBuffer[i]);
+                }
+
+                pass.setIndexBuffer(wireframe ? this.wireframeIndexGPUBuffer[i] : this.gpuIndexBuffer[i], 'uint16');
+
+                if (this.isHD) {
+                    const baseLayer = material.Layers[0];
+                    const pipeline = wireframe ? this.gpuWireframePipeline : (this.gpuPipelines[baseLayer.FilterMode] || this.gpuPipelines[0]);
+                    pass.setPipeline(pipeline);
+
+                    const textures = this.rendererData.materialLayerTextureID[materialID];
+                    const normalTextres = this.rendererData.materialLayerNormalTextureID[materialID];
+                    const ormTextres = this.rendererData.materialLayerOrmTextureID[materialID];
+                    const diffuseTextureID = textures[0];
+                    const diffuseTexture = this.model.Textures[diffuseTextureID];
+                    const normalTextureID = baseLayer?.ShaderTypeId === 1 ? normalTextres[0] : textures[1];
+                    const normalTexture = this.model.Textures[normalTextureID];
+                    const ormTextureID = baseLayer?.ShaderTypeId === 1 ? ormTextres[0] : textures[2];
+                    const ormTexture = this.model.Textures[ormTextureID];
+
+                    this.gpuFSUniformsBuffers[materialID] ||= [];
+                    let gpuFSUniformsBuffer = this.gpuFSUniformsBuffers[materialID][0];
+
+                    if (!gpuFSUniformsBuffer) {
+                        gpuFSUniformsBuffer = this.gpuFSUniformsBuffers[materialID][0] = this.device.createBuffer({
+                            label: `fs uniforms ${materialID}`,
+                            size: 112,
+                            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+                        });
+                    }
+
+                    const tVetexAnim = this.getTexCoordMatrix(baseLayer);
+
+                    const FSUniformsValues = new ArrayBuffer(112);
+                    const FSUniformsViews = {
+                        replaceableColor: new Float32Array(FSUniformsValues, 0, 3),
+                        tVertexAnim: new Float32Array(FSUniformsValues, 16, 12),
+                        lightPos: new Float32Array(FSUniformsValues, 64, 3),
+                        lightColor: new Float32Array(FSUniformsValues, 80, 3),
+                        cameraPos: new Float32Array(FSUniformsValues, 96, 3),
+                    };
+                    FSUniformsViews.replaceableColor.set(this.rendererData.teamColor);
+                    // FSUniformsViews.replaceableType.set([texture.ReplaceableId || 0]);
+                    // FSUniformsViews.discardAlphaLevel.set([layer.FilterMode === FilterMode.Transparent ? .75 : 0]);
+                    FSUniformsViews.tVertexAnim.set(tVetexAnim.slice(0, 3));
+                    FSUniformsViews.tVertexAnim.set(tVetexAnim.slice(3, 6), 4);
+                    FSUniformsViews.tVertexAnim.set(tVetexAnim.slice(6, 9), 8);
+                    FSUniformsViews.lightPos.set(this.rendererData.lightPos);
+                    FSUniformsViews.lightColor.set(this.rendererData.lightColor);
+                    FSUniformsViews.cameraPos.set(this.rendererData.cameraPos);
+                    this.device.queue.writeBuffer(gpuFSUniformsBuffer, 0, FSUniformsValues);
+
+                    const fsBindGroup = this.device.createBindGroup({
+                        label: `fs uniforms ${materialID}`,
+                        layout: this.fsBindGroupLayout,
+                        entries: [
+                            {
+                                binding: 0,
+                                resource: { buffer: gpuFSUniformsBuffer }
+                            },
+                            {
+                                binding: 1,
+                                resource: this.rendererData.gpuSamplers[diffuseTextureID]
+                            },
+                            {
+                                binding: 2,
+                                resource: (this.rendererData.gpuTextures[diffuseTexture.Image] || this.rendererData.gpuEmptyTexture).createView()
+                            },
+                            {
+                                binding: 3,
+                                resource: this.rendererData.gpuSamplers[normalTextureID]
+                            },
+                            {
+                                binding: 4,
+                                resource: (this.rendererData.gpuTextures[normalTexture.Image] || this.rendererData.gpuEmptyTexture).createView()
+                            },
+                            {
+                                binding: 5,
+                                resource: this.rendererData.gpuSamplers[ormTextureID]
+                            },
+                            {
+                                binding: 6,
+                                resource: (this.rendererData.gpuTextures[ormTexture.Image] || this.rendererData.gpuEmptyTexture).createView()
+                            }
+                        ]
+                    });
+
+                    pass.setBindGroup(0, this.gpuVSUniformsBindGroup);
+                    pass.setBindGroup(1, fsBindGroup);
+
+                    pass.drawIndexed(wireframe ? geoset.Faces.length * 2 : geoset.Faces.length);
+                } else {
                     for (let j = 0; j < material.Layers.length; ++j) {
                         const layer = material.Layers[j];
                         const textureID = this.rendererData.materialLayerTextureID[materialID][j];
@@ -1475,7 +1572,7 @@ export class ModelRenderer {
 
         this.gpuShaderModule = this.device.createShaderModule({
             label: 'sd',
-            code: sdShader
+            code: this.isHD ? hdShader : sdShader
         });
 
         for (let i = 0; i < this.model.Textures.length; ++i) {
@@ -1629,7 +1726,7 @@ export class ModelRenderer {
 
     private initGPUPipeline (): void {
         this.vsBindGroupLayout = this.device.createBindGroupLayout({
-            label: 'sd bind group layout',
+            label: 'bind group layout',
             entries: [{
                 binding: 0,
                 visibility: GPUShaderStage.VERTEX,
@@ -1641,8 +1738,66 @@ export class ModelRenderer {
             }] as const
         });
         this.fsBindGroupLayout = this.device.createBindGroupLayout({
-            label: 'sd bind group layout2',
-            entries: [
+            label: 'bind group layout2',
+            entries: this.isHD ? [
+                {
+                    binding: 0,
+                    visibility: GPUShaderStage.FRAGMENT,
+                    buffer: {
+                        type: 'uniform',
+                        hasDynamicOffset: false,
+                        minBindingSize: 112
+                    }
+                },
+                {
+                    binding: 1,
+                    visibility: GPUShaderStage.FRAGMENT,
+                    sampler: {
+                        type: 'filtering'
+                    }
+                },
+                {
+                    binding: 2,
+                    visibility: GPUShaderStage.FRAGMENT,
+                    texture: {
+                        sampleType: 'float',
+                        viewDimension: '2d',
+                        multisampled: false
+                    }
+                },
+                {
+                    binding: 3,
+                    visibility: GPUShaderStage.FRAGMENT,
+                    sampler: {
+                        type: 'filtering'
+                    }
+                },
+                {
+                    binding: 4,
+                    visibility: GPUShaderStage.FRAGMENT,
+                    texture: {
+                        sampleType: 'float',
+                        viewDimension: '2d',
+                        multisampled: false
+                    }
+                },
+                {
+                    binding: 5,
+                    visibility: GPUShaderStage.FRAGMENT,
+                    sampler: {
+                        type: 'filtering'
+                    }
+                },
+                {
+                    binding: 6,
+                    visibility: GPUShaderStage.FRAGMENT,
+                    texture: {
+                        sampleType: 'float',
+                        viewDimension: '2d',
+                        multisampled: false
+                    }
+                }
+            ] as const : [
                 {
                     binding: 0,
                     visibility: GPUShaderStage.FRAGMENT,
@@ -1672,7 +1827,7 @@ export class ModelRenderer {
         });
 
         this.gpuPipelineLayout = this.device.createPipelineLayout({
-            label: 'sd pipeline layout',
+            label: 'pipeline layout',
             bindGroupLayouts: [
                 this.vsBindGroupLayout,
                 this.fsBindGroupLayout
@@ -1681,11 +1836,12 @@ export class ModelRenderer {
 
         const createPipeline = (name: string, blend: GPUBlendState, depth: GPUDepthStencilState, extra: Partial<GPURenderPipelineDescriptor> = {}) => {
             return this.device.createRenderPipeline({
-                label: `sd pipeline ${name}`,
+                label: `pipeline ${name}`,
                 layout: this.gpuPipelineLayout,
                 vertex: {
                     module: this.gpuShaderModule,
                     buffers: [{
+                        // vertices
                         arrayStride: 12,
                         attributes: [{
                             shaderLocation: 0,
@@ -1693,6 +1849,7 @@ export class ModelRenderer {
                             format: 'float32x3' as const
                         }]
                     }, {
+                        // normals
                         arrayStride: 12,
                         attributes: [{
                             shaderLocation: 1,
@@ -1700,20 +1857,46 @@ export class ModelRenderer {
                             format: 'float32x3' as const
                         }]
                     }, {
+                        // textureCoord
                         arrayStride: 8,
                         attributes: [{
                             shaderLocation: 2,
                             offset: 0,
                             format: 'float32x2' as const
                         }]
+                    }, ...(this.isHD ? [{
+                        // tangents
+                        arrayStride: 16,
+                        attributes: [{
+                            shaderLocation: 3,
+                            offset: 0,
+                            format: 'float32x4' as const
+                        }]
                     }, {
+                        // skin
+                        arrayStride: 8,
+                        attributes: [{
+                            shaderLocation: 4,
+                            offset: 0,
+                            format: 'uint8x4' as const
+                        }]
+                    }, {
+                        // boneWeight
+                        arrayStride: 8,
+                        attributes: [{
+                            shaderLocation: 5,
+                            offset: 4,
+                            format: 'unorm8x4' as const
+                        }]
+                    }] : [{
+                        // group
                         arrayStride: 4,
                         attributes: [{
                             shaderLocation: 3,
                             offset: 0,
                             format: 'uint8x4' as const
                         }]
-                    }]
+                    }])]
                 },
                 fragment: {
                     module: this.gpuShaderModule,
@@ -1914,13 +2097,27 @@ export class ModelRenderer {
             this.gpuTexCoordBuffer[i].unmap();
 
             if (this.isHD) {
-                // this.skinWeightBuffer[i] = this.gl.createBuffer();
-                // this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.skinWeightBuffer[i]);
-                // this.gl.bufferData(this.gl.ARRAY_BUFFER, geoset.SkinWeights, this.gl.STATIC_DRAW);
+                this.gpuSkinWeightBuffer[i] = this.device.createBuffer({
+                    label: `SkinWeight ${i}`,
+                    size: geoset.SkinWeights.byteLength,
+                    usage: GPUBufferUsage.VERTEX,
+                    mappedAtCreation: true
+                });
+                new Uint8Array(
+                    this.gpuSkinWeightBuffer[i].getMappedRange(0, this.gpuSkinWeightBuffer[i].size)
+                ).set(geoset.SkinWeights);
+                this.gpuSkinWeightBuffer[i].unmap();
 
-                // this.tangentBuffer[i] = this.gl.createBuffer();
-                // this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.tangentBuffer[i]);
-                // this.gl.bufferData(this.gl.ARRAY_BUFFER, geoset.Tangents, this.gl.STATIC_DRAW);
+                this.gpuTangentBuffer[i] = this.device.createBuffer({
+                    label: `Tangents ${i}`,
+                    size: geoset.Tangents.byteLength,
+                    usage: GPUBufferUsage.VERTEX,
+                    mappedAtCreation: true
+                });
+                new Float32Array(
+                    this.gpuTangentBuffer[i].getMappedRange(0, this.gpuTangentBuffer[i].size)
+                ).set(geoset.Tangents);
+                this.gpuTangentBuffer[i].unmap();
             } else {
                 const buffer = new Uint8Array(geoset.VertexGroup.length * 4);
                 for (let j = 0; j < buffer.length; j += 4) {
