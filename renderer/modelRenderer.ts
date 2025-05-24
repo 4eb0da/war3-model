@@ -719,6 +719,7 @@ export class ModelRenderer {
                     const FSUniformsValues = new ArrayBuffer(112);
                     const FSUniformsViews = {
                         replaceableColor: new Float32Array(FSUniformsValues, 0, 3),
+                        discardAlphaLevel: new Float32Array(FSUniformsValues, 12, 1),
                         tVertexAnim: new Float32Array(FSUniformsValues, 16, 12),
                         lightPos: new Float32Array(FSUniformsValues, 64, 3),
                         lightColor: new Float32Array(FSUniformsValues, 80, 3),
@@ -726,7 +727,7 @@ export class ModelRenderer {
                     };
                     FSUniformsViews.replaceableColor.set(this.rendererData.teamColor);
                     // FSUniformsViews.replaceableType.set([texture.ReplaceableId || 0]);
-                    // FSUniformsViews.discardAlphaLevel.set([layer.FilterMode === FilterMode.Transparent ? .75 : 0]);
+                    FSUniformsViews.discardAlphaLevel.set([baseLayer.FilterMode === FilterMode.Transparent ? .75 : 0]);
                     FSUniformsViews.tVertexAnim.set(tVetexAnim.slice(0, 3));
                     FSUniformsViews.tVertexAnim.set(tVetexAnim.slice(3, 6), 4);
                     FSUniformsViews.tVertexAnim.set(tVetexAnim.slice(6, 9), 8);

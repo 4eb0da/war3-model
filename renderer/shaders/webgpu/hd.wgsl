@@ -7,7 +7,7 @@ struct VSUniforms {
 struct FSUniforms {
     replaceableColor: vec3f,
     // replaceableType: u32,
-    // discardAlphaLevel: f32,
+    discardAlphaLevel: f32,
     tVertexAnim: mat3x3f,
     lightPos: vec3f,
     lightColor: vec3f,
@@ -145,9 +145,14 @@ fn fresnelSchlickRoughness(lightFactor: f32, f0: vec3f, roughness: f32) -> vec3f
 @fragment fn fs(
     in: VSOut
 ) -> @location(0) vec4f {
-    let TBN: mat3x3f = mat3x3f(in.tangent, in.binormal, in.normal);
-
     let texCoord: vec2f = (fsUniforms.tVertexAnim * vec3f(in.textureCoord.x, in.textureCoord.y, 1.)).xy;
+    var baseColor: vec4f = textureSample(fsUniformDiffuseTexture, fsUniformDiffuseSampler, texCoord);
+
+    // hand-made alpha-test
+    if (baseColor.a < fsUniforms.discardAlphaLevel) {
+        discard;
+    }
+
     let orm: vec4f = textureSample(fsUniformOrmTexture, fsUniformOrmSampler, texCoord);
 
     let occlusion: f32 = orm.r;
@@ -155,10 +160,11 @@ fn fresnelSchlickRoughness(lightFactor: f32, f0: vec3f, roughness: f32) -> vec3f
     let metallic: f32 = orm.b;
     let teamColorFactor: f32 = orm.a;
 
-    var baseColor: vec4f = textureSample(fsUniformDiffuseTexture, fsUniformDiffuseSampler, texCoord);
     var teamColor: vec3f = baseColor.rgb * fsUniforms.replaceableColor;
     baseColor = vec4(mix(baseColor.rgb, teamColor, teamColorFactor), baseColor.a);
     baseColor = vec4(pow(baseColor.rgb, vec3f(gamma)), baseColor.a);
+
+    let TBN: mat3x3f = mat3x3f(in.tangent, in.binormal, in.normal);
 
     var normal: vec3f = textureSample(fsUniformNormalTexture, fsUniformNormalSampler, texCoord).xyz;
     normal = normal * 2 - 1;
@@ -183,7 +189,7 @@ fn fresnelSchlickRoughness(lightFactor: f32, f0: vec3f, roughness: f32) -> vec3f
     let f: vec3f = fresnelSchlick(max(dot(halfWay, viewDir), 0), f0);
 
     let kS = f;
-    var kD = vec3f(1) - kS;
+    var kD = vec3f(1);// - kS;
     // if (hasEnv) {
     //     kD *= 1 - metallic;
     // }
@@ -210,7 +216,7 @@ fn fresnelSchlickRoughness(lightFactor: f32, f0: vec3f, roughness: f32) -> vec3f
     color = color / (vec3f(1) + color);
     color = pow(color, vec3f(1 / gamma));
 
-    return vec4f(color, 1);
+    return vec4f(color, baseColor.a);
 
     // todo discart & alpha
 }

@@ -110,7 +110,7 @@ void main(void) {
     vec3 f = fresnelSchlick(max(dot(halfWay, viewDir), 0.), f0);
 
     vec3 kS = f;
-    vec3 kD = vec3(1.) - kS;
+    vec3 kD = vec3(1.);// - kS;
     if (uHasEnv) {
         kD *= 1.0 - metallic;
     }
@@ -180,7 +180,7 @@ void main(void) {
     color = color / (vec3(1.) + color);
     color = pow(color, vec3(1. / gamma));
 
-    FragColor = vec4(color, 1.);
+    FragColor = vec4(color, baseColor.a);
 
     // hand-made alpha-test
     if (FragColor[3] < uDiscardAlphaLevel) {
