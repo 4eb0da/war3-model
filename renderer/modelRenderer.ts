@@ -471,16 +471,17 @@ export class ModelRenderer {
                 size: [imageData[0].width, imageData[0].height],
                 format: 'rgba8unorm',
                 usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+                mipLevelCount: imageData.length
             });
-            for (let i = 0; i < 1/* imageData.length */; ++i) {
+            for (let i = 0; i < imageData.length; ++i) {
                 this.device.queue.writeTexture(
                     {
                         texture,
                         mipLevel: i
                     },
                     imageData[i].data,
-                    { bytesPerRow: imageData[0].width * 4 },
-                    { width: imageData[0].width, height: imageData[0].height },
+                    { bytesPerRow: imageData[i].width * 4 },
+                    { width: imageData[i].width, height: imageData[i].height },
                 );
             }
         } else {
@@ -529,6 +530,36 @@ export class ModelRenderer {
         this.processEnvMaps(path);
 
         this.gl.bindTexture(this.gl.TEXTURE_2D, null);
+    }
+
+    public setGPUTextureCompressedImage (path: string, format: GPUTextureFormat, imageData: ArrayBuffer, ddsInfo: DdsInfo): void {
+        const view = new Uint8Array(imageData);
+
+        let count = 1;
+        for (let i = 1; i < ddsInfo.images.length; ++i) {
+            const image = ddsInfo.images[i];
+            if (image.shape.width >= 4 && image.shape.height >= 4) {
+                count = i + 1;
+            }
+        }
+        const texture = this.rendererData.gpuTextures[path] = this.device.createTexture({
+            size: [ddsInfo.shape.width, ddsInfo.shape.height],
+            format,
+            usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+            mipLevelCount: count
+        });
+        for (let i = 0; i < count; ++i) {
+            const image = ddsInfo.images[i];
+            this.device.queue.writeTexture(
+                {
+                    texture,
+                    mipLevel: i
+                },
+                view.subarray(image.offset, image.offset + image.length),
+                { bytesPerRow: image.shape.width * (format === 'bc1-rgba-unorm' ? 2 : 4) },
+                { width: image.shape.width, height: image.shape.height },
+            );
+        }
     }
 
     public setCamera (cameraPos: vec3, cameraQuat: quat): void {

@@ -24,6 +24,7 @@ const shadowMapMatrix = mat4.create();
 const CLEANUP_NAME_REGEXP = /.*?([^\\/]+)\.\w+$/;
 let ddsExt: WEBGL_compressed_texture_s3tc | null = null;
 let rgtcExt: EXT_texture_compression_rgtc | null = null;
+let hasGPUBC = false;
 
 const SHADOW_QUALITY = 4096;
 const FB_WIDTH = SHADOW_QUALITY;
@@ -111,7 +112,12 @@ async function initGL() {
     try {
         try {
             const adapter = await navigator.gpu?.requestAdapter();
-            gpuDevice = await adapter?.requestDevice();
+            hasGPUBC = Array.from(adapter?.features || []).includes('texture-compression-bc');
+            gpuDevice = await adapter?.requestDevice({
+                requiredFeatures: [
+                    hasGPUBC && 'texture-compression-bc'
+                ].filter(Boolean) as GPUFeatureName[]
+            });
             gpuContext = canvas.getContext('webgpu');
             if (gpuContext) {
                 gpuContext.configure({
@@ -728,21 +734,45 @@ function initDragDrop() {
                         const array = reader.result as ArrayBuffer;
                         const dds = parseHeaders(array);
 
-                        console.log(dds);
+                        console.log(file.name, dds);
 
                         let format: GLenum;
+                        let gpuFormat: GPUTextureFormat;
 
                         if (dds.format === 'dxt1') {
-                            format = ddsExt?.COMPRESSED_RGB_S3TC_DXT1_EXT;
+                            if (hasGPUBC) {
+                                gpuFormat = 'bc1-rgba-unorm';
+                            } else {
+                                format = ddsExt?.COMPRESSED_RGB_S3TC_DXT1_EXT;
+                            }
                         } else if (dds.format === 'dxt3') {
-                            format = ddsExt?.COMPRESSED_RGBA_S3TC_DXT3_EXT;
+                            if (hasGPUBC) {
+                                gpuFormat = 'bc2-rgba-unorm';
+                            } else {
+                                format = ddsExt?.COMPRESSED_RGBA_S3TC_DXT3_EXT;
+                            }
                         } else if (dds.format === 'dxt5') {
-                            format = ddsExt?.COMPRESSED_RGBA_S3TC_DXT5_EXT;
+                            if (hasGPUBC) {
+                                gpuFormat = 'bc3-rgba-unorm';
+                            } else {
+                                format = ddsExt?.COMPRESSED_RGBA_S3TC_DXT5_EXT;
+                            }
                         } else if (dds.format === 'ati2') {
-                            format = rgtcExt?.COMPRESSED_RED_GREEN_RGTC2_EXT;
+                            if (hasGPUBC) {
+                                gpuFormat = 'bc5-rg-unorm';
+                            } else {
+                                format = rgtcExt?.COMPRESSED_RED_GREEN_RGTC2_EXT;
+                            }
                         }
 
-                        if (format) {
+                        if (gpuFormat) {
+                            modelRenderer.setGPUTextureCompressedImage(
+                                textureName,
+                                gpuFormat,
+                                reader.result as ArrayBuffer,
+                                dds
+                            );
+                        } else if (format) {
                             modelRenderer.setTextureCompressedImage(
                                 textureName,
                                 format as DDS_FORMAT,
