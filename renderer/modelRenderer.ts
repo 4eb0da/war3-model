@@ -1638,6 +1638,7 @@ export class ModelRenderer {
                 minFilter: 'linear',
                 magFilter: 'linear',
                 mipmapFilter: 'linear',
+                maxAnisotropy: 16,
                 addressModeU,
                 addressModeV
             });
