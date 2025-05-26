@@ -49,6 +49,8 @@ const ENV_PREFILTER_SIZE = 128;
 const MAX_ENV_MIP_LEVELS = 8;
 const BRDF_LUT_SIZE = 512;
 
+const MULTISAMPLE = 4;
+
 interface WebGLProgramObject<A extends string, U extends string> {
     program: WebGLProgram;
     vertexShader: WebGLShader;
@@ -180,6 +182,7 @@ export class ModelRenderer {
     private prefilterEnv: WebGLProgramObject<'aPos', 'uPMatrix' | 'uMVMatrix' | 'uEnvironmentMap' | 'uRoughness'>;
     private integrateBRDF: WebGLProgramObject<'aPos', never>;
 
+    private gpuMultisampleTexture: GPUTexture;
     private gpuDepthTexture: GPUTexture;
     private gpuVertexBuffer: GPUBuffer[] = [];
     private gpuNormalBuffer: GPUBuffer[] = [];
@@ -423,6 +426,7 @@ export class ModelRenderer {
         this.initGPUPipeline();
         this.initGPUBuffers();
         this.initGPUUniformBuffers();
+        this.initGPUMultisampleTexture();
         this.initGPUDepthTexture();
         this.initGPUEmptyTexture();
         // this.initCube();
@@ -661,8 +665,25 @@ export class ModelRenderer {
         shadowSmoothingStep?: number;
     }): void {
         if (this.device) {
-            this.gpuRenderPassDescriptor.colorAttachments[0].view =
-                this.gpuContext.getCurrentTexture().createView();
+            if (this.gpuMultisampleTexture.width !== this.canvas.width || this.gpuMultisampleTexture.height !== this.canvas.height) {
+                this.gpuMultisampleTexture.destroy();
+                this.initGPUMultisampleTexture();
+            }
+
+            if (this.gpuDepthTexture.width !== this.canvas.width || this.gpuDepthTexture.height !== this.canvas.height) {
+                this.gpuDepthTexture.destroy();
+                this.initGPUDepthTexture();
+            }
+
+            if (MULTISAMPLE > 1) {
+                this.gpuRenderPassDescriptor.colorAttachments[0].view =
+                    this.gpuMultisampleTexture.createView();
+                this.gpuRenderPassDescriptor.colorAttachments[0].resolveTarget =
+                    this.gpuContext.getCurrentTexture().createView();
+            } else {
+                this.gpuRenderPassDescriptor.colorAttachments[0].view =
+                    this.gpuContext.getCurrentTexture().createView();
+            }
 
             this.gpuRenderPassDescriptor.depthStencilAttachment = {
                 view: this.gpuDepthTexture.createView(),
@@ -1938,6 +1959,9 @@ export class ModelRenderer {
                     }]
                 },
                 depthStencil: depth,
+                multisample: {
+                    count: MULTISAMPLE
+                },
                 ...extra
             });
         };
@@ -2203,11 +2227,23 @@ export class ModelRenderer {
         });
     }
 
+    private initGPUMultisampleTexture (): void {
+        this.gpuMultisampleTexture = this.device.createTexture({
+            label: 'multisample texutre',
+            size: [this.canvas.width, this.canvas.height],
+            format: navigator.gpu.getPreferredCanvasFormat(),
+            usage: GPUTextureUsage.RENDER_ATTACHMENT,
+            sampleCount: MULTISAMPLE
+        });
+    }
+
     private initGPUDepthTexture (): void {
         this.gpuDepthTexture = this.device.createTexture({
+            label: 'depth texture',
             size: [this.canvas.width, this.canvas.height],
             format: 'depth24plus',
             usage: GPUTextureUsage.RENDER_ATTACHMENT,
+            sampleCount: MULTISAMPLE
         });
     }
 
