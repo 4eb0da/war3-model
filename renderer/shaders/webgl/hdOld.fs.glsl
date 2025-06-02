@@ -79,6 +79,9 @@ void main(void) {
     normal = normal * 2.0 - 1.0;
     normal.x = -normal.x;
     normal.y = -normal.y;
+    if (!gl_FrontFacing) {
+        normal = -normal;
+    }
     normal = normalize(vTBN * -normal);
 
     vec3 viewDir = normalize(uCameraPos - vFragPos);

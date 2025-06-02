@@ -18,6 +18,7 @@ let gl: WebGLRenderingContext | WebGL2RenderingContext;
 let gpuContext: GPUCanvasContext;
 let gpuDevice: GPUDevice;
 const pMatrix = mat4.create();
+const lightPMatrix = mat4.create();
 const mvMatrix = mat4.create();
 const lightMVMatrix = mat4.create();
 const shadowMapMatrix = mat4.create();
@@ -34,6 +35,7 @@ const LOG_FPS = false;
 let framebuffer: WebGLFramebuffer;
 let framebufferTexture: WebGLTexture;
 let framebufferDepthTexture: WebGLTexture;
+let gpuDepthTexture: GPUTexture;
 
 let cameraTheta = Math.PI / 4;
 let cameraPhi = 0;
@@ -124,6 +126,12 @@ async function initGL() {
                     device: gpuDevice,
                     format: navigator.gpu.getPreferredCanvasFormat(),
                     alphaMode: 'premultiplied'
+                });
+                gpuDepthTexture = gpuDevice.createTexture({
+                    label: 'shadow depth texture',
+                    size: [FB_WIDTH, FB_HEIGHT],
+                    format: 'depth32float',
+                    usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING
                 });
                 return;
             }
@@ -221,6 +229,7 @@ function drawScene() {
         gl.depthMask(true);
     }
     mat4.perspective(pMatrix, Math.PI / 4, canvas.width / canvas.height, 0.1, 3000.0);
+    mat4.perspective(lightPMatrix, Math.PI / 4, 1, 0.1, 3000.0);
 
     vec3.set(
         cameraBasePos,
@@ -235,9 +244,7 @@ function drawScene() {
     mat4.lookAt(lightMVMatrix, lightPosition, lightTarget, cameraUp);
 
     mat4.identity(shadowMapMatrix);
-    mat4.translate(shadowMapMatrix, shadowMapMatrix, vec3.fromValues(.5, .5, .5));
-    mat4.scale(shadowMapMatrix, shadowMapMatrix, vec3.fromValues(.5, .5, .5));
-    mat4.multiply(shadowMapMatrix, shadowMapMatrix, pMatrix);
+    mat4.multiply(shadowMapMatrix, shadowMapMatrix, lightPMatrix);
     mat4.multiply(shadowMapMatrix, shadowMapMatrix, lightMVMatrix);
 
     const cameraQuat: quat = calcCameraQuat(cameraPos, cameraTarget);
@@ -246,17 +253,25 @@ function drawScene() {
     modelRenderer.setLightPosition(lightPosition);
     modelRenderer.setLightColor(lightColor);
 
-    if (shadow && framebuffer && model.Version >= 900) {
-        gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
-        gl.viewport(0, 0, FB_WIDTH, FB_HEIGHT);
-        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    if (shadow && model.Version >= 900) {
+        if (gpuDevice) {
+            modelRenderer.setCamera(lightPosition, lightQuat);
+            modelRenderer.render(lightMVMatrix, lightPMatrix, {
+                wireframe: false,
+                depthTextureTarget: gpuDepthTexture
+            });
+        } else if (framebuffer) {
+            gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
+            gl.viewport(0, 0, FB_WIDTH, FB_HEIGHT);
+            gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
-        modelRenderer.setCamera(lightPosition, lightQuat);
-        modelRenderer.render(lightMVMatrix, pMatrix, {
-            wireframe: false
-        });
+            modelRenderer.setCamera(lightPosition, lightQuat);
+            modelRenderer.render(lightMVMatrix, lightPMatrix, {
+                wireframe: false
+            });
 
-        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+            gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+        }
     }
 
     if (gl) {
@@ -272,7 +287,7 @@ function drawScene() {
         levelOfDetail: lod,
         wireframe,
         useEnvironmentMap: ibl,
-        shadowMapTexture: shadow ? framebufferDepthTexture : undefined,
+        shadowMapTexture: shadow ? gpuDepthTexture || framebufferDepthTexture : undefined,
         shadowMapMatrix: shadow ? shadowMapMatrix : undefined,
         shadowBias: 1e-6,
         shadowSmoothingStep: 1 / SHADOW_QUALITY

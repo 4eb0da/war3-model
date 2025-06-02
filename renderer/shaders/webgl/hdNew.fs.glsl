@@ -91,6 +91,9 @@ void main(void) {
     normal = normal * 2.0 - 1.0;
     normal.x = -normal.x;
     normal.y = -normal.y;
+    if (!gl_FrontFacing) {
+        normal = -normal;
+    }
     normal = normalize(vTBN * -normal);
 
     vec3 viewDir = normalize(uCameraPos - vFragPos);
@@ -125,6 +128,7 @@ void main(void) {
         float shadowStep = uShadowParams[2];
         vec4 fragInLightPos = uShadowMapLightMatrix * vec4(vFragPos, 1.);
         vec3 shadowMapCoord = fragInLightPos.xyz / fragInLightPos.w;
+        shadowMapCoord.xyz = (shadowMapCoord.xyz + 1.0) * .5;
 
         int passes = 5;
         float step = 1. / float(passes);

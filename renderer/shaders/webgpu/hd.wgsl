@@ -12,7 +12,8 @@ struct FSUniforms {
     lightPos: vec3f,
     lightColor: vec3f,
     cameraPos: vec3f,
-    // shadow
+    shadowParams: vec3f,
+    shadowMapLightMatrix: mat4x4f,
     // env
 }
 
@@ -24,6 +25,9 @@ struct FSUniforms {
 @group(1) @binding(4) var fsUniformNormalTexture: texture_2d<f32>;
 @group(1) @binding(5) var fsUniformOrmSampler: sampler;
 @group(1) @binding(6) var fsUniformOrmTexture: texture_2d<f32>;
+@group(1) @binding(7) var fsUniformShadowSampler: sampler_comparison;
+// @group(1) @binding(7) var fsUniformShadowSampler: sampler;
+@group(1) @binding(8) var fsUniformShadowTexture: texture_depth_2d;
 
 struct VSIn {
     @location(0) vertexPosition: vec3f,
@@ -143,7 +147,8 @@ fn fresnelSchlickRoughness(lightFactor: f32, f0: vec3f, roughness: f32) -> vec3f
 }
 
 @fragment fn fs(
-    in: VSOut
+    in: VSOut,
+    @builtin(front_facing) isFront: bool
 ) -> @location(0) vec4f {
     let texCoord: vec2f = (fsUniforms.tVertexAnim * vec3f(in.textureCoord.x, in.textureCoord.y, 1.)).xy;
     var baseColor: vec4f = textureSample(fsUniformDiffuseTexture, fsUniformDiffuseSampler, texCoord);
@@ -170,6 +175,9 @@ fn fresnelSchlickRoughness(lightFactor: f32, f0: vec3f, roughness: f32) -> vec3f
     normal = normal * 2 - 1;
     normal.x = -normal.x;
     normal.y = -normal.y;
+    if (!isFront) {
+        normal = -normal;
+    }
     normal = normalize(TBN * -normal);
 
     let viewDir: vec3f = normalize(fsUniforms.cameraPos - in.fragPos);
@@ -199,9 +207,43 @@ fn fresnelSchlickRoughness(lightFactor: f32, f0: vec3f, roughness: f32) -> vec3f
 
     totalLight = (kD * baseColor.rgb / PI + specular) * radiance * lightFactor;
 
-    // if (hasShadow) {
-    //     ;
-    // }
+    if (fsUniforms.shadowParams[0] > .5) {
+        let shadowBias: f32 = fsUniforms.shadowParams[1];
+        let shadowStep: f32 = fsUniforms.shadowParams[2];
+        let fragInLightPos: vec4f = fsUniforms.shadowMapLightMatrix * vec4f(in.fragPos, 1.);
+        var shadowMapCoord: vec3f = fragInLightPos.xyz / fragInLightPos.w;
+        shadowMapCoord = vec3f((shadowMapCoord.xy + 1) * .5, shadowMapCoord.z);
+        shadowMapCoord.y = 1 - shadowMapCoord.y;
+
+        let passes: u32 = 5;
+        let step: f32 = 1. / f32(passes);
+
+        let currentDepth: f32 = shadowMapCoord.z;
+        var lightDepth: f32 = textureSampleCompare(fsUniformShadowTexture, fsUniformShadowSampler, shadowMapCoord.xy, currentDepth - shadowBias);
+        let lightDepth0: f32 = textureSampleCompare(fsUniformShadowTexture, fsUniformShadowSampler, vec2f(shadowMapCoord.x + shadowStep, shadowMapCoord.y), currentDepth - shadowBias);
+        let lightDepth1: f32 = textureSampleCompare(fsUniformShadowTexture, fsUniformShadowSampler, vec2f(shadowMapCoord.x, shadowMapCoord.y + shadowStep), currentDepth - shadowBias);
+        let lightDepth2: f32 = textureSampleCompare(fsUniformShadowTexture, fsUniformShadowSampler, vec2f(shadowMapCoord.x, shadowMapCoord.y - shadowStep), currentDepth - shadowBias);
+        let lightDepth3: f32 = textureSampleCompare(fsUniformShadowTexture, fsUniformShadowSampler, vec2f(shadowMapCoord.x - shadowStep, shadowMapCoord.y), currentDepth - shadowBias);
+
+        var visibility: f32 = 0.;
+        if (lightDepth > .5) {
+            visibility += step;
+        }
+        if (lightDepth0 > .5) {
+            visibility += step;
+        }
+        if (lightDepth1 > .5) {
+            visibility += step;
+        }
+        if (lightDepth2 > .5) {
+            visibility += step;
+        }
+        if (lightDepth3 > .5) {
+            visibility += step;
+        }
+
+        totalLight *= visibility;
+    }
 
     var color: vec3f = vec3f(0.0);
 

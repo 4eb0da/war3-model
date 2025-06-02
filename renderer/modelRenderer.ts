@@ -33,6 +33,7 @@ import integrateBRDFVertexShader from './shaders/webgl/integrateBRDF.vs.glsl?raw
 import integrateBRDFFragmentShader from './shaders/webgl/integrateBRDF.fs.glsl?raw';
 import sdShaderSource from './shaders/webgpu/sd.wgsl?raw';
 import hdShaderSource from './shaders/webgpu/hd.wgsl?raw';
+import depthShaderSource from './shaders/webgpu/depth.wgsl?raw';
 import { generateMips } from './generateMips';
 
 // actually, all is number
@@ -65,6 +66,7 @@ const vertexShaderHDHardwareSkinningNew = vertexShaderHDHardwareSkinningNewSourc
 const fragmentShaderHDNew = fragmentShaderHDNewSource.replace(/\$\{MAX_ENV_MIP_LEVELS}/g, String(MAX_ENV_MIP_LEVELS.toFixed(1)));
 const sdShader = sdShaderSource.replace(/\$\{MAX_NODES}/g, String(MAX_NODES));
 const hdShader = hdShaderSource.replace(/\$\{MAX_NODES}/g, String(MAX_NODES));
+const depthShader = depthShaderSource.replace(/\$\{MAX_NODES}/g, String(MAX_NODES));
 
 const translation = vec3.create();
 const rotation = quat.create();
@@ -109,8 +111,10 @@ export class ModelRenderer {
     private vsBindGroupLayout: GPUBindGroupLayout | null;
     private fsBindGroupLayout: GPUBindGroupLayout | null;
     private gpuShaderModule: GPUShaderModule | null;
+    private gpuDepthShaderModule: GPUShaderModule | null;
     private gpuPipelines: GPURenderPipeline[] | null;
     private gpuWireframePipeline: GPURenderPipeline | null;
+    private gpuShadowPipeline: GPURenderPipeline | null;
     private gpuPipelineLayout: GPUPipelineLayout | null;
     private gpuRenderPassDescriptor: GPURenderPassDescriptor | null;
     private shaderProgramLocations: {
@@ -260,7 +264,9 @@ export class ModelRenderer {
             textures: {},
             gpuTextures: {},
             gpuSamplers: [],
+            gpuDepthSampler: null,
             gpuEmptyTexture: null,
+            gpuDepthEmptyTexture: null,
             envTextures: {},
             requiredEnvMaps: {},
             irradianceMap: {},
@@ -654,15 +660,17 @@ export class ModelRenderer {
         shadowMapTexture,
         shadowMapMatrix,
         shadowBias,
-        shadowSmoothingStep
+        shadowSmoothingStep,
+        depthTextureTarget
     } : {
         wireframe: boolean;
         levelOfDetail?: number;
         useEnvironmentMap?: boolean;
-        shadowMapTexture?: WebGLTexture;
+        shadowMapTexture?: WebGLTexture | GPUTexture;
         shadowMapMatrix?: mat4;
         shadowBias?: number;
         shadowSmoothingStep?: number;
+        depthTextureTarget?: GPUTexture;
     }): void {
         if (this.device) {
             if (this.gpuMultisampleTexture.width !== this.canvas.width || this.gpuMultisampleTexture.height !== this.canvas.height) {
@@ -675,25 +683,40 @@ export class ModelRenderer {
                 this.initGPUDepthTexture();
             }
 
-            if (MULTISAMPLE > 1) {
-                this.gpuRenderPassDescriptor.colorAttachments[0].view =
-                    this.gpuMultisampleTexture.createView();
-                this.gpuRenderPassDescriptor.colorAttachments[0].resolveTarget =
-                    this.gpuContext.getCurrentTexture().createView();
+            let renderPassDescriptor: GPURenderPassDescriptor;
+            if (depthTextureTarget) {
+                renderPassDescriptor = {
+                    label: 'shadow renderPass',
+                    colorAttachments: [],
+                    depthStencilAttachment: {
+                        view: depthTextureTarget.createView(),
+                        depthClearValue: 1,
+                        depthLoadOp: 'clear',
+                        depthStoreOp: 'store'
+                    }
+                };
             } else {
-                this.gpuRenderPassDescriptor.colorAttachments[0].view =
-                    this.gpuContext.getCurrentTexture().createView();
+                renderPassDescriptor = this.gpuRenderPassDescriptor;
+                if (MULTISAMPLE > 1) {
+                    this.gpuRenderPassDescriptor.colorAttachments[0].view =
+                        this.gpuMultisampleTexture.createView();
+                    this.gpuRenderPassDescriptor.colorAttachments[0].resolveTarget =
+                        this.gpuContext.getCurrentTexture().createView();
+                } else {
+                    this.gpuRenderPassDescriptor.colorAttachments[0].view =
+                        this.gpuContext.getCurrentTexture().createView();
+                }
+
+                this.gpuRenderPassDescriptor.depthStencilAttachment = {
+                    view: this.gpuDepthTexture.createView(),
+                    depthClearValue: 1,
+                    depthLoadOp: 'clear',
+                    depthStoreOp: 'store'
+                };
             }
 
-            this.gpuRenderPassDescriptor.depthStencilAttachment = {
-                view: this.gpuDepthTexture.createView(),
-                depthClearValue: 1,
-                depthLoadOp: 'clear',
-                depthStoreOp: 'store'
-            };
-
             const encoder = this.device.createCommandEncoder();
-            const pass = encoder.beginRenderPass(this.gpuRenderPassDescriptor);
+            const pass = encoder.beginRenderPass(renderPassDescriptor);
 
             const VSUniformsValues = new ArrayBuffer(128 + 64 * MAX_NODES);
             const VSUniformsViews = {
@@ -742,7 +765,9 @@ export class ModelRenderer {
 
                 if (this.isHD) {
                     const baseLayer = material.Layers[0];
-                    const pipeline = wireframe ? this.gpuWireframePipeline : (this.gpuPipelines[baseLayer.FilterMode] || this.gpuPipelines[0]);
+                    const pipeline = depthTextureTarget ?
+                        this.gpuShadowPipeline : 
+                        (wireframe ? this.gpuWireframePipeline : (this.gpuPipelines[baseLayer.FilterMode] || this.gpuPipelines[0]));
                     pass.setPipeline(pipeline);
 
                     const textures = this.rendererData.materialLayerTextureID[materialID];
@@ -761,14 +786,14 @@ export class ModelRenderer {
                     if (!gpuFSUniformsBuffer) {
                         gpuFSUniformsBuffer = this.gpuFSUniformsBuffers[materialID][0] = this.device.createBuffer({
                             label: `fs uniforms ${materialID}`,
-                            size: 112,
+                            size: 192,
                             usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
                         });
                     }
 
                     const tVetexAnim = this.getTexCoordMatrix(baseLayer);
 
-                    const FSUniformsValues = new ArrayBuffer(112);
+                    const FSUniformsValues = new ArrayBuffer(192);
                     const FSUniformsViews = {
                         replaceableColor: new Float32Array(FSUniformsValues, 0, 3),
                         discardAlphaLevel: new Float32Array(FSUniformsValues, 12, 1),
@@ -776,6 +801,8 @@ export class ModelRenderer {
                         lightPos: new Float32Array(FSUniformsValues, 64, 3),
                         lightColor: new Float32Array(FSUniformsValues, 80, 3),
                         cameraPos: new Float32Array(FSUniformsValues, 96, 3),
+                        shadowParams: new Float32Array(FSUniformsValues, 112, 3),
+                        shadowMapLightMatrix: new Float32Array(FSUniformsValues, 128, 16),
                     };
                     FSUniformsViews.replaceableColor.set(this.rendererData.teamColor);
                     // FSUniformsViews.replaceableType.set([texture.ReplaceableId || 0]);
@@ -786,6 +813,13 @@ export class ModelRenderer {
                     FSUniformsViews.lightPos.set(this.rendererData.lightPos);
                     FSUniformsViews.lightColor.set(this.rendererData.lightColor);
                     FSUniformsViews.cameraPos.set(this.rendererData.cameraPos);
+                    if (shadowMapTexture && shadowMapMatrix) {
+                        FSUniformsViews.shadowParams.set([1, shadowBias ?? 1e-6, shadowSmoothingStep ?? 1 / 1024]);
+                        FSUniformsViews.shadowMapLightMatrix.set(shadowMapMatrix);
+                    } else {
+                        FSUniformsViews.shadowParams.set([0, 0, 0]);
+                        FSUniformsViews.shadowMapLightMatrix.set([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+                    }
                     this.device.queue.writeBuffer(gpuFSUniformsBuffer, 0, FSUniformsValues);
 
                     const fsBindGroup = this.device.createBindGroup({
@@ -819,6 +853,14 @@ export class ModelRenderer {
                             {
                                 binding: 6,
                                 resource: (this.rendererData.gpuTextures[ormTexture.Image] || this.rendererData.gpuEmptyTexture).createView()
+                            },
+                            {
+                                binding: 7,
+                                resource: this.rendererData.gpuDepthSampler
+                            },
+                            {
+                                binding: 8,
+                                resource: (shadowMapTexture as GPUTexture || this.rendererData.gpuDepthEmptyTexture).createView()
                             }
                         ]
                     });
@@ -1624,8 +1666,13 @@ export class ModelRenderer {
         }
 
         this.gpuShaderModule = this.device.createShaderModule({
-            label: 'sd',
+            label: 'main',
             code: this.isHD ? hdShader : sdShader
+        });
+
+        this.gpuDepthShaderModule = this.device.createShaderModule({
+            label: 'depth',
+            code: depthShader
         });
 
         for (let i = 0; i < this.model.Textures.length; ++i) {
@@ -1643,6 +1690,15 @@ export class ModelRenderer {
                 addressModeV
             });
         }
+
+        this.rendererData.gpuDepthSampler = this.device.createSampler({
+            label: 'texture depth sampler',
+            addressModeU: 'clamp-to-edge',
+            addressModeV: 'clamp-to-edge',
+            compare: 'less',
+            minFilter: 'nearest',
+            magFilter: 'nearest'
+        });
 
         // if (this.isHD && isWebGL2(this.gl)) {
         //     this.envToCubemap = this.initShaderProgram(envToCubemapVertexShader, envToCubemapFragmentShader, {
@@ -1800,7 +1856,7 @@ export class ModelRenderer {
                     buffer: {
                         type: 'uniform',
                         hasDynamicOffset: false,
-                        minBindingSize: 112
+                        minBindingSize: 192
                     }
                 },
                 {
@@ -1850,6 +1906,22 @@ export class ModelRenderer {
                         viewDimension: '2d',
                         multisampled: false
                     }
+                },
+                {
+                    binding: 7,
+                    visibility: GPUShaderStage.FRAGMENT,
+                    sampler: {
+                        type: 'comparison'
+                    }
+                },
+                {
+                    binding: 8,
+                    visibility: GPUShaderStage.FRAGMENT,
+                    texture: {
+                        sampleType: 'depth',
+                        viewDimension: '2d',
+                        multisampled: false
+                    }
                 }
             ] as const : [
                 {
@@ -1888,12 +1960,18 @@ export class ModelRenderer {
             ]
         });
 
-        const createPipeline = (name: string, blend: GPUBlendState, depth: GPUDepthStencilState, extra: Partial<GPURenderPipelineDescriptor> = {}) => {
+        const createPipeline = (
+            name: string,
+            blend: GPUBlendState,
+            depth: GPUDepthStencilState,
+            shaderModule: GPUShaderModule = this.gpuShaderModule,
+            extra: Partial<GPURenderPipelineDescriptor> = {}
+        ) => {
             return this.device.createRenderPipeline({
                 label: `pipeline ${name}`,
                 layout: this.gpuPipelineLayout,
                 vertex: {
-                    module: this.gpuShaderModule,
+                    module: shaderModule,
                     buffers: [{
                         // vertices
                         arrayStride: 12,
@@ -1953,7 +2031,7 @@ export class ModelRenderer {
                     }])]
                 },
                 fragment: {
-                    module: this.gpuShaderModule,
+                    module: shaderModule,
                     targets: [{
                         format: navigator.gpu.getPreferredCanvasFormat(),
                         blend
@@ -2082,7 +2160,7 @@ export class ModelRenderer {
             })
         ];
 
-        this.gpuWireframePipeline = createPipeline('sd wireframe', {
+        this.gpuWireframePipeline = createPipeline('wireframe', {
             color: {
                 operation: 'add',
                 srcFactor: 'src-alpha',
@@ -2097,9 +2175,23 @@ export class ModelRenderer {
             depthWriteEnabled: true,
             depthCompare: 'less-equal',
             format: 'depth24plus'
-        }, {
+        }, undefined, {
             primitive: {
                 topology: 'line-list'
+            }
+        });
+
+        this.gpuShadowPipeline = createPipeline('shadow', undefined, {
+            depthWriteEnabled: true,
+            depthCompare: 'less-equal',
+            format: 'depth32float'
+        }, this.gpuDepthShaderModule, {
+            fragment: {
+                module: this.gpuDepthShaderModule,
+                targets: []
+            },
+            multisample: {
+                count: 1
             }
         });
 
@@ -2250,6 +2342,7 @@ export class ModelRenderer {
 
     private initGPUEmptyTexture (): void {
         const texture = this.rendererData.gpuEmptyTexture = this.device.createTexture({
+            label: 'empty texture',
             size: [1, 1],
             format: 'rgba8unorm',
             usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
@@ -2261,6 +2354,13 @@ export class ModelRenderer {
             { bytesPerRow: 1 * 4 },
             { width: 1, height: 1 },
         );
+
+        this.rendererData.gpuDepthEmptyTexture = this.device.createTexture({
+            label: 'empty depth texture',
+            size: [1, 1],
+            format: 'depth32float',
+            usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+        });
     }
 
     private initCube (): void {
