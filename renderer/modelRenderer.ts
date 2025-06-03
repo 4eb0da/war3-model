@@ -52,6 +52,8 @@ const BRDF_LUT_SIZE = 512;
 
 const MULTISAMPLE = 4;
 
+const FILTER_MODES_WITH_DEPTH_WRITE = new Set([0, 1]);
+
 interface WebGLProgramObject<A extends string, U extends string> {
     program: WebGLProgram;
     vertexShader: WebGLShader;
@@ -673,6 +675,7 @@ export class ModelRenderer {
         depthTextureTarget?: GPUTexture;
     }): void {
         if (this.device) {
+            // todo TwoSided
             if (this.gpuMultisampleTexture.width !== this.canvas.width || this.gpuMultisampleTexture.height !== this.canvas.height) {
                 this.gpuMultisampleTexture.destroy();
                 this.initGPUMultisampleTexture();
@@ -765,8 +768,11 @@ export class ModelRenderer {
 
                 if (this.isHD) {
                     const baseLayer = material.Layers[0];
+                    if (depthTextureTarget && !FILTER_MODES_WITH_DEPTH_WRITE.has(baseLayer.FilterMode || 0)) {
+                        continue;
+                    }
                     const pipeline = depthTextureTarget ?
-                        this.gpuShadowPipeline : 
+                        this.gpuShadowPipeline :
                         (wireframe ? this.gpuWireframePipeline : (this.gpuPipelines[baseLayer.FilterMode] || this.gpuPipelines[0]));
                     pass.setPipeline(pipeline);
 

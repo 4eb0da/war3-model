@@ -136,7 +136,16 @@ async function initGL() {
                 return;
             }
         } catch (err) {
-            // do nothing
+            gpuDevice = null;
+            gpuContext?.unconfigure();
+            gpuContext = null;
+            hasGPUBC = false;
+            gpuDepthTexture?.destroy();
+            gpuDepthTexture = undefined;
+            const newCanvas = canvas.cloneNode() as HTMLCanvasElement;
+            canvas.parentElement.append(newCanvas);
+            canvas.remove();
+            canvas = newCanvas;
         }
 
         const opts: WebGLContextAttributes = {
