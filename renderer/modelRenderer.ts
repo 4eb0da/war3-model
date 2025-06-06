@@ -34,6 +34,7 @@ import integrateBRDFFragmentShader from './shaders/webgl/integrateBRDF.fs.glsl?r
 import sdShaderSource from './shaders/webgpu/sd.wgsl?raw';
 import hdShaderSource from './shaders/webgpu/hd.wgsl?raw';
 import depthShaderSource from './shaders/webgpu/depth.wgsl?raw';
+import skeletonShaderSource from './shaders/webgpu/skeleton.wgsl?raw';
 import { generateMips } from './generateMips';
 
 // actually, all is number
@@ -159,6 +160,10 @@ export class ModelRenderer {
     };
     private skeletonVertexBuffer: WebGLBuffer | null;
     private skeletonColorBuffer: WebGLBuffer | null;
+    private skeletonShaderModule: GPUShaderModule;
+    private skeletonBindGroupLayout: GPUBindGroupLayout;
+    private skeletonPipelineLayout: GPUPipelineLayout;
+    private skeletonPipeline: GPURenderPipeline;
 
     private model: Model;
     private interp: ModelInterp;
@@ -1159,27 +1164,6 @@ export class ModelRenderer {
      * @param nodes Nodes to highlight. null means draw all
      */
     public renderSkeleton (mvMatrix: mat4, pMatrix: mat4, nodes: string[] | null): void {
-        if (!this.skeletonShaderProgram) {
-            this.skeletonShaderProgram = this.initSkeletonShaderProgram();
-        }
-
-        this.gl.disable(this.gl.BLEND);
-        this.gl.disable(this.gl.DEPTH_TEST);
-
-        this.gl.useProgram(this.skeletonShaderProgram);
-
-        this.gl.uniformMatrix4fv(this.skeletonShaderProgramLocations.pMatrixUniform, false, pMatrix);
-        this.gl.uniformMatrix4fv(this.skeletonShaderProgramLocations.mvMatrixUniform, false, mvMatrix);
-
-        this.gl.enableVertexAttribArray(this.skeletonShaderProgramLocations.vertexPositionAttribute);
-        this.gl.enableVertexAttribArray(this.skeletonShaderProgramLocations.colorAttribute);
-
-        if (!this.skeletonVertexBuffer) {
-            this.skeletonVertexBuffer = this.gl.createBuffer();
-        }
-        if (!this.skeletonColorBuffer) {
-            this.skeletonColorBuffer = this.gl.createBuffer();
-        }
         const coords = [];
         const colors = [];
         const line = (node0: NodeWrapper, node1: NodeWrapper) => {
@@ -1214,8 +1198,186 @@ export class ModelRenderer {
             }
         };
         updateNode(this.rendererData.rootNode);
+        if (!coords.length) {
+            return;
+        }
         const vertexBuffer = new Float32Array(coords);
         const colorBuffer = new Float32Array(colors);
+
+        if (this.device) {
+            if (!this.skeletonShaderModule) {
+                this.skeletonShaderModule = this.device.createShaderModule({
+                    label: 'skeleton',
+                    code: skeletonShaderSource
+                });
+            }
+
+            if (!this.skeletonBindGroupLayout) {
+                this.skeletonBindGroupLayout = this.device.createBindGroupLayout({
+                    label: 'skeleton bind group layout',
+                    entries: [{
+                        binding: 0,
+                        visibility: GPUShaderStage.VERTEX,
+                        buffer: {
+                            type: 'uniform',
+                            hasDynamicOffset: false,
+                            minBindingSize: 128
+                        }
+                    }] as const
+                });
+            }
+
+            if (!this.skeletonPipelineLayout) {
+                this.skeletonPipelineLayout = this.device.createPipelineLayout({
+                    label: 'skeleton pipeline layout',
+                    bindGroupLayouts: [
+                        this.skeletonBindGroupLayout
+                    ]
+                });
+            }
+
+            if (!this.skeletonPipeline) {
+                this.skeletonPipeline = this.device.createRenderPipeline({
+                    label: 'skeleton pipeline',
+                    layout: this.skeletonPipelineLayout,
+                    vertex: {
+                        module: this.skeletonShaderModule,
+                        buffers: [{
+                            // vertices
+                            arrayStride: 12,
+                            attributes: [{
+                                shaderLocation: 0,
+                                offset: 0,
+                                format: 'float32x3' as const
+                            }]
+                        }, {
+                            // colors
+                            arrayStride: 12,
+                            attributes: [{
+                                shaderLocation: 1,
+                                offset: 0,
+                                format: 'float32x3' as const
+                            }]
+                        }]
+                    },
+                    fragment: {
+                        module: this.skeletonShaderModule,
+                        targets: [{
+                            format: navigator.gpu.getPreferredCanvasFormat(),
+                            blend: {
+                                color: {
+                                    operation: 'add',
+                                    srcFactor: 'src-alpha',
+                                    dstFactor: 'one-minus-src-alpha'
+                                },
+                                alpha: {
+                                    operation: 'add',
+                                    srcFactor: 'one',
+                                    dstFactor: 'one-minus-src-alpha'
+                                }
+                            } as const
+                        }]
+                    },
+                    primitive: {
+                        topology: 'line-list'
+                    }
+                });
+            }
+
+            const vertex = this.device.createBuffer({
+                label: 'skeleton vertex',
+                size: vertexBuffer.byteLength,
+                usage: GPUBufferUsage.VERTEX,
+                mappedAtCreation: true
+            });
+            new Float32Array(
+                vertex.getMappedRange(0, vertex.size)
+            ).set(vertexBuffer);
+            vertex.unmap();
+
+            const color = this.device.createBuffer({
+                label: 'skeleton color',
+                size: colorBuffer.byteLength,
+                usage: GPUBufferUsage.VERTEX,
+                mappedAtCreation: true
+            });
+            new Float32Array(
+                color.getMappedRange(0, color.size)
+            ).set(colorBuffer);
+            color.unmap();
+
+            const uniformsBuffer = this.device.createBuffer({
+                label: 'skeleton vs uniforms',
+                size: 128,
+                usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+            });
+            const uniformsBindGroup = this.device.createBindGroup({
+                layout: this.skeletonBindGroupLayout,
+                entries: [
+                    {
+                        binding: 0,
+                        resource: { buffer: uniformsBuffer }
+                    }
+                ]
+            });
+
+            const renderPassDescriptor: GPURenderPassDescriptor = {
+                label: 'skeleton renderPass',
+                colorAttachments: [{
+                    view: this.gpuContext.getCurrentTexture().createView(),
+                    clearValue: [0, 0, 0, 1],
+                    loadOp: 'load',
+                    storeOp: 'store'
+                }] as const
+            };
+
+            const encoder = this.device.createCommandEncoder();
+            const pass = encoder.beginRenderPass(renderPassDescriptor);
+
+            const VSUniformsValues = new ArrayBuffer(128);
+            const VSUniformsViews = {
+                mvMatrix: new Float32Array(VSUniformsValues, 0, 16),
+                pMatrix: new Float32Array(VSUniformsValues, 64, 16),
+            };
+            VSUniformsViews.mvMatrix.set(mvMatrix);
+            VSUniformsViews.pMatrix.set(pMatrix);
+            this.device.queue.writeBuffer(uniformsBuffer, 0, VSUniformsValues);
+
+            pass.setVertexBuffer(0, vertex);
+            pass.setVertexBuffer(1, color);
+            pass.setPipeline(this.skeletonPipeline);
+            pass.setBindGroup(0, uniformsBindGroup);
+
+            pass.draw(vertexBuffer.length / 3);
+            pass.end();
+
+            const commandBuffer = encoder.finish();
+            this.device.queue.submit([commandBuffer]);
+
+            return;
+        }
+
+        if (!this.skeletonShaderProgram) {
+            this.skeletonShaderProgram = this.initSkeletonShaderProgram();
+        }
+
+        this.gl.disable(this.gl.BLEND);
+        this.gl.disable(this.gl.DEPTH_TEST);
+
+        this.gl.useProgram(this.skeletonShaderProgram);
+
+        this.gl.uniformMatrix4fv(this.skeletonShaderProgramLocations.pMatrixUniform, false, pMatrix);
+        this.gl.uniformMatrix4fv(this.skeletonShaderProgramLocations.mvMatrixUniform, false, mvMatrix);
+
+        this.gl.enableVertexAttribArray(this.skeletonShaderProgramLocations.vertexPositionAttribute);
+        this.gl.enableVertexAttribArray(this.skeletonShaderProgramLocations.colorAttribute);
+
+        if (!this.skeletonVertexBuffer) {
+            this.skeletonVertexBuffer = this.gl.createBuffer();
+        }
+        if (!this.skeletonColorBuffer) {
+            this.skeletonColorBuffer = this.gl.createBuffer();
+        }
 
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.skeletonVertexBuffer);
         this.gl.bufferData(this.gl.ARRAY_BUFFER, vertexBuffer, this.gl.DYNAMIC_DRAW);
