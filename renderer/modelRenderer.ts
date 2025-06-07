@@ -99,6 +99,113 @@ const identifyMat3: mat3 = mat3.create();
 const texCoordMat4: mat4 = mat4.create();
 const texCoordMat3: mat3 = mat3.create();
 
+const GPU_LAYER_PROPS: [string, GPUBlendState, GPUDepthStencilState][] = [['none', {
+    color: {
+        operation: 'add',
+        srcFactor: 'one',
+        dstFactor: 'zero'
+    },
+    alpha: {
+        operation: 'add',
+        srcFactor: 'one',
+        dstFactor: 'zero'
+    }
+}, {
+    depthWriteEnabled: true,
+    depthCompare: 'less-equal',
+    format: 'depth24plus'
+}], ['transparent', {
+    color: {
+        operation: 'add',
+        srcFactor: 'src-alpha',
+        dstFactor: 'one-minus-src-alpha'
+    },
+    alpha: {
+        operation: 'add',
+        srcFactor: 'one',
+        dstFactor: 'one-minus-src-alpha'
+    }
+}, {
+    depthWriteEnabled: true,
+    depthCompare: 'less-equal',
+    format: 'depth24plus'
+}], ['blend', {
+    color: {
+        operation: 'add',
+        srcFactor: 'src-alpha',
+        dstFactor: 'one-minus-src-alpha'
+    },
+    alpha: {
+        operation: 'add',
+        srcFactor: 'one',
+        dstFactor: 'one-minus-src-alpha'
+    }
+}, {
+    depthWriteEnabled: false,
+    depthCompare: 'less-equal',
+    format: 'depth24plus'
+}], ['additive', {
+    color: {
+        operation: 'add',
+        srcFactor: 'src',
+        dstFactor: 'one'
+    },
+    alpha: {
+        operation: 'add',
+        srcFactor: 'src',
+        dstFactor: 'one'
+    }
+}, {
+    depthWriteEnabled: false,
+    depthCompare: 'less-equal',
+    format: 'depth24plus'
+}], ['addAlpha', {
+    color: {
+        operation: 'add',
+        srcFactor: 'src-alpha',
+        dstFactor: 'one'
+    },
+    alpha: {
+        operation: 'add',
+        srcFactor: 'src-alpha',
+        dstFactor: 'one'
+    }
+}, {
+    depthWriteEnabled: false,
+    depthCompare: 'less-equal',
+    format: 'depth24plus'
+}], ['modulate', {
+    color: {
+        operation: 'add',
+        srcFactor: 'zero',
+        dstFactor: 'src'
+    },
+    alpha: {
+        operation: 'add',
+        srcFactor: 'zero',
+        dstFactor: 'one'
+    }
+}, {
+    depthWriteEnabled: false,
+    depthCompare: 'less-equal',
+    format: 'depth24plus'
+}], ['modulate2x', {
+    color: {
+        operation: 'add',
+        srcFactor: 'dst',
+        dstFactor: 'src'
+    },
+    alpha: {
+        operation: 'add',
+        srcFactor: 'zero',
+        dstFactor: 'one'
+    }
+}, {
+    depthWriteEnabled: false,
+    depthCompare: 'less-equal',
+    format: 'depth24plus'
+}]];
+
 export class ModelRenderer {
     private isHD: boolean;
 
@@ -115,7 +222,7 @@ export class ModelRenderer {
     private fsBindGroupLayout: GPUBindGroupLayout | null;
     private gpuShaderModule: GPUShaderModule | null;
     private gpuDepthShaderModule: GPUShaderModule | null;
-    private gpuPipelines: GPURenderPipeline[] | null;
+    private gpuPipelines: Record<string, GPURenderPipeline> = {};
     private gpuWireframePipeline: GPURenderPipeline | null;
     private gpuShadowPipeline: GPURenderPipeline | null;
     private gpuPipelineLayout: GPUPipelineLayout | null;
@@ -778,7 +885,7 @@ export class ModelRenderer {
                     }
                     const pipeline = depthTextureTarget ?
                         this.gpuShadowPipeline :
-                        (wireframe ? this.gpuWireframePipeline : (this.gpuPipelines[baseLayer.FilterMode] || this.gpuPipelines[0]));
+                        (wireframe ? this.gpuWireframePipeline : this.getGPUPipeline(baseLayer));
                     pass.setPipeline(pipeline);
 
                     const textures = this.rendererData.materialLayerTextureID[materialID];
@@ -886,7 +993,7 @@ export class ModelRenderer {
                         const textureID = this.rendererData.materialLayerTextureID[materialID][j];
                         const texture = this.model.Textures[textureID];
 
-                        const pipeline = wireframe ? this.gpuWireframePipeline : (this.gpuPipelines[layer.FilterMode] || this.gpuPipelines[0]);
+                        const pipeline = wireframe ? this.gpuWireframePipeline : this.getGPUPipeline(layer);
                         pass.setPipeline(pipeline);
 
                         this.gpuFSUniformsBuffers[materialID] ||= [];
@@ -2002,6 +2109,112 @@ export class ModelRenderer {
         }
     }
 
+    private createGPUPipeline(
+        name: string,
+        blend: GPUBlendState,
+        depth: GPUDepthStencilState,
+        shaderModule: GPUShaderModule = this.gpuShaderModule,
+        extra: Partial<GPURenderPipelineDescriptor> = {}
+    ) : GPURenderPipeline {
+        return this.device.createRenderPipeline({
+            label: `pipeline ${name}`,
+            layout: this.gpuPipelineLayout,
+            vertex: {
+                module: shaderModule,
+                buffers: [{
+                    // vertices
+                    arrayStride: 12,
+                    attributes: [{
+                        shaderLocation: 0,
+                        offset: 0,
+                        format: 'float32x3' as const
+                    }]
+                }, {
+                    // normals
+                    arrayStride: 12,
+                    attributes: [{
+                        shaderLocation: 1,
+                        offset: 0,
+                        format: 'float32x3' as const
+                    }]
+                }, {
+                    // textureCoord
+                    arrayStride: 8,
+                    attributes: [{
+                        shaderLocation: 2,
+                        offset: 0,
+                        format: 'float32x2' as const
+                    }]
+                }, ...(this.isHD ? [{
+                    // tangents
+                    arrayStride: 16,
+                    attributes: [{
+                        shaderLocation: 3,
+                        offset: 0,
+                        format: 'float32x4' as const
+                    }]
+                }, {
+                    // skin
+                    arrayStride: 8,
+                    attributes: [{
+                        shaderLocation: 4,
+                        offset: 0,
+                        format: 'uint8x4' as const
+                    }]
+                }, {
+                    // boneWeight
+                    arrayStride: 8,
+                    attributes: [{
+                        shaderLocation: 5,
+                        offset: 4,
+                        format: 'unorm8x4' as const
+                    }]
+                }] : [{
+                    // group
+                    arrayStride: 4,
+                    attributes: [{
+                        shaderLocation: 3,
+                        offset: 0,
+                        format: 'uint8x4' as const
+                    }]
+                }])]
+            },
+            fragment: {
+                module: shaderModule,
+                targets: [{
+                    format: navigator.gpu.getPreferredCanvasFormat(),
+                    blend
+                }]
+            },
+            depthStencil: depth,
+            multisample: {
+                count: MULTISAMPLE
+            },
+            ...extra
+        });
+    }
+
+    private createGPUPipelineByLayer(filterMode: FilterMode, twoSided: boolean) : GPURenderPipeline {
+        return this.createGPUPipeline(...GPU_LAYER_PROPS[filterMode], undefined, {
+            primitive: {
+                cullMode: twoSided ? 'none' : 'back'
+            }
+        });
+    }
+
+    private getGPUPipeline(layer: Layer): GPURenderPipeline {
+        const filterMode = layer.FilterMode || 0;
+        const twoSided = Boolean((layer.Shading || 0) & LayerShading.TwoSided);
+
+        const key = `${filterMode}-${twoSided}`;
+
+        if (!this.gpuPipelines[key]) {
+            this.gpuPipelines[key] = this.createGPUPipelineByLayer(filterMode, twoSided);
+        }
+
+        return this.gpuPipelines[key];
+    }
+
     private initGPUPipeline (): void {
         this.vsBindGroupLayout = this.device.createBindGroupLayout({
             label: 'bind group layout',
@@ -2128,207 +2341,7 @@ export class ModelRenderer {
             ]
         });
 
-        const createPipeline = (
-            name: string,
-            blend: GPUBlendState,
-            depth: GPUDepthStencilState,
-            shaderModule: GPUShaderModule = this.gpuShaderModule,
-            extra: Partial<GPURenderPipelineDescriptor> = {}
-        ) => {
-            return this.device.createRenderPipeline({
-                label: `pipeline ${name}`,
-                layout: this.gpuPipelineLayout,
-                vertex: {
-                    module: shaderModule,
-                    buffers: [{
-                        // vertices
-                        arrayStride: 12,
-                        attributes: [{
-                            shaderLocation: 0,
-                            offset: 0,
-                            format: 'float32x3' as const
-                        }]
-                    }, {
-                        // normals
-                        arrayStride: 12,
-                        attributes: [{
-                            shaderLocation: 1,
-                            offset: 0,
-                            format: 'float32x3' as const
-                        }]
-                    }, {
-                        // textureCoord
-                        arrayStride: 8,
-                        attributes: [{
-                            shaderLocation: 2,
-                            offset: 0,
-                            format: 'float32x2' as const
-                        }]
-                    }, ...(this.isHD ? [{
-                        // tangents
-                        arrayStride: 16,
-                        attributes: [{
-                            shaderLocation: 3,
-                            offset: 0,
-                            format: 'float32x4' as const
-                        }]
-                    }, {
-                        // skin
-                        arrayStride: 8,
-                        attributes: [{
-                            shaderLocation: 4,
-                            offset: 0,
-                            format: 'uint8x4' as const
-                        }]
-                    }, {
-                        // boneWeight
-                        arrayStride: 8,
-                        attributes: [{
-                            shaderLocation: 5,
-                            offset: 4,
-                            format: 'unorm8x4' as const
-                        }]
-                    }] : [{
-                        // group
-                        arrayStride: 4,
-                        attributes: [{
-                            shaderLocation: 3,
-                            offset: 0,
-                            format: 'uint8x4' as const
-                        }]
-                    }])]
-                },
-                fragment: {
-                    module: shaderModule,
-                    targets: [{
-                        format: navigator.gpu.getPreferredCanvasFormat(),
-                        blend
-                    }]
-                },
-                depthStencil: depth,
-                multisample: {
-                    count: MULTISAMPLE
-                },
-                ...extra
-            });
-        };
-
-        this.gpuPipelines = [
-            createPipeline('none', {
-                color: {
-                    operation: 'add',
-                    srcFactor: 'one',
-                    dstFactor: 'zero'
-                },
-                alpha: {
-                    operation: 'add',
-                    srcFactor: 'one',
-                    dstFactor: 'zero'
-                }
-            }, {
-                depthWriteEnabled: true,
-                depthCompare: 'less-equal',
-                format: 'depth24plus'
-            }),
-            createPipeline('transparent', {
-                color: {
-                    operation: 'add',
-                    srcFactor: 'src-alpha',
-                    dstFactor: 'one-minus-src-alpha'
-                },
-                alpha: {
-                    operation: 'add',
-                    srcFactor: 'one',
-                    dstFactor: 'one-minus-src-alpha'
-                }
-            }, {
-                depthWriteEnabled: true,
-                depthCompare: 'less-equal',
-                format: 'depth24plus'
-            }),
-            createPipeline('blend', {
-                color: {
-                    operation: 'add',
-                    srcFactor: 'src-alpha',
-                    dstFactor: 'one-minus-src-alpha'
-                },
-                alpha: {
-                    operation: 'add',
-                    srcFactor: 'one',
-                    dstFactor: 'one-minus-src-alpha'
-                }
-            }, {
-                depthWriteEnabled: false,
-                depthCompare: 'less-equal',
-                format: 'depth24plus'
-            }),
-            createPipeline('additive', {
-                color: {
-                    operation: 'add',
-                    srcFactor: 'src',
-                    dstFactor: 'one'
-                },
-                alpha: {
-                    operation: 'add',
-                    srcFactor: 'src',
-                    dstFactor: 'one'
-                }
-            }, {
-                depthWriteEnabled: false,
-                depthCompare: 'less-equal',
-                format: 'depth24plus'
-            }),
-            createPipeline('addAlpha', {
-                color: {
-                    operation: 'add',
-                    srcFactor: 'src-alpha',
-                    dstFactor: 'one'
-                },
-                alpha: {
-                    operation: 'add',
-                    srcFactor: 'src-alpha',
-                    dstFactor: 'one'
-                }
-            }, {
-                depthWriteEnabled: false,
-                depthCompare: 'less-equal',
-                format: 'depth24plus'
-            }),
-            createPipeline('modulate', {
-                color: {
-                    operation: 'add',
-                    srcFactor: 'zero',
-                    dstFactor: 'src'
-                },
-                alpha: {
-                    operation: 'add',
-                    srcFactor: 'zero',
-                    dstFactor: 'one'
-                }
-            }, {
-                depthWriteEnabled: false,
-                depthCompare: 'less-equal',
-                format: 'depth24plus'
-            }),
-            createPipeline('modulate2x', {
-                color: {
-                    operation: 'add',
-                    srcFactor: 'dst',
-                    dstFactor: 'src'
-                },
-                alpha: {
-                    operation: 'add',
-                    srcFactor: 'zero',
-                    dstFactor: 'one'
-                }
-            }, {
-                depthWriteEnabled: false,
-                depthCompare: 'less-equal',
-                format: 'depth24plus'
-            })
-        ];
-
-        this.gpuWireframePipeline = createPipeline('wireframe', {
+        this.gpuWireframePipeline = this.createGPUPipeline('wireframe', {
             color: {
                 operation: 'add',
                 srcFactor: 'src-alpha',
@@ -2349,7 +2362,7 @@ export class ModelRenderer {
             }
         });
 
-        this.gpuShadowPipeline = createPipeline('shadow', undefined, {
+        this.gpuShadowPipeline = this.createGPUPipeline('shadow', undefined, {
             depthWriteEnabled: true,
             depthCompare: 'less-equal',
             format: 'depth32float'
