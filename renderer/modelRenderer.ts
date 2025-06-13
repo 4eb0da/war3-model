@@ -451,44 +451,82 @@ export class ModelRenderer {
             this.ribbonsController = null;
         }
 
-        if (this.skeletonShaderProgram) {
-            if (this.skeletonVertexShader) {
-                this.gl.detachShader(this.skeletonShaderProgram, this.skeletonVertexShader);
-                this.gl.deleteShader(this.skeletonVertexShader);
-                this.skeletonVertexShader = null;
+        if (this.device) {
+            for (const buffer of this.wireframeIndexGPUBuffer) {
+                buffer.destroy();
             }
-            if (this.skeletonFragmentShader) {
-                this.gl.detachShader(this.skeletonShaderProgram, this.skeletonFragmentShader);
-                this.gl.deleteShader(this.skeletonFragmentShader);
-                this.skeletonFragmentShader = null;
+            this.gpuMultisampleTexture?.destroy();
+            this.gpuDepthTexture?.destroy();
+
+            for (const buffer of this.gpuVertexBuffer) {
+                buffer.destroy();
             }
-            this.gl.deleteProgram(this.skeletonShaderProgram);
-            this.skeletonShaderProgram = null;
+            for (const buffer of this.gpuNormalBuffer) {
+                buffer.destroy();
+            }
+            for (const buffer of this.gpuTexCoordBuffer) {
+                buffer.destroy();
+            }
+            for (const buffer of this.gpuGroupBuffer) {
+                buffer.destroy();
+            }
+            for (const buffer of this.gpuIndexBuffer) {
+                buffer.destroy();
+            }
+            for (const buffer of this.gpuSkinWeightBuffer) {
+                buffer.destroy();
+            }
+            for (const buffer of this.gpuTangentBuffer) {
+                buffer.destroy();
+            }
+            this.gpuVSUniformsBuffer?.destroy();
+            for (const materialID in this.gpuFSUniformsBuffers) {
+                for (const buffer of this.gpuFSUniformsBuffers[materialID]) {
+                    buffer.destroy();
+                }
+            }
         }
 
-        if (this.shaderProgram) {
-            if (this.vertexShader) {
-                this.gl.detachShader(this.shaderProgram, this.vertexShader);
-                this.gl.deleteShader(this.vertexShader);
-                this.vertexShader = null;
+        if (this.gl) {
+            if (this.skeletonShaderProgram) {
+                if (this.skeletonVertexShader) {
+                    this.gl.detachShader(this.skeletonShaderProgram, this.skeletonVertexShader);
+                    this.gl.deleteShader(this.skeletonVertexShader);
+                    this.skeletonVertexShader = null;
+                }
+                if (this.skeletonFragmentShader) {
+                    this.gl.detachShader(this.skeletonShaderProgram, this.skeletonFragmentShader);
+                    this.gl.deleteShader(this.skeletonFragmentShader);
+                    this.skeletonFragmentShader = null;
+                }
+                this.gl.deleteProgram(this.skeletonShaderProgram);
+                this.skeletonShaderProgram = null;
             }
-            if (this.fragmentShader) {
-                this.gl.detachShader(this.shaderProgram, this.fragmentShader);
-                this.gl.deleteShader(this.fragmentShader);
-                this.fragmentShader = null;
+
+            if (this.shaderProgram) {
+                if (this.vertexShader) {
+                    this.gl.detachShader(this.shaderProgram, this.vertexShader);
+                    this.gl.deleteShader(this.vertexShader);
+                    this.vertexShader = null;
+                }
+                if (this.fragmentShader) {
+                    this.gl.detachShader(this.shaderProgram, this.fragmentShader);
+                    this.gl.deleteShader(this.fragmentShader);
+                    this.fragmentShader = null;
+                }
+                this.gl.deleteProgram(this.shaderProgram);
+                this.shaderProgram = null;
             }
-            this.gl.deleteProgram(this.shaderProgram);
-            this.shaderProgram = null;
+
+            this.destroyShaderProgramObject(this.envToCubemap);
+            this.destroyShaderProgramObject(this.envSphere);
+            this.destroyShaderProgramObject(this.convoluteDiffuseEnv);
+            this.destroyShaderProgramObject(this.prefilterEnv);
+            this.destroyShaderProgramObject(this.integrateBRDF);
+
+            this.gl.deleteBuffer(this.cubeVertexBuffer);
+            this.gl.deleteBuffer(this.squareVertexBuffer);
         }
-
-        this.destroyShaderProgramObject(this.envToCubemap);
-        this.destroyShaderProgramObject(this.envSphere);
-        this.destroyShaderProgramObject(this.convoluteDiffuseEnv);
-        this.destroyShaderProgramObject(this.prefilterEnv);
-        this.destroyShaderProgramObject(this.integrateBRDF);
-
-        this.gl.deleteBuffer(this.cubeVertexBuffer);
-        this.gl.deleteBuffer(this.squareVertexBuffer);
     }
 
     public initGL (glContext: WebGL2RenderingContext | WebGLRenderingContext): void {
@@ -556,7 +594,7 @@ export class ModelRenderer {
         this.ribbonsController.initGPUDevice(device);
     }
 
-    public setTextureImage (path: string, img: HTMLImageElement, flags: TextureFlags | 0): void {
+    public setTextureImage (path: string, img: HTMLImageElement): void {
         if (this.device) {
             const texture = this.rendererData.gpuTextures[path] = this.device.createTexture({
                 size: [img.width, img.height],
@@ -579,6 +617,7 @@ export class ModelRenderer {
             this.gl.bindTexture(this.gl.TEXTURE_2D, this.rendererData.textures[path]);
             // this.gl.pixelStorei(this.gl.UNPACK_FLIP_Y_WEBGL, true);
             this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, this.gl.RGBA, this.gl.UNSIGNED_BYTE, img);
+            const flags = this.model.Textures.find(it => it.Image === path)?.Flags || 0;
             this.setTextureParameters(flags, true);
 
             this.gl.generateMipmap(this.gl.TEXTURE_2D);
@@ -589,7 +628,7 @@ export class ModelRenderer {
         }
     }
 
-    public setTextureImageData (path: string, imageData: ImageData[], flags: TextureFlags): void {
+    public setTextureImageData (path: string, imageData: ImageData[]): void {
         if (this.device) {
             const texture = this.rendererData.gpuTextures[path] = this.device.createTexture({
                 size: [imageData[0].width, imageData[0].height],
@@ -615,6 +654,7 @@ export class ModelRenderer {
             for (let i = 0; i < imageData.length; ++i) {
                 this.gl.texImage2D(this.gl.TEXTURE_2D, i, this.gl.RGBA, this.gl.RGBA, this.gl.UNSIGNED_BYTE, imageData[i]);
             }
+            const flags = this.model.Textures.find(it => it.Image === path)?.Flags || 0;
             this.setTextureParameters(flags, false);
             this.processEnvMaps(path);
 
@@ -622,7 +662,7 @@ export class ModelRenderer {
         }
     }
 
-    public setTextureCompressedImage (path: string, format: DDS_FORMAT, imageData: ArrayBuffer, ddsInfo: DdsInfo, flags: TextureFlags): void {
+    public setTextureCompressedImage (path: string, format: DDS_FORMAT, imageData: ArrayBuffer, ddsInfo: DdsInfo): void {
         this.rendererData.textures[path] = this.gl.createTexture();
         this.gl.bindTexture(this.gl.TEXTURE_2D, this.rendererData.textures[path]);
 
@@ -650,6 +690,7 @@ export class ModelRenderer {
             }
         }
 
+        const flags = this.model.Textures.find(it => it.Image === path)?.Flags || 0;
         this.setTextureParameters(flags, isWebGL2(this.gl));
         this.processEnvMaps(path);
 
@@ -2109,7 +2150,7 @@ export class ModelRenderer {
         }
     }
 
-    private createGPUPipeline(
+    private createGPUPipeline (
         name: string,
         blend: GPUBlendState,
         depth: GPUDepthStencilState,
@@ -2194,7 +2235,7 @@ export class ModelRenderer {
         });
     }
 
-    private createGPUPipelineByLayer(filterMode: FilterMode, twoSided: boolean) : GPURenderPipeline {
+    private createGPUPipelineByLayer (filterMode: FilterMode, twoSided: boolean) : GPURenderPipeline {
         return this.createGPUPipeline(...GPU_LAYER_PROPS[filterMode], undefined, {
             primitive: {
                 cullMode: twoSided ? 'none' : 'back'
@@ -2202,7 +2243,7 @@ export class ModelRenderer {
         });
     }
 
-    private getGPUPipeline(layer: Layer): GPURenderPipeline {
+    private getGPUPipeline (layer: Layer): GPURenderPipeline {
         const filterMode = layer.FilterMode || 0;
         const twoSided = Boolean((layer.Shading || 0) & LayerShading.TwoSided);
 
@@ -2592,7 +2633,7 @@ export class ModelRenderer {
         ]), this.gl.STATIC_DRAW);
     }
 
-    private initSquare(): void {
+    private initSquare (): void {
         this.squareVertexBuffer = this.gl.createBuffer();
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.squareVertexBuffer);
         this.gl.bufferData(this.gl.ARRAY_BUFFER, new Float32Array([
@@ -2605,7 +2646,7 @@ export class ModelRenderer {
         ]), this.gl.STATIC_DRAW);
     }
 
-    private initBRDFLUT(): void {
+    private initBRDFLUT (): void {
         if (!isWebGL2(this.gl) || !this.isHD || !this.colorBufferFloatExt) {
             return;
         }

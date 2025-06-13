@@ -5,7 +5,7 @@ import { decodeDds, parseHeaders } from 'dds-parser';
 
 import { parse as parseMDL } from '../../mdl/parse';
 import { parse as parseMDX } from '../../mdx/parse';
-import { Model, TextureFlags } from '../../model';
+import { Model } from '../../model';
 import { DDS_FORMAT, ModelRenderer } from '../../renderer/modelRenderer';
 import { vec3RotateZ } from '../../renderer/util';
 import { decode, getImageData } from '../../blp/decode';
@@ -313,11 +313,11 @@ function tick(timestamp: number) {
     drawScene();
 }
 
-function loadTexture(src: string, textureName: string, flags: TextureFlags | 0) {
+function loadTexture(src: string, textureName: string) {
     const img = new Image();
 
     img.onload = () => {
-        modelRenderer.setTextureImage(textureName, img, flags);
+        modelRenderer.setTextureImage(textureName, img);
 
         handleLoadedTexture();
     };
@@ -679,7 +679,6 @@ function setDragDropTextures() {
             row.className = 'drag';
             row.textContent = texture.Image;
             row.setAttribute('data-texture', texture.Image);
-            row.setAttribute('data-texture-flags', String(texture.Flags));
             texturesContainer.appendChild(row);
         }
     }
@@ -746,7 +745,7 @@ function initDragDrop() {
         }
     };
 
-    const dropTexture = (file: File, textureName: string, textureFlags: TextureFlags) => {
+    const dropTexture = (file: File, textureName: string) => {
         return new Promise<void>(resolve => {
             const reader = new FileReader();
             const isBLP = file.name.indexOf('.blp') > -1;
@@ -801,8 +800,7 @@ function initDragDrop() {
                                 textureName,
                                 format as DDS_FORMAT,
                                 reader.result as ArrayBuffer,
-                                dds,
-                                textureFlags
+                                dds
                             );
                         } else {
                             const uint8 = new Uint8Array(array);
@@ -816,8 +814,7 @@ function initDragDrop() {
 
                             modelRenderer.setTextureImageData(
                                 textureName,
-                                datas,
-                                textureFlags
+                                datas
                             );
                         }
 
@@ -829,8 +826,7 @@ function initDragDrop() {
 
                         modelRenderer.setTextureImageData(
                             textureName,
-                            blp.mipmaps.map((_mipmap, i) => getImageData(blp, i)),
-                            textureFlags
+                            blp.mipmaps.map((_mipmap, i) => getImageData(blp, i))
                         );
                         resolve();
                     } else {
@@ -838,7 +834,7 @@ function initDragDrop() {
 
                         img.onload = () => {
                             console.log(file.name, img);
-                            modelRenderer.setTextureImage(textureName, img, textureFlags);
+                            modelRenderer.setTextureImage(textureName, img);
                             resolve();
                         };
 
@@ -872,10 +868,7 @@ function initDragDrop() {
         }
 
         if (dropTarget.getAttribute('data-texture')) {
-            dropTexture(files[0], dropTarget.getAttribute('data-texture'),
-                Number(dropTarget.getAttribute('data-texture-flags'))).then(() => {
-                    handleLoadedTexture();
-                });
+            dropTexture(files[0], dropTarget.getAttribute('data-texture'));
         } else {
             let modelFile;
 
@@ -916,9 +909,9 @@ function initDragDrop() {
             if (texture.Image) {
                 const cleanupName = texture.Image.replace(CLEANUP_NAME_REGEXP, '$1').toLowerCase();
                 if (cleanupName in textures) {
-                    promises.push(dropTexture(textures[cleanupName], texture.Image, texture.Flags));
+                    promises.push(dropTexture(textures[cleanupName], texture.Image));
                 } else if (!gpuDevice) {
-                    loadTexture('empty.png', texture.Image, 0);
+                    loadTexture('empty.png', texture.Image);
                 }
             }
         }
