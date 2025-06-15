@@ -629,14 +629,24 @@ export class ModelRenderer {
     }
 
     public setTextureImageData (path: string, imageData: ImageData[]): void {
+        let count = 1;
+        for (let i = 1; i < imageData.length; ++i, ++count) {
+            if (
+                imageData[i].width !== imageData[i - 1].width / 2 ||
+                imageData[i].height !== imageData[i - 1].height / 2
+            ) {
+                break;
+            }
+        }
+
         if (this.device) {
             const texture = this.rendererData.gpuTextures[path] = this.device.createTexture({
                 size: [imageData[0].width, imageData[0].height],
                 format: 'rgba8unorm',
                 usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
-                mipLevelCount: imageData.length
+                mipLevelCount: count
             });
-            for (let i = 0; i < imageData.length; ++i) {
+            for (let i = 0; i < count; ++i) {
                 this.device.queue.writeTexture(
                     {
                         texture,
@@ -651,7 +661,7 @@ export class ModelRenderer {
             this.rendererData.textures[path] = this.gl.createTexture();
             this.gl.bindTexture(this.gl.TEXTURE_2D, this.rendererData.textures[path]);
             // this.gl.pixelStorei(this.gl.UNPACK_FLIP_Y_WEBGL, true);
-            for (let i = 0; i < imageData.length; ++i) {
+            for (let i = 0; i < count; ++i) {
                 this.gl.texImage2D(this.gl.TEXTURE_2D, i, this.gl.RGBA, this.gl.RGBA, this.gl.UNSIGNED_BYTE, imageData[i]);
             }
             const flags = this.model.Textures.find(it => it.Image === path)?.Flags || 0;
