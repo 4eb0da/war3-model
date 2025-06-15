@@ -837,6 +837,10 @@ export class ModelRenderer {
         shadowSmoothingStep?: number;
         depthTextureTarget?: GPUTexture;
     }): void {
+        if (depthTextureTarget && !this.isHD) {
+            return;
+        }
+
         if (this.device) {
             // todo TwoSided
             if (this.gpuMultisampleTexture.width !== this.canvas.width || this.gpuMultisampleTexture.height !== this.canvas.height) {
@@ -2413,19 +2417,21 @@ export class ModelRenderer {
             }
         });
 
-        this.gpuShadowPipeline = this.createGPUPipeline('shadow', undefined, {
-            depthWriteEnabled: true,
-            depthCompare: 'less-equal',
-            format: 'depth32float'
-        }, this.gpuDepthShaderModule, {
-            fragment: {
-                module: this.gpuDepthShaderModule,
-                targets: []
-            },
-            multisample: {
-                count: 1
-            }
-        });
+        if (this.isHD) {
+            this.gpuShadowPipeline = this.createGPUPipeline('shadow', undefined, {
+                depthWriteEnabled: true,
+                depthCompare: 'less-equal',
+                format: 'depth32float'
+            }, this.gpuDepthShaderModule, {
+                fragment: {
+                    module: this.gpuDepthShaderModule,
+                    targets: []
+                },
+                multisample: {
+                    count: 1
+                }
+            });
+        }
 
         this.gpuRenderPassDescriptor = {
             label: 'basic renderPass',

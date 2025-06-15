@@ -262,7 +262,7 @@ function drawScene() {
     modelRenderer.setLightPosition(lightPosition);
     modelRenderer.setLightColor(lightColor);
 
-    if (shadow && model.Version >= 900) {
+    if (shadow && model.Geosets?.some(it => it.SkinWeights?.length > 0)) {
         if (gpuDevice) {
             modelRenderer.setCamera(lightPosition, lightQuat);
             modelRenderer.render(lightMVMatrix, lightPMatrix, {
