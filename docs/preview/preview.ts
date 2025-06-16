@@ -289,12 +289,10 @@ function drawScene() {
     }
 
     modelRenderer.setCamera(cameraPos, cameraQuat);
-    if (ibl) {
-        modelRenderer.renderEnvironment(mvMatrix, pMatrix);
-    }
     modelRenderer.render(mvMatrix, pMatrix, {
         levelOfDetail: lod,
         wireframe,
+        env: ibl,
         useEnvironmentMap: ibl,
         shadowMapTexture: shadow ? gpuDepthTexture || framebufferDepthTexture : undefined,
         shadowMapMatrix: shadow ? shadowMapMatrix : undefined,

@@ -37,6 +37,7 @@ export interface RendererData {
     gpuDepthSampler: GPUSampler;
     requiredEnvMaps: {[key: string]: boolean};
     envTextures: {[key: string]: WebGLTexture};
+    gpuEnvTextures: {[key: string]: GPUTexture};
     irradianceMap: {[key: string]: WebGLTexture};
     prefilteredEnvMap: {[key: string]: WebGLTexture};
 

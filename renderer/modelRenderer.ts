@@ -35,6 +35,8 @@ import sdShaderSource from './shaders/webgpu/sd.wgsl?raw';
 import hdShaderSource from './shaders/webgpu/hd.wgsl?raw';
 import depthShaderSource from './shaders/webgpu/depth.wgsl?raw';
 import skeletonShaderSource from './shaders/webgpu/skeleton.wgsl?raw';
+import envShader from './shaders/webgpu/env.wgsl?raw';
+import envToCubemapShader from './shaders/webgpu/envToCubemap.wgsl?raw';
 import { generateMips } from './generateMips';
 
 // actually, all is number
@@ -290,11 +292,24 @@ export class ModelRenderer {
     private skinWeightBuffer: WebGLBuffer[] = [];
     private tangentBuffer: WebGLBuffer[] = [];
 
+    private envShaderModeule: GPUShaderModule;
+    private envPiepeline: GPURenderPipeline;
+    private envVSBindGroupLayout: GPUBindGroupLayout | null;
+    private envFSBindGroupLayout: GPUBindGroupLayout | null;
+    private envVSUniformsBuffer: GPUBuffer;
+    private envVSBindGroup: GPUBindGroup;
+    private envSampler: GPUSampler;
     private cubeVertexBuffer: WebGLBuffer;
+    private cubeGPUVertexBuffer: GPUBuffer;
     private squareVertexBuffer: WebGLBuffer;
     private brdfLUT: WebGLTexture;
 
     private envToCubemap: WebGLProgramObject<'aPos', 'uPMatrix' | 'uMVMatrix' | 'uEquirectangularMap'>;
+    private envToCubemapShaderModule: GPUShaderModule;
+    private envToCubemapPiepeline: GPURenderPipeline;
+    private envToCubemapVSBindGroupLayout: GPUBindGroupLayout | null;
+    private envToCubemapFSBindGroupLayout: GPUBindGroupLayout | null;
+    private envToCubemapSampler: GPUSampler;
     private envSphere: WebGLProgramObject<'aPos', 'uPMatrix' | 'uMVMatrix' | 'uEnvironmentMap'>;
     private convoluteDiffuseEnv: WebGLProgramObject<'aPos', 'uPMatrix' | 'uMVMatrix' | 'uEnvironmentMap'>;
     private prefilterEnv: WebGLProgramObject<'aPos', 'uPMatrix' | 'uMVMatrix' | 'uEnvironmentMap' | 'uRoughness'>;
@@ -382,6 +397,7 @@ export class ModelRenderer {
             gpuEmptyTexture: null,
             gpuDepthEmptyTexture: null,
             envTextures: {},
+            gpuEnvTextures: {},
             requiredEnvMaps: {},
             irradianceMap: {},
             prefilteredEnvMap: {}
@@ -529,18 +545,8 @@ export class ModelRenderer {
         }
     }
 
-    public initGL (glContext: WebGL2RenderingContext | WebGLRenderingContext): void {
-        this.gl = glContext;
-        // Max bones + MV + P
-        this.softwareSkinning = this.gl.getParameter(this.gl.MAX_VERTEX_UNIFORM_VECTORS) < 4 * (MAX_NODES + 2);
-        this.anisotropicExt = (
-            this.gl.getExtension('EXT_texture_filter_anisotropic') ||
-            this.gl.getExtension('MOZ_EXT_texture_filter_anisotropic') ||
-            this.gl.getExtension('WEBKIT_EXT_texture_filter_anisotropic')
-        );
-        this.colorBufferFloatExt = this.gl.getExtension('EXT_color_buffer_float');
-
-        if (this.model.Version >= 1000 && isWebGL2(this.gl)) {
+    private initRequiredEnvMaps (): void {
+        if (this.model.Version >= 1000 && (isWebGL2(this.gl) || this.device)) {
             this.model.Materials.forEach(material => {
                 let layer;
                 if (
@@ -552,6 +558,20 @@ export class ModelRenderer {
                 }
             });
         }
+    }
+
+    public initGL (glContext: WebGL2RenderingContext | WebGLRenderingContext): void {
+        this.gl = glContext;
+        // Max bones + MV + P
+        this.softwareSkinning = this.gl.getParameter(this.gl.MAX_VERTEX_UNIFORM_VECTORS) < 4 * (MAX_NODES + 2);
+        this.anisotropicExt = (
+            this.gl.getExtension('EXT_texture_filter_anisotropic') ||
+            this.gl.getExtension('MOZ_EXT_texture_filter_anisotropic') ||
+            this.gl.getExtension('WEBKIT_EXT_texture_filter_anisotropic')
+        );
+        this.colorBufferFloatExt = this.gl.getExtension('EXT_color_buffer_float');
+
+        this.initRequiredEnvMaps();
 
         this.initShaders();
         this.initBuffers();
@@ -567,18 +587,7 @@ export class ModelRenderer {
         this.device = device;
         this.gpuContext = context;
 
-        if (this.model.Version >= 1000 && isWebGL2(this.gl)) {
-            this.model.Materials.forEach(material => {
-                let layer;
-                if (
-                    material.Shader === 'Shader_HD_DefaultUnit' && material.Layers.length === 6 && typeof material.Layers[5].TextureID === 'number' ||
-                    this.model.Version >= 1100 && (layer = material.Layers.find(it => it.ShaderTypeId === 1 && it.ReflectionsTextureID)) && typeof layer.ReflectionsTextureID === 'number'
-                ) {
-                    const id = this.model.Version >= 1100 && layer ? layer.ReflectionsTextureID : material.Layers[5].TextureID;
-                    this.rendererData.requiredEnvMaps[this.model.Textures[id].Image] = true;
-                }
-            });
-        }
+        this.initRequiredEnvMaps();
 
         this.initGPUShaders();
         this.initGPUPipeline();
@@ -587,7 +596,7 @@ export class ModelRenderer {
         this.initGPUMultisampleTexture();
         this.initGPUDepthTexture();
         this.initGPUEmptyTexture();
-        // this.initCube();
+        this.initCube();
         // this.initSquare();
         // this.initBRDFLUT();
         this.particlesController.initGPUDevice(device);
@@ -612,6 +621,7 @@ export class ModelRenderer {
                 }
             );
             generateMips(this.device, texture);
+            this.processEnvMaps(path);
         } else {
             this.rendererData.textures[path] = this.gl.createTexture();
             this.gl.bindTexture(this.gl.TEXTURE_2D, this.rendererData.textures[path]);
@@ -657,6 +667,7 @@ export class ModelRenderer {
                     { width: imageData[i].width, height: imageData[i].height },
                 );
             }
+            this.processEnvMaps(path);
         } else {
             this.rendererData.textures[path] = this.gl.createTexture();
             this.gl.bindTexture(this.gl.TEXTURE_2D, this.rendererData.textures[path]);
@@ -735,6 +746,8 @@ export class ModelRenderer {
                 { width: image.shape.width, height: image.shape.height },
             );
         }
+
+        this.processEnvMaps(path);
     }
 
     public setCamera (cameraPos: vec3, cameraQuat: quat): void {
@@ -820,6 +833,7 @@ export class ModelRenderer {
 
     public render (mvMatrix: mat4, pMatrix: mat4, {
         wireframe,
+        env,
         levelOfDetail = 0,
         useEnvironmentMap = false,
         shadowMapTexture,
@@ -828,7 +842,8 @@ export class ModelRenderer {
         shadowSmoothingStep,
         depthTextureTarget
     } : {
-        wireframe: boolean;
+        wireframe?: boolean;
+        env?: boolean;
         levelOfDetail?: number;
         useEnvironmentMap?: boolean;
         shadowMapTexture?: WebGLTexture | GPUTexture;
@@ -842,7 +857,6 @@ export class ModelRenderer {
         }
 
         if (this.device) {
-            // todo TwoSided
             if (this.gpuMultisampleTexture.width !== this.canvas.width || this.gpuMultisampleTexture.height !== this.canvas.height) {
                 this.gpuMultisampleTexture.destroy();
                 this.initGPUMultisampleTexture();
@@ -887,6 +901,10 @@ export class ModelRenderer {
 
             const encoder = this.device.createCommandEncoder();
             const pass = encoder.beginRenderPass(renderPassDescriptor);
+
+            if (env) {
+                this.renderEnvironmentGPU(pass, mvMatrix, pMatrix);
+            }
 
             const VSUniformsValues = new ArrayBuffer(128 + 64 * MAX_NODES);
             const VSUniformsViews = {
@@ -1123,6 +1141,10 @@ export class ModelRenderer {
             return;
         }
 
+        if (env) {
+            this.renderEnvironment(mvMatrix, pMatrix);
+        }
+
         this.gl.useProgram(this.shaderProgram);
 
         this.gl.uniformMatrix4fv(this.shaderProgramLocations.pMatrixUniform, false, pMatrix);
@@ -1292,7 +1314,46 @@ export class ModelRenderer {
         this.ribbonsController.render(mvMatrix, pMatrix);
     }
 
-    public renderEnvironment (mvMatrix: mat4, pMatrix: mat4): void {
+    private renderEnvironmentGPU (pass: GPURenderPassEncoder, mvMatrix: mat4, pMatrix: mat4) {
+        pass.setPipeline(this.envPiepeline);
+
+        const VSUniformsValues = new ArrayBuffer(128);
+        const VSUniformsViews = {
+            mvMatrix: new Float32Array(VSUniformsValues, 0, 16),
+            pMatrix: new Float32Array(VSUniformsValues, 64, 16)
+        };
+        VSUniformsViews.mvMatrix.set(mvMatrix);
+        VSUniformsViews.pMatrix.set(pMatrix);
+        this.device.queue.writeBuffer(this.envVSUniformsBuffer, 0, VSUniformsValues);
+
+        pass.setBindGroup(0, this.envVSBindGroup);
+
+        for (const path in this.rendererData.gpuEnvTextures) {
+            const fsUniformsBindGroup = this.device.createBindGroup({
+                label: `env fs uniforms ${path}`,
+                layout: this.envFSBindGroupLayout,
+                entries: [
+                    {
+                        binding: 0,
+                        resource: this.envSampler
+                    },
+                    {
+                        binding: 1,
+                        resource: this.rendererData.gpuEnvTextures[path].createView({ dimension: 'cube' })
+                    }
+                ]
+            });
+
+            pass.setBindGroup(1, fsUniformsBindGroup);
+
+            pass.setPipeline(this.envPiepeline);
+            pass.setVertexBuffer(0, this.cubeGPUVertexBuffer);
+
+            pass.draw(6 * 6);
+        }
+    }
+
+    private renderEnvironment (mvMatrix: mat4, pMatrix: mat4): void {
         if (!isWebGL2(this.gl)) {
             return;
         }
@@ -1474,6 +1535,7 @@ export class ModelRenderer {
                 usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
             });
             const uniformsBindGroup = this.device.createBindGroup({
+                label: 'skeleton uniforms bind group',
                 layout: this.skeletonBindGroupLayout,
                 entries: [
                     {
@@ -1624,81 +1686,208 @@ export class ModelRenderer {
     }
 
     private processEnvMaps (path: string): void {
-        if (!this.rendererData.requiredEnvMaps[path] || !this.rendererData.textures[path] || !isWebGL2(this.gl) || !this.colorBufferFloatExt) {
+        if (
+            !this.rendererData.requiredEnvMaps[path] ||
+            !(this.rendererData.textures[path] || this.rendererData.gpuTextures[path]) ||
+            !(isWebGL2(this.gl) || this.device) ||
+            !(this.colorBufferFloatExt || this.device)
+        ) {
             return;
         }
 
-        this.gl.disable(this.gl.BLEND);
-        this.gl.disable(this.gl.DEPTH_TEST);
-        this.gl.disable(this.gl.CULL_FACE);
+        if (this.gl) {
+            this.gl.disable(this.gl.BLEND);
+            this.gl.disable(this.gl.DEPTH_TEST);
+            this.gl.disable(this.gl.CULL_FACE);
+        }
 
         const pMatrix = mat4.create();
         const mvMatrix = mat4.create();
         const eye = vec3.fromValues(0, 0, 0);
-        const center = [
-            vec3.fromValues(1, 0, 0),
-            vec3.fromValues(-1, 0, 0),
-            vec3.fromValues(0, 1, 0),
-            vec3.fromValues(0, -1, 0),
-            vec3.fromValues(0, 0, 1),
-            vec3.fromValues(0, 0, -1)
-        ];
-        const up = [
-            vec3.fromValues(0, -1, 0),
-            vec3.fromValues(0, -1, 0),
-            vec3.fromValues(0, 0, 1),
-            vec3.fromValues(0, 0, -1),
-            vec3.fromValues(0, -1, 0),
-            vec3.fromValues(0, -1, 0)
-        ];
-
-        const framebuffer = this.gl.createFramebuffer();
-
-        this.gl.useProgram(this.envToCubemap.program);
-
-        const cubemap = this.rendererData.envTextures[path] = this.gl.createTexture();
-        this.gl.activeTexture(this.gl.TEXTURE1);
-        this.gl.bindTexture(this.gl.TEXTURE_CUBE_MAP, cubemap);
-        for (let i = 0; i < 6; ++i) {
-            this.gl.texImage2D(this.gl.TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, this.gl.RGBA16F, ENV_MAP_SIZE, ENV_MAP_SIZE, 0, this.gl.RGBA, this.gl.FLOAT, null);
+        let center;
+        let up;
+        if (this.device) {
+            center = [
+                vec3.fromValues(1, 0, 0),
+                vec3.fromValues(-1, 0, 0),
+                vec3.fromValues(0, -1, 0),
+                vec3.fromValues(0, 1, 0),
+                vec3.fromValues(0, 0, 1),
+                vec3.fromValues(0, 0, -1)
+            ];
+            up = [
+                vec3.fromValues(0, -1, 0),
+                vec3.fromValues(0, -1, 0),
+                vec3.fromValues(0, 0, -1),
+                vec3.fromValues(0, 0, 1),
+                vec3.fromValues(0, -1, 0),
+                vec3.fromValues(0, -1, 0)
+            ];
+        } else {
+            center = [
+                vec3.fromValues(1, 0, 0),
+                vec3.fromValues(-1, 0, 0),
+                vec3.fromValues(0, 1, 0),
+                vec3.fromValues(0, -1, 0),
+                vec3.fromValues(0, 0, 1),
+                vec3.fromValues(0, 0, -1)
+            ];
+            up = [
+                vec3.fromValues(0, -1, 0),
+                vec3.fromValues(0, -1, 0),
+                vec3.fromValues(0, 0, 1),
+                vec3.fromValues(0, 0, -1),
+                vec3.fromValues(0, -1, 0),
+                vec3.fromValues(0, -1, 0)
+            ];
         }
-
-        this.gl.texParameteri(this.gl.TEXTURE_CUBE_MAP, this.gl.TEXTURE_WRAP_S, this.gl.CLAMP_TO_EDGE);
-        this.gl.texParameteri(this.gl.TEXTURE_CUBE_MAP, this.gl.TEXTURE_WRAP_T, this.gl.CLAMP_TO_EDGE);
-        this.gl.texParameteri(this.gl.TEXTURE_CUBE_MAP, this.gl.TEXTURE_WRAP_R, this.gl.CLAMP_TO_EDGE);
-        this.gl.texParameteri(this.gl.TEXTURE_CUBE_MAP, this.gl.TEXTURE_MIN_FILTER, this.gl.LINEAR);
-        this.gl.texParameteri(this.gl.TEXTURE_CUBE_MAP, this.gl.TEXTURE_MAG_FILTER, this.gl.LINEAR);
-
-        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.cubeVertexBuffer);
-        this.gl.enableVertexAttribArray(this.envToCubemap.attributes.aPos);
-        this.gl.vertexAttribPointer(this.envToCubemap.attributes.aPos, 3, this.gl.FLOAT, false, 0, 0);
-
-        this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, framebuffer);
 
         mat4.perspective(pMatrix, Math.PI / 2, 1, .1, 10);
-        this.gl.uniformMatrix4fv(this.envToCubemap.uniforms.uPMatrix, false, pMatrix);
-        this.gl.activeTexture(this.gl.TEXTURE0);
-        this.gl.bindTexture(this.gl.TEXTURE_2D, this.rendererData.textures[path]);
-        this.gl.uniform1i(this.envToCubemap.uniforms.uEquirectangularMap, 0);
-        this.gl.viewport(0, 0, ENV_MAP_SIZE, ENV_MAP_SIZE);
-        for (let i = 0; i < 6; ++i) {
-            this.gl.framebufferTexture2D(this.gl.FRAMEBUFFER, this.gl.COLOR_ATTACHMENT0, this.gl.TEXTURE_CUBE_MAP_POSITIVE_X + i, cubemap, 0);
-            this.gl.clear(this.gl.COLOR_BUFFER_BIT | this.gl.DEPTH_BUFFER_BIT);
 
-            mat4.lookAt(mvMatrix, eye, center[i], up[i]);
-            this.gl.uniformMatrix4fv(this.envToCubemap.uniforms.uMVMatrix, false, mvMatrix);
+        let framebuffer: WebGLFramebuffer;
+        let cubemap: WebGLTexture;
+        let gpuCubemap: GPUTexture;
 
-            this.gl.drawArrays(this.gl.TRIANGLES, 0, 6 * 6);
+        if (this.device) {
+            gpuCubemap = this.rendererData.gpuEnvTextures[path] = this.device.createTexture({
+                label: `env cubemap ${path}`,
+                size: [ENV_MAP_SIZE, ENV_MAP_SIZE, 6],
+                format: navigator.gpu.getPreferredCanvasFormat(),
+                usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+                // mipLevelCount: MAX_ENV_MIP_LEVELS
+                // sampleCount: MULTISAMPLE
+            });
+
+            const encoder = this.device.createCommandEncoder();
+
+            for (let i = 0; i < 6; ++i) {
+                mat4.lookAt(mvMatrix, eye, center[i], up[i]);
+
+                const pass = encoder.beginRenderPass({
+                    label: 'env to cubemap',
+                    colorAttachments: [{
+                        view: gpuCubemap.createView({
+                            dimension: '2d',
+                            baseArrayLayer: i
+                        }),
+                        clearValue: [0, 0, 0, 1],
+                        loadOp: 'clear',
+                        storeOp: 'store'
+                    }] as const
+                });
+
+                const VSUniformsValues = new ArrayBuffer(128);
+                const VSUniformsViews = {
+                    mvMatrix: new Float32Array(VSUniformsValues, 0, 16),
+                    pMatrix: new Float32Array(VSUniformsValues, 64, 16)
+                };
+                VSUniformsViews.mvMatrix.set(mvMatrix);
+                VSUniformsViews.pMatrix.set(pMatrix);
+                const buffer = this.device.createBuffer({
+                    label: `env to cubemap vs uniforms ${i}`,
+                    size: 128,
+                    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+                });
+                this.device.queue.writeBuffer(buffer, 0, VSUniformsValues);
+
+                const bindGroup = this.device.createBindGroup({
+                    label: `env to cubemap vs bind group ${i}`,
+                    layout: this.envToCubemapVSBindGroupLayout,
+                    entries: [
+                        {
+                            binding: 0,
+                            resource: { buffer }
+                        }
+                    ]
+                });
+
+                pass.setBindGroup(0, bindGroup);
+
+                const fsUniformsBindGroup = this.device.createBindGroup({
+                    label: `env to cubemap fs uniforms ${i}`,
+                    layout: this.envToCubemapFSBindGroupLayout,
+                    entries: [
+                        {
+                            binding: 0,
+                            resource: this.envToCubemapSampler
+                        },
+                        {
+                            binding: 1,
+                            resource: this.rendererData.gpuTextures[path].createView()
+                        }
+                    ]
+                });
+
+                pass.setBindGroup(1, fsUniformsBindGroup);
+
+                pass.setPipeline(this.envToCubemapPiepeline);
+                pass.setVertexBuffer(0, this.cubeGPUVertexBuffer);
+
+                pass.draw(6 * 6);
+
+                pass.end();
+            }
+
+            const commandBuffer = encoder.finish();
+            this.device.queue.submit([commandBuffer]);
+        } else if (isWebGL2(this.gl)) {
+            framebuffer = this.gl.createFramebuffer();
+
+            this.gl.useProgram(this.envToCubemap.program);
+
+            cubemap = this.rendererData.envTextures[path] = this.gl.createTexture();
+            this.gl.activeTexture(this.gl.TEXTURE1);
+            this.gl.bindTexture(this.gl.TEXTURE_CUBE_MAP, cubemap);
+            for (let i = 0; i < 6; ++i) {
+                this.gl.texImage2D(this.gl.TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, this.gl.RGBA16F, ENV_MAP_SIZE, ENV_MAP_SIZE, 0, this.gl.RGBA, this.gl.FLOAT, null);
+            }
+
+            this.gl.texParameteri(this.gl.TEXTURE_CUBE_MAP, this.gl.TEXTURE_WRAP_S, this.gl.CLAMP_TO_EDGE);
+            this.gl.texParameteri(this.gl.TEXTURE_CUBE_MAP, this.gl.TEXTURE_WRAP_T, this.gl.CLAMP_TO_EDGE);
+            this.gl.texParameteri(this.gl.TEXTURE_CUBE_MAP, this.gl.TEXTURE_WRAP_R, this.gl.CLAMP_TO_EDGE);
+            this.gl.texParameteri(this.gl.TEXTURE_CUBE_MAP, this.gl.TEXTURE_MIN_FILTER, this.gl.LINEAR);
+            this.gl.texParameteri(this.gl.TEXTURE_CUBE_MAP, this.gl.TEXTURE_MAG_FILTER, this.gl.LINEAR);
+
+            this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.cubeVertexBuffer);
+            this.gl.enableVertexAttribArray(this.envToCubemap.attributes.aPos);
+            this.gl.vertexAttribPointer(this.envToCubemap.attributes.aPos, 3, this.gl.FLOAT, false, 0, 0);
+
+            this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, framebuffer);
+
+            this.gl.uniformMatrix4fv(this.envToCubemap.uniforms.uPMatrix, false, pMatrix);
+            this.gl.activeTexture(this.gl.TEXTURE0);
+            this.gl.bindTexture(this.gl.TEXTURE_2D, this.rendererData.textures[path]);
+            this.gl.uniform1i(this.envToCubemap.uniforms.uEquirectangularMap, 0);
+            this.gl.viewport(0, 0, ENV_MAP_SIZE, ENV_MAP_SIZE);
+            for (let i = 0; i < 6; ++i) {
+                this.gl.framebufferTexture2D(this.gl.FRAMEBUFFER, this.gl.COLOR_ATTACHMENT0, this.gl.TEXTURE_CUBE_MAP_POSITIVE_X + i, cubemap, 0);
+                this.gl.clear(this.gl.COLOR_BUFFER_BIT | this.gl.DEPTH_BUFFER_BIT);
+
+                mat4.lookAt(mvMatrix, eye, center[i], up[i]);
+                this.gl.uniformMatrix4fv(this.envToCubemap.uniforms.uMVMatrix, false, mvMatrix);
+
+                this.gl.drawArrays(this.gl.TRIANGLES, 0, 6 * 6);
+            }
+
+            this.gl.disableVertexAttribArray(this.envToCubemap.attributes.aPos);
+
+            this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
         }
 
-        this.gl.disableVertexAttribArray(this.envToCubemap.attributes.aPos);
+        if (!isWebGL2(this.gl)) {
+            // todo
+            return;
+        }
 
-        this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
+        // generate mips
+        if (this.device) {
+            // todo
+        } else {
+            this.gl.bindTexture(this.gl.TEXTURE_CUBE_MAP, cubemap);
+            this.gl.generateMipmap(this.gl.TEXTURE_CUBE_MAP);
 
-        this.gl.bindTexture(this.gl.TEXTURE_CUBE_MAP, cubemap);
-        this.gl.generateMipmap(this.gl.TEXTURE_CUBE_MAP);
-
-        this.gl.bindTexture(this.gl.TEXTURE_CUBE_MAP, null);
+            this.gl.bindTexture(this.gl.TEXTURE_CUBE_MAP, null);
+        }
 
         // Diffuse env convolution
 
@@ -2030,6 +2219,112 @@ export class ModelRenderer {
             magFilter: 'nearest'
         });
 
+        if (this.isHD) {
+            // Render env runtime
+            this.envShaderModeule = this.device.createShaderModule({
+                label: 'env',
+                code: envShader
+            });
+
+            this.envPiepeline = this.device.createRenderPipeline({
+                label: 'env',
+                layout: 'auto',
+                vertex: {
+                    module: this.envShaderModeule,
+                    buffers: [{
+                        arrayStride: 12,
+                        attributes: [{
+                            shaderLocation: 0,
+                            offset: 0,
+                            format: 'float32x3' as const
+                        }]
+                    }]
+                },
+                fragment: {
+                    module: this.envShaderModeule,
+                    targets: [{
+                        format: navigator.gpu.getPreferredCanvasFormat()
+                    }]
+                },
+                depthStencil: {
+                    depthWriteEnabled: false,
+                    depthCompare: 'always',
+                    format: 'depth24plus'
+                },
+                multisample: {
+                    count: MULTISAMPLE
+                }
+            });
+
+            this.envVSUniformsBuffer = this.device.createBuffer({
+                label: 'env vs uniforms',
+                size: 128,
+                usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+            });
+            this.envVSBindGroupLayout = this.envPiepeline.getBindGroupLayout(0);
+            this.envVSBindGroup = this.device.createBindGroup({
+                label: 'env vs bind group',
+                layout: this.envVSBindGroupLayout,
+                entries: [
+                    {
+                        binding: 0,
+                        resource: { buffer: this.envVSUniformsBuffer }
+                    }
+                ]
+            });
+
+            this.envSampler = this.device.createSampler({
+                label: 'env cube sampler',
+                addressModeU: 'clamp-to-edge',
+                addressModeV: 'clamp-to-edge',
+                addressModeW: 'clamp-to-edge',
+                minFilter: 'linear',
+                magFilter: 'linear'
+            });
+
+            this.envFSBindGroupLayout = this.envPiepeline.getBindGroupLayout(1);
+
+            // Convert env equirectangular map to the cube map
+            this.envToCubemapShaderModule = this.device.createShaderModule({
+                label: 'env to cubemap',
+                code: envToCubemapShader
+            });
+
+            this.envToCubemapPiepeline = this.device.createRenderPipeline({
+                label: 'env to cubemap',
+                layout: 'auto',
+                vertex: {
+                    module: this.envToCubemapShaderModule,
+                    buffers: [{
+                        arrayStride: 12,
+                        attributes: [{
+                            shaderLocation: 0,
+                            offset: 0,
+                            format: 'float32x3' as const
+                        }]
+                    }]
+                },
+                fragment: {
+                    module: this.envToCubemapShaderModule,
+                    targets: [{
+                        format: navigator.gpu.getPreferredCanvasFormat()
+                    }]
+                }
+            });
+
+            this.envToCubemapVSBindGroupLayout = this.envToCubemapPiepeline.getBindGroupLayout(0);
+
+            this.envToCubemapSampler = this.device.createSampler({
+                label: 'env to cubemap sampler',
+                addressModeU: 'clamp-to-edge',
+                addressModeV: 'clamp-to-edge',
+                minFilter: 'linear',
+                magFilter: 'linear'
+            });
+
+            this.envToCubemapFSBindGroupLayout = this.envToCubemapPiepeline.getBindGroupLayout(1);
+        }
+
         // if (this.isHD && isWebGL2(this.gl)) {
         //     this.envToCubemap = this.initShaderProgram(envToCubemapVertexShader, envToCubemapFragmentShader, {
         //         aPos: 'aPos'
@@ -2166,7 +2461,7 @@ export class ModelRenderer {
 
     private createGPUPipeline (
         name: string,
-        blend: GPUBlendState,
+        blend: GPUBlendState | undefined,
         depth: GPUDepthStencilState,
         shaderModule: GPUShaderModule = this.gpuShaderModule,
         extra: Partial<GPURenderPipelineDescriptor> = {}
@@ -2272,7 +2567,7 @@ export class ModelRenderer {
 
     private initGPUPipeline (): void {
         this.vsBindGroupLayout = this.device.createBindGroupLayout({
-            label: 'bind group layout',
+            label: 'vs bind group layout',
             entries: [{
                 binding: 0,
                 visibility: GPUShaderStage.VERTEX,
@@ -2284,7 +2579,7 @@ export class ModelRenderer {
             }] as const
         });
         this.fsBindGroupLayout = this.device.createBindGroupLayout({
-            label: 'bind group layout2',
+            label: 'fs bind group layout2',
             entries: this.isHD ? [
                 {
                     binding: 0,
@@ -2548,6 +2843,7 @@ export class ModelRenderer {
             usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
         });
         this.gpuVSUniformsBindGroup = this.device.createBindGroup({
+            label: 'vs uniforms bind group',
             layout: this.vsBindGroupLayout,
             entries: [
                 {
@@ -2602,36 +2898,34 @@ export class ModelRenderer {
     }
 
     private initCube (): void {
-        this.cubeVertexBuffer = this.gl.createBuffer();
-        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.cubeVertexBuffer);
-        this.gl.bufferData(this.gl.ARRAY_BUFFER, new Float32Array([
+        const data = new Float32Array([
             -0.5, -0.5,  -0.5,
             -0.5,  0.5,  -0.5,
-             0.5, -0.5,  -0.5,
+            0.5, -0.5,  -0.5,
             -0.5,  0.5,  -0.5,
-             0.5,  0.5,  -0.5,
-             0.5, -0.5,  -0.5,
+            0.5,  0.5,  -0.5,
+            0.5, -0.5,  -0.5,
 
             -0.5, -0.5,   0.5,
-             0.5, -0.5,   0.5,
+            0.5, -0.5,   0.5,
             -0.5,  0.5,   0.5,
             -0.5,  0.5,   0.5,
-             0.5, -0.5,   0.5,
-             0.5,  0.5,   0.5,
+            0.5, -0.5,   0.5,
+            0.5,  0.5,   0.5,
 
             -0.5,   0.5, -0.5,
             -0.5,   0.5,  0.5,
-             0.5,   0.5, -0.5,
+            0.5,   0.5, -0.5,
             -0.5,   0.5,  0.5,
-             0.5,   0.5,  0.5,
-             0.5,   0.5, -0.5,
+            0.5,   0.5,  0.5,
+            0.5,   0.5, -0.5,
 
             -0.5,  -0.5, -0.5,
-             0.5,  -0.5, -0.5,
+            0.5,  -0.5, -0.5,
             -0.5,  -0.5,  0.5,
             -0.5,  -0.5,  0.5,
-             0.5,  -0.5, -0.5,
-             0.5,  -0.5,  0.5,
+            0.5,  -0.5, -0.5,
+            0.5,  -0.5,  0.5,
 
             -0.5,  -0.5, -0.5,
             -0.5,  -0.5,  0.5,
@@ -2640,13 +2934,30 @@ export class ModelRenderer {
             -0.5,   0.5,  0.5,
             -0.5,   0.5, -0.5,
 
-             0.5,  -0.5, -0.5,
-             0.5,   0.5, -0.5,
-             0.5,  -0.5,  0.5,
-             0.5,  -0.5,  0.5,
-             0.5,   0.5, -0.5,
-             0.5,   0.5,  0.5,
-        ]), this.gl.STATIC_DRAW);
+            0.5,  -0.5, -0.5,
+            0.5,   0.5, -0.5,
+            0.5,  -0.5,  0.5,
+            0.5,  -0.5,  0.5,
+            0.5,   0.5, -0.5,
+            0.5,   0.5,  0.5,
+        ]);
+
+        if (this.device) {
+            const vertex = this.cubeGPUVertexBuffer = this.device.createBuffer({
+                label: 'skeleton vertex',
+                size: data.byteLength,
+                usage: GPUBufferUsage.VERTEX,
+                mappedAtCreation: true
+            });
+            new Float32Array(
+                vertex.getMappedRange(0, vertex.size)
+            ).set(data);
+            vertex.unmap();
+        } else {
+            this.cubeVertexBuffer = this.gl.createBuffer();
+            this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.cubeVertexBuffer);
+            this.gl.bufferData(this.gl.ARRAY_BUFFER, data, this.gl.STATIC_DRAW);
+        }
     }
 
     private initSquare (): void {
