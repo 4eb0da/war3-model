@@ -65,43 +65,51 @@ export function generateMips(device: GPUDevice, texture: GPUTexture): void {
     });
 
     for (let i = 1; i < texture.mipLevelCount; ++i) {
-        const bindGroup = device.createBindGroup({
-            layout: pipeline.getBindGroupLayout(0),
-            entries: [
-                {
-                    binding: 0,
-                    resource: sampler
-                },
-                {
-                    binding: 1,
-                    resource: texture.createView({
-                        baseMipLevel: i - 1,
-                        mipLevelCount: 1,
-                    })
-                }
-            ]
-        });
+        for (let j = 0; j < texture.depthOrArrayLayers; ++j) {
+            const bindGroup = device.createBindGroup({
+                layout: pipeline.getBindGroupLayout(0),
+                entries: [
+                    {
+                        binding: 0,
+                        resource: sampler
+                    },
+                    {
+                        binding: 1,
+                        resource: texture.createView({
+                            dimension: '2d',
+                            baseMipLevel: i - 1,
+                            mipLevelCount: 1,
+                            baseArrayLayer: j,
+                            arrayLayerCount: 1
+                        })
+                    }
+                ]
+            });
 
-        const renderPassDescriptor = {
-            label: 'mips render pass',
-            colorAttachments: [
-                {
-                    view: texture.createView({
-                        baseMipLevel: i,
-                        mipLevelCount: 1
-                    }),
-                    loadOp: 'clear',
-                    storeOp: 'store'
-                },
-            ],
-        } as const;
+            const renderPassDescriptor = {
+                label: 'mips render pass',
+                colorAttachments: [
+                    {
+                        view: texture.createView({
+                            dimension: '2d',
+                            baseMipLevel: i,
+                            mipLevelCount: 1,
+                            baseArrayLayer: j,
+                            arrayLayerCount: 1
+                        }),
+                        loadOp: 'clear',
+                        storeOp: 'store'
+                    },
+                ],
+            } as const;
 
-        const pass = encoder.beginRenderPass(renderPassDescriptor);
-        pass.setPipeline(pipeline);
-        pass.setVertexBuffer(0, buffer);
-        pass.setBindGroup(0, bindGroup);
-        pass.draw(6);
-        pass.end();
+            const pass = encoder.beginRenderPass(renderPassDescriptor);
+            pass.setPipeline(pipeline);
+            pass.setVertexBuffer(0, buffer);
+            pass.setBindGroup(0, bindGroup);
+            pass.draw(6);
+            pass.end();
+        }
     }
     const commandBuffer = encoder.finish();
     device.queue.submit([commandBuffer]);

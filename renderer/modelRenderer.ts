@@ -1754,11 +1754,12 @@ export class ModelRenderer {
                 size: [ENV_MAP_SIZE, ENV_MAP_SIZE, 6],
                 format: navigator.gpu.getPreferredCanvasFormat(),
                 usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
-                // mipLevelCount: MAX_ENV_MIP_LEVELS
-                // sampleCount: MULTISAMPLE
+                mipLevelCount: MAX_ENV_MIP_LEVELS
             });
 
-            const encoder = this.device.createCommandEncoder();
+            const encoder = this.device.createCommandEncoder({
+                label: 'env to cubemap encoder'
+            });
 
             for (let i = 0; i < 6; ++i) {
                 mat4.lookAt(mvMatrix, eye, center[i], up[i]);
@@ -1768,7 +1769,9 @@ export class ModelRenderer {
                     colorAttachments: [{
                         view: gpuCubemap.createView({
                             dimension: '2d',
-                            baseArrayLayer: i
+                            baseArrayLayer: i,
+                            baseMipLevel: 0,
+                            mipLevelCount: 1
                         }),
                         clearValue: [0, 0, 0, 1],
                         loadOp: 'clear',
@@ -1874,19 +1877,21 @@ export class ModelRenderer {
             this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
         }
 
-        if (!isWebGL2(this.gl)) {
-            // todo
-            return;
-        }
-
         // generate mips
         if (this.device) {
+            generateMips(this.device, gpuCubemap);
             // todo
+            return;
         } else {
             this.gl.bindTexture(this.gl.TEXTURE_CUBE_MAP, cubemap);
             this.gl.generateMipmap(this.gl.TEXTURE_CUBE_MAP);
 
             this.gl.bindTexture(this.gl.TEXTURE_CUBE_MAP, null);
+        }
+
+        if (!isWebGL2(this.gl)) {
+            // todo
+            return;
         }
 
         // Diffuse env convolution
