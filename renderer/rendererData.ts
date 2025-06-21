@@ -39,7 +39,9 @@ export interface RendererData {
     envTextures: {[key: string]: WebGLTexture};
     gpuEnvTextures: {[key: string]: GPUTexture};
     irradianceMap: {[key: string]: WebGLTexture};
+    gpuIrradianceMap: {[key: string]: GPUTexture};
     prefilteredEnvMap: {[key: string]: WebGLTexture};
+    gpuPrefilteredEnvMap: {[key: string]: GPUTexture};
 
     gpuEmptyTexture: GPUTexture;
     gpuDepthEmptyTexture: GPUTexture;

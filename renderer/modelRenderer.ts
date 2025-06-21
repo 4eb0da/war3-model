@@ -37,6 +37,8 @@ import depthShaderSource from './shaders/webgpu/depth.wgsl?raw';
 import skeletonShaderSource from './shaders/webgpu/skeleton.wgsl?raw';
 import envShader from './shaders/webgpu/env.wgsl?raw';
 import envToCubemapShader from './shaders/webgpu/envToCubemap.wgsl?raw';
+import convoluteEnvDiffuseShader from './shaders/webgpu/convoluteEnvDiffuse.wgsl?raw';
+import prefilterEnvShaderModule from './shaders/webgpu/prefilterEnv.wgsl?raw';
 import { generateMips } from './generateMips';
 
 // actually, all is number
@@ -312,7 +314,17 @@ export class ModelRenderer {
     private envToCubemapSampler: GPUSampler;
     private envSphere: WebGLProgramObject<'aPos', 'uPMatrix' | 'uMVMatrix' | 'uEnvironmentMap'>;
     private convoluteDiffuseEnv: WebGLProgramObject<'aPos', 'uPMatrix' | 'uMVMatrix' | 'uEnvironmentMap'>;
+    private convoluteDiffuseEnvShaderModule: GPUShaderModule;
+    private convoluteDiffuseEnvPiepeline: GPURenderPipeline;
+    private convoluteDiffuseEnvVSBindGroupLayout: GPUBindGroupLayout | null;
+    private convoluteDiffuseEnvFSBindGroupLayout: GPUBindGroupLayout | null;
+    private convoluteDiffuseEnvSampler: GPUSampler;
     private prefilterEnv: WebGLProgramObject<'aPos', 'uPMatrix' | 'uMVMatrix' | 'uEnvironmentMap' | 'uRoughness'>;
+    private prefilterEnvShaderModule: GPUShaderModule;
+    private prefilterEnvPiepeline: GPURenderPipeline;
+    private prefilterEnvVSBindGroupLayout: GPUBindGroupLayout | null;
+    private prefilterEnvFSBindGroupLayout: GPUBindGroupLayout | null;
+    private prefilterEnvSampler: GPUSampler;
     private integrateBRDF: WebGLProgramObject<'aPos', never>;
 
     private gpuMultisampleTexture: GPUTexture;
@@ -400,7 +412,9 @@ export class ModelRenderer {
             gpuEnvTextures: {},
             requiredEnvMaps: {},
             irradianceMap: {},
-            prefilteredEnvMap: {}
+            gpuIrradianceMap: {},
+            prefilteredEnvMap: {},
+            gpuPrefilteredEnvMap: {}
         };
 
         this.rendererData.teamColor = vec3.fromValues(1., 0., 0.);
@@ -1328,7 +1342,7 @@ export class ModelRenderer {
 
         pass.setBindGroup(0, this.envVSBindGroup);
 
-        for (const path in this.rendererData.gpuEnvTextures) {
+        for (const path in this.rendererData.gpuPrefilteredEnvMap) {
             const fsUniformsBindGroup = this.device.createBindGroup({
                 label: `env fs uniforms ${path}`,
                 layout: this.envFSBindGroupLayout,
@@ -1339,7 +1353,7 @@ export class ModelRenderer {
                     },
                     {
                         binding: 1,
-                        resource: this.rendererData.gpuEnvTextures[path].createView({ dimension: 'cube' })
+                        resource: this.rendererData.gpuPrefilteredEnvMap[path].createView({ dimension: 'cube' })
                     }
                 ]
             });
@@ -1758,7 +1772,7 @@ export class ModelRenderer {
             });
 
             const encoder = this.device.createCommandEncoder({
-                label: 'env to cubemap encoder'
+                label: 'env to cubemap'
             });
 
             for (let i = 0; i < 6; ++i) {
@@ -1880,8 +1894,6 @@ export class ModelRenderer {
         // generate mips
         if (this.device) {
             generateMips(this.device, gpuCubemap);
-            // todo
-            return;
         } else {
             this.gl.bindTexture(this.gl.TEXTURE_CUBE_MAP, cubemap);
             this.gl.generateMipmap(this.gl.TEXTURE_CUBE_MAP);
@@ -1889,119 +1901,311 @@ export class ModelRenderer {
             this.gl.bindTexture(this.gl.TEXTURE_CUBE_MAP, null);
         }
 
-        if (!isWebGL2(this.gl)) {
-            // todo
-            return;
-        }
-
         // Diffuse env convolution
 
-        this.gl.useProgram(this.convoluteDiffuseEnv.program);
+        if (this.device) {
+            gpuCubemap = this.rendererData.gpuIrradianceMap[path] = this.device.createTexture({
+                label: `convolute diffuse ${path}`,
+                size: [ENV_CONVOLUTE_DIFFUSE_SIZE, ENV_CONVOLUTE_DIFFUSE_SIZE, 6],
+                format: navigator.gpu.getPreferredCanvasFormat(),
+                usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+                mipLevelCount: 5
+            });
 
-        const diffuseCubemap = this.rendererData.irradianceMap[path] = this.gl.createTexture();
-        this.gl.activeTexture(this.gl.TEXTURE1);
-        this.gl.bindTexture(this.gl.TEXTURE_CUBE_MAP, diffuseCubemap);
-        for (let i = 0; i < 6; ++i) {
-            this.gl.texImage2D(this.gl.TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, this.gl.RGBA16F, ENV_CONVOLUTE_DIFFUSE_SIZE, ENV_CONVOLUTE_DIFFUSE_SIZE, 0, this.gl.RGBA, this.gl.FLOAT, null);
-        }
+            const encoder = this.device.createCommandEncoder({
+                label: 'convolute diffuse'
+            });
 
-        this.gl.texParameteri(this.gl.TEXTURE_CUBE_MAP, this.gl.TEXTURE_WRAP_S, this.gl.CLAMP_TO_EDGE);
-        this.gl.texParameteri(this.gl.TEXTURE_CUBE_MAP, this.gl.TEXTURE_WRAP_T, this.gl.CLAMP_TO_EDGE);
-        this.gl.texParameteri(this.gl.TEXTURE_CUBE_MAP, this.gl.TEXTURE_WRAP_R, this.gl.CLAMP_TO_EDGE);
-        this.gl.texParameteri(this.gl.TEXTURE_CUBE_MAP, this.gl.TEXTURE_MIN_FILTER, this.gl.LINEAR);
-        this.gl.texParameteri(this.gl.TEXTURE_CUBE_MAP, this.gl.TEXTURE_MAG_FILTER, this.gl.LINEAR);
-
-        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.cubeVertexBuffer);
-        this.gl.enableVertexAttribArray(this.convoluteDiffuseEnv.attributes.aPos);
-        this.gl.vertexAttribPointer(this.convoluteDiffuseEnv.attributes.aPos, 3, this.gl.FLOAT, false, 0, 0);
-
-        this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, framebuffer);
-
-        mat4.perspective(pMatrix, Math.PI / 2, 1, .1, 10);
-        this.gl.uniformMatrix4fv(this.convoluteDiffuseEnv.uniforms.uPMatrix, false, pMatrix);
-        this.gl.activeTexture(this.gl.TEXTURE0);
-        this.gl.bindTexture(this.gl.TEXTURE_CUBE_MAP, this.rendererData.envTextures[path]);
-        this.gl.uniform1i(this.convoluteDiffuseEnv.uniforms.uEnvironmentMap, 0);
-        this.gl.viewport(0, 0, ENV_CONVOLUTE_DIFFUSE_SIZE, ENV_CONVOLUTE_DIFFUSE_SIZE);
-        for (let i = 0; i < 6; ++i) {
-            this.gl.framebufferTexture2D(this.gl.FRAMEBUFFER, this.gl.COLOR_ATTACHMENT0, this.gl.TEXTURE_CUBE_MAP_POSITIVE_X + i, diffuseCubemap, 0);
-            this.gl.clear(this.gl.COLOR_BUFFER_BIT | this.gl.DEPTH_BUFFER_BIT);
-
-            mat4.lookAt(mvMatrix, eye, center[i], up[i]);
-            this.gl.uniformMatrix4fv(this.convoluteDiffuseEnv.uniforms.uMVMatrix, false, mvMatrix);
-
-            this.gl.drawArrays(this.gl.TRIANGLES, 0, 6 * 6);
-        }
-
-        this.gl.disableVertexAttribArray(this.convoluteDiffuseEnv.attributes.aPos);
-
-        this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
-
-        this.gl.bindTexture(this.gl.TEXTURE_CUBE_MAP, diffuseCubemap);
-        this.gl.generateMipmap(this.gl.TEXTURE_CUBE_MAP);
-
-        // Prefilter env map with different roughness
-
-        this.gl.useProgram(this.prefilterEnv.program);
-
-        const prefilterCubemap = this.rendererData.prefilteredEnvMap[path] = this.gl.createTexture();
-        this.gl.activeTexture(this.gl.TEXTURE1);
-        this.gl.bindTexture(this.gl.TEXTURE_CUBE_MAP, prefilterCubemap);
-        this.gl.texStorage2D(this.gl.TEXTURE_CUBE_MAP, MAX_ENV_MIP_LEVELS, this.gl.RGBA16F, ENV_PREFILTER_SIZE, ENV_PREFILTER_SIZE);
-        // for (let i = 0; i < 6; ++i) {
-        // this.gl.texImage2D(this.gl.TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, this.gl.RGB, ENV_PREFILTER_SIZE, ENV_PREFILTER_SIZE, 0, this.gl.RGB, this.gl.UNSIGNED_BYTE, null);
-        // }
-        for (let mip = 0; mip < MAX_ENV_MIP_LEVELS; ++mip) {
             for (let i = 0; i < 6; ++i) {
-                const size = ENV_PREFILTER_SIZE * .5 ** mip;
-                const data = new Float32Array(size * size * 4);
-                this.gl.texSubImage2D(this.gl.TEXTURE_CUBE_MAP_POSITIVE_X + i, mip, 0, 0, size, size, this.gl.RGBA, this.gl.FLOAT, data);
+                mat4.lookAt(mvMatrix, eye, center[i], up[i]);
+
+                const pass = encoder.beginRenderPass({
+                    label: 'convolute diffuse',
+                    colorAttachments: [{
+                        view: gpuCubemap.createView({
+                            dimension: '2d',
+                            baseArrayLayer: i,
+                            baseMipLevel: 0,
+                            mipLevelCount: 1
+                        }),
+                        clearValue: [0, 0, 0, 1],
+                        loadOp: 'clear',
+                        storeOp: 'store'
+                    }] as const
+                });
+
+                const VSUniformsValues = new ArrayBuffer(128);
+                const VSUniformsViews = {
+                    mvMatrix: new Float32Array(VSUniformsValues, 0, 16),
+                    pMatrix: new Float32Array(VSUniformsValues, 64, 16)
+                };
+                VSUniformsViews.mvMatrix.set(mvMatrix);
+                VSUniformsViews.pMatrix.set(pMatrix);
+                const buffer = this.device.createBuffer({
+                    label: `convolute diffuse vs uniforms ${i}`,
+                    size: 128,
+                    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+                });
+                this.device.queue.writeBuffer(buffer, 0, VSUniformsValues);
+
+                const bindGroup = this.device.createBindGroup({
+                    label: `convolute diffuse vs bind group ${i}`,
+                    layout: this.convoluteDiffuseEnvVSBindGroupLayout,
+                    entries: [
+                        {
+                            binding: 0,
+                            resource: { buffer }
+                        }
+                    ]
+                });
+
+                pass.setBindGroup(0, bindGroup);
+
+                const fsUniformsBindGroup = this.device.createBindGroup({
+                    label: `convolute diffuse fs uniforms ${i}`,
+                    layout: this.convoluteDiffuseEnvFSBindGroupLayout,
+                    entries: [
+                        {
+                            binding: 0,
+                            resource: this.convoluteDiffuseEnvSampler
+                        },
+                        {
+                            binding: 1,
+                            resource: this.rendererData.gpuEnvTextures[path].createView({
+                                dimension: 'cube'
+                            })
+                        }
+                    ]
+                });
+
+                pass.setBindGroup(1, fsUniformsBindGroup);
+
+                pass.setPipeline(this.convoluteDiffuseEnvPiepeline);
+                pass.setVertexBuffer(0, this.cubeGPUVertexBuffer);
+
+                pass.draw(6 * 6);
+
+                pass.end();
             }
-        }
 
-        this.gl.texParameteri(this.gl.TEXTURE_CUBE_MAP, this.gl.TEXTURE_WRAP_S, this.gl.CLAMP_TO_EDGE);
-        this.gl.texParameteri(this.gl.TEXTURE_CUBE_MAP, this.gl.TEXTURE_WRAP_T, this.gl.CLAMP_TO_EDGE);
-        this.gl.texParameteri(this.gl.TEXTURE_CUBE_MAP, this.gl.TEXTURE_WRAP_R, this.gl.CLAMP_TO_EDGE);
-        this.gl.texParameteri(this.gl.TEXTURE_CUBE_MAP, this.gl.TEXTURE_MIN_FILTER, this.gl.LINEAR_MIPMAP_LINEAR);
-        this.gl.texParameteri(this.gl.TEXTURE_CUBE_MAP, this.gl.TEXTURE_MAG_FILTER, this.gl.LINEAR);
+            const commandBuffer = encoder.finish();
+            this.device.queue.submit([commandBuffer]);
+        } else if (isWebGL2(this.gl)) {
+            this.gl.useProgram(this.convoluteDiffuseEnv.program);
+            const diffuseCubemap = this.rendererData.irradianceMap[path] = this.gl.createTexture();
 
-        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.cubeVertexBuffer);
-        this.gl.enableVertexAttribArray(this.prefilterEnv.attributes.aPos);
-        this.gl.vertexAttribPointer(this.prefilterEnv.attributes.aPos, 3, this.gl.FLOAT, false, 0, 0);
-
-        this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, framebuffer);
-
-        mat4.perspective(pMatrix, Math.PI / 2, 1, .1, 10);
-        this.gl.uniformMatrix4fv(this.prefilterEnv.uniforms.uPMatrix, false, pMatrix);
-        this.gl.activeTexture(this.gl.TEXTURE0);
-        this.gl.bindTexture(this.gl.TEXTURE_CUBE_MAP, this.rendererData.envTextures[path]);
-        this.gl.uniform1i(this.prefilterEnv.uniforms.uEnvironmentMap, 0);
-
-        for (let mip = 0; mip < MAX_ENV_MIP_LEVELS; ++mip) {
-            const mipWidth = ENV_PREFILTER_SIZE *.5 ** mip;
-            const mipHeight = ENV_PREFILTER_SIZE *.5 ** mip;
-            this.gl.viewport(0, 0, mipWidth, mipHeight);
-
-            const roughness = mip / (MAX_ENV_MIP_LEVELS - 1);
-
-            this.gl.uniform1f(this.prefilterEnv.uniforms.uRoughness, roughness);
-
+            this.gl.activeTexture(this.gl.TEXTURE1);
+            this.gl.bindTexture(this.gl.TEXTURE_CUBE_MAP, diffuseCubemap);
             for (let i = 0; i < 6; ++i) {
-                this.gl.framebufferTexture2D(this.gl.FRAMEBUFFER, this.gl.COLOR_ATTACHMENT0, this.gl.TEXTURE_CUBE_MAP_POSITIVE_X + i, prefilterCubemap, mip);
+                this.gl.texImage2D(this.gl.TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, this.gl.RGBA16F, ENV_CONVOLUTE_DIFFUSE_SIZE, ENV_CONVOLUTE_DIFFUSE_SIZE, 0, this.gl.RGBA, this.gl.FLOAT, null);
+            }
+
+            this.gl.texParameteri(this.gl.TEXTURE_CUBE_MAP, this.gl.TEXTURE_WRAP_S, this.gl.CLAMP_TO_EDGE);
+            this.gl.texParameteri(this.gl.TEXTURE_CUBE_MAP, this.gl.TEXTURE_WRAP_T, this.gl.CLAMP_TO_EDGE);
+            this.gl.texParameteri(this.gl.TEXTURE_CUBE_MAP, this.gl.TEXTURE_WRAP_R, this.gl.CLAMP_TO_EDGE);
+            this.gl.texParameteri(this.gl.TEXTURE_CUBE_MAP, this.gl.TEXTURE_MIN_FILTER, this.gl.LINEAR);
+            this.gl.texParameteri(this.gl.TEXTURE_CUBE_MAP, this.gl.TEXTURE_MAG_FILTER, this.gl.LINEAR);
+
+            this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.cubeVertexBuffer);
+            this.gl.enableVertexAttribArray(this.convoluteDiffuseEnv.attributes.aPos);
+            this.gl.vertexAttribPointer(this.convoluteDiffuseEnv.attributes.aPos, 3, this.gl.FLOAT, false, 0, 0);
+
+            this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, framebuffer);
+
+            this.gl.uniformMatrix4fv(this.convoluteDiffuseEnv.uniforms.uPMatrix, false, pMatrix);
+            this.gl.activeTexture(this.gl.TEXTURE0);
+            this.gl.bindTexture(this.gl.TEXTURE_CUBE_MAP, this.rendererData.envTextures[path]);
+            this.gl.uniform1i(this.convoluteDiffuseEnv.uniforms.uEnvironmentMap, 0);
+            this.gl.viewport(0, 0, ENV_CONVOLUTE_DIFFUSE_SIZE, ENV_CONVOLUTE_DIFFUSE_SIZE);
+            for (let i = 0; i < 6; ++i) {
+                this.gl.framebufferTexture2D(this.gl.FRAMEBUFFER, this.gl.COLOR_ATTACHMENT0, this.gl.TEXTURE_CUBE_MAP_POSITIVE_X + i, diffuseCubemap, 0);
                 this.gl.clear(this.gl.COLOR_BUFFER_BIT | this.gl.DEPTH_BUFFER_BIT);
 
                 mat4.lookAt(mvMatrix, eye, center[i], up[i]);
-                this.gl.uniformMatrix4fv(this.prefilterEnv.uniforms.uMVMatrix, false, mvMatrix);
+                this.gl.uniformMatrix4fv(this.convoluteDiffuseEnv.uniforms.uMVMatrix, false, mvMatrix);
 
                 this.gl.drawArrays(this.gl.TRIANGLES, 0, 6 * 6);
             }
+
+            this.gl.disableVertexAttribArray(this.convoluteDiffuseEnv.attributes.aPos);
+
+            this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
+
+            this.gl.bindTexture(this.gl.TEXTURE_CUBE_MAP, diffuseCubemap);
+            this.gl.generateMipmap(this.gl.TEXTURE_CUBE_MAP);
         }
 
-        // cleanup
+        // Prefilter env map with different roughness
 
-        this.gl.activeTexture(this.gl.TEXTURE1);
-        this.gl.bindTexture(this.gl.TEXTURE_CUBE_MAP, null);
-        this.gl.deleteFramebuffer(framebuffer);
+        if (this.device) {
+            const prefilterEnv = this.rendererData.gpuPrefilteredEnvMap[path] = this.device.createTexture({
+                label: `prefilter env ${path}`,
+                size: [ENV_PREFILTER_SIZE, ENV_PREFILTER_SIZE, 6],
+                format: navigator.gpu.getPreferredCanvasFormat(),
+                usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+                mipLevelCount: MAX_ENV_MIP_LEVELS
+            });
+
+            const encoder = this.device.createCommandEncoder({
+                label: 'prefilter env'
+            });
+
+            for (let mip = 0; mip < MAX_ENV_MIP_LEVELS; ++mip) {
+                const FSUniformsValues = new ArrayBuffer(4);
+                const FSUniformsViews = {
+                    roughness: new Float32Array(FSUniformsValues),
+                };
+                const roughness = mip / (MAX_ENV_MIP_LEVELS - 1);
+                FSUniformsViews.roughness.set([roughness]);
+                const fsBuffer = this.device.createBuffer({
+                    label: `prefilter env fs uniforms ${mip}`,
+                    size: 4,
+                    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+                });
+                this.device.queue.writeBuffer(fsBuffer, 0, FSUniformsValues);
+
+                const fsUniformsBindGroup = this.device.createBindGroup({
+                    label: `prefilter env fs uniforms ${mip}`,
+                    layout: this.prefilterEnvFSBindGroupLayout,
+                    entries: [
+                        {
+                            binding: 0,
+                            resource: {
+                                buffer: fsBuffer
+                            }
+                        },
+                        {
+                            binding: 1,
+                            resource: this.prefilterEnvSampler
+                        },
+                        {
+                            binding: 2,
+                            resource: this.rendererData.gpuEnvTextures[path].createView({
+                                dimension: 'cube'
+                            })
+                        }
+                    ]
+                });
+
+                for (let i = 0; i < 6; ++i) {
+                    const pass = encoder.beginRenderPass({
+                        label: 'prefilter env',
+                        colorAttachments: [{
+                            view: prefilterEnv.createView({
+                                dimension: '2d',
+                                baseArrayLayer: i,
+                                baseMipLevel: mip,
+                                mipLevelCount: 1
+                            }),
+                            clearValue: [0, 0, 0, 1],
+                            loadOp: 'clear',
+                            storeOp: 'store'
+                        }] as const
+                    });
+
+                    mat4.lookAt(mvMatrix, eye, center[i], up[i]);
+
+                    const VSUniformsValues = new ArrayBuffer(128);
+                    const VSUniformsViews = {
+                        mvMatrix: new Float32Array(VSUniformsValues, 0, 16),
+                        pMatrix: new Float32Array(VSUniformsValues, 64, 16)
+                    };
+                    VSUniformsViews.mvMatrix.set(mvMatrix);
+                    VSUniformsViews.pMatrix.set(pMatrix);
+                    const vsBuffer = this.device.createBuffer({
+                        label: 'prefilter env vs uniforms',
+                        size: 128,
+                        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+                    });
+                    this.device.queue.writeBuffer(vsBuffer, 0, VSUniformsValues);
+
+                    const fsBindGroup = this.device.createBindGroup({
+                        label: 'prefilter env vs bind group',
+                        layout: this.prefilterEnvVSBindGroupLayout,
+                        entries: [
+                            {
+                                binding: 0,
+                                resource: { buffer: vsBuffer }
+                            }
+                        ]
+                    });
+
+                    pass.setPipeline(this.prefilterEnvPiepeline);
+
+                    pass.setBindGroup(0, fsBindGroup);
+                    pass.setBindGroup(1, fsUniformsBindGroup);
+
+                    pass.setVertexBuffer(0, this.cubeGPUVertexBuffer);
+
+                    pass.draw(6 * 6);
+
+                    pass.end();
+                }
+            }
+
+            const commandBuffer = encoder.finish();
+            this.device.queue.submit([commandBuffer]);
+        } else if (isWebGL2(this.gl)) {
+            this.gl.useProgram(this.prefilterEnv.program);
+
+            const prefilterCubemap = this.rendererData.prefilteredEnvMap[path] = this.gl.createTexture();
+            this.gl.activeTexture(this.gl.TEXTURE1);
+            this.gl.bindTexture(this.gl.TEXTURE_CUBE_MAP, prefilterCubemap);
+            this.gl.texStorage2D(this.gl.TEXTURE_CUBE_MAP, MAX_ENV_MIP_LEVELS, this.gl.RGBA16F, ENV_PREFILTER_SIZE, ENV_PREFILTER_SIZE);
+            // for (let i = 0; i < 6; ++i) {
+            // this.gl.texImage2D(this.gl.TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, this.gl.RGB, ENV_PREFILTER_SIZE, ENV_PREFILTER_SIZE, 0, this.gl.RGB, this.gl.UNSIGNED_BYTE, null);
+            // }
+            for (let mip = 0; mip < MAX_ENV_MIP_LEVELS; ++mip) {
+                for (let i = 0; i < 6; ++i) {
+                    const size = ENV_PREFILTER_SIZE * .5 ** mip;
+                    const data = new Float32Array(size * size * 4);
+                    this.gl.texSubImage2D(this.gl.TEXTURE_CUBE_MAP_POSITIVE_X + i, mip, 0, 0, size, size, this.gl.RGBA, this.gl.FLOAT, data);
+                }
+            }
+
+            this.gl.texParameteri(this.gl.TEXTURE_CUBE_MAP, this.gl.TEXTURE_WRAP_S, this.gl.CLAMP_TO_EDGE);
+            this.gl.texParameteri(this.gl.TEXTURE_CUBE_MAP, this.gl.TEXTURE_WRAP_T, this.gl.CLAMP_TO_EDGE);
+            this.gl.texParameteri(this.gl.TEXTURE_CUBE_MAP, this.gl.TEXTURE_WRAP_R, this.gl.CLAMP_TO_EDGE);
+            this.gl.texParameteri(this.gl.TEXTURE_CUBE_MAP, this.gl.TEXTURE_MIN_FILTER, this.gl.LINEAR_MIPMAP_LINEAR);
+            this.gl.texParameteri(this.gl.TEXTURE_CUBE_MAP, this.gl.TEXTURE_MAG_FILTER, this.gl.LINEAR);
+
+            this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.cubeVertexBuffer);
+            this.gl.enableVertexAttribArray(this.prefilterEnv.attributes.aPos);
+            this.gl.vertexAttribPointer(this.prefilterEnv.attributes.aPos, 3, this.gl.FLOAT, false, 0, 0);
+
+            this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, framebuffer);
+
+            this.gl.uniformMatrix4fv(this.prefilterEnv.uniforms.uPMatrix, false, pMatrix);
+            this.gl.activeTexture(this.gl.TEXTURE0);
+            this.gl.bindTexture(this.gl.TEXTURE_CUBE_MAP, this.rendererData.envTextures[path]);
+            this.gl.uniform1i(this.prefilterEnv.uniforms.uEnvironmentMap, 0);
+
+            for (let mip = 0; mip < MAX_ENV_MIP_LEVELS; ++mip) {
+                const mipWidth = ENV_PREFILTER_SIZE *.5 ** mip;
+                const mipHeight = ENV_PREFILTER_SIZE *.5 ** mip;
+                this.gl.viewport(0, 0, mipWidth, mipHeight);
+
+                const roughness = mip / (MAX_ENV_MIP_LEVELS - 1);
+
+                this.gl.uniform1f(this.prefilterEnv.uniforms.uRoughness, roughness);
+
+                for (let i = 0; i < 6; ++i) {
+                    this.gl.framebufferTexture2D(this.gl.FRAMEBUFFER, this.gl.COLOR_ATTACHMENT0, this.gl.TEXTURE_CUBE_MAP_POSITIVE_X + i, prefilterCubemap, mip);
+                    this.gl.clear(this.gl.COLOR_BUFFER_BIT | this.gl.DEPTH_BUFFER_BIT);
+
+                    mat4.lookAt(mvMatrix, eye, center[i], up[i]);
+                    this.gl.uniformMatrix4fv(this.prefilterEnv.uniforms.uMVMatrix, false, mvMatrix);
+
+                    this.gl.drawArrays(this.gl.TRIANGLES, 0, 6 * 6);
+                }
+            }
+
+            // cleanup
+
+            this.gl.activeTexture(this.gl.TEXTURE1);
+            this.gl.bindTexture(this.gl.TEXTURE_CUBE_MAP, null);
+            this.gl.deleteFramebuffer(framebuffer);
+        }
     }
 
     private initShaderProgram<A extends string, U extends string>(
@@ -2328,6 +2532,78 @@ export class ModelRenderer {
             });
 
             this.envToCubemapFSBindGroupLayout = this.envToCubemapPiepeline.getBindGroupLayout(1);
+
+            this.convoluteDiffuseEnvShaderModule = this.device.createShaderModule({
+                label: 'convolute diffuse',
+                code: convoluteEnvDiffuseShader
+            });
+            this.convoluteDiffuseEnvPiepeline = this.device.createRenderPipeline({
+                label: 'convolute diffuse',
+                layout: 'auto',
+                vertex: {
+                    module: this.convoluteDiffuseEnvShaderModule,
+                    buffers: [{
+                        arrayStride: 12,
+                        attributes: [{
+                            shaderLocation: 0,
+                            offset: 0,
+                            format: 'float32x3' as const
+                        }]
+                    }]
+                },
+                fragment: {
+                    module: this.convoluteDiffuseEnvShaderModule,
+                    targets: [{
+                        format: navigator.gpu.getPreferredCanvasFormat()
+                    }]
+                }
+            });
+            this.convoluteDiffuseEnvVSBindGroupLayout = this.convoluteDiffuseEnvPiepeline.getBindGroupLayout(0);
+            this.convoluteDiffuseEnvFSBindGroupLayout = this.convoluteDiffuseEnvPiepeline.getBindGroupLayout(1);
+            this.convoluteDiffuseEnvSampler = this.device.createSampler({
+                label: 'convolute diffuse',
+                addressModeU: 'clamp-to-edge',
+                addressModeV: 'clamp-to-edge',
+                minFilter: 'linear',
+                magFilter: 'linear'
+            });
+
+
+            this.prefilterEnvShaderModule = this.device.createShaderModule({
+                label: 'prefilter env',
+                code: prefilterEnvShaderModule
+            });
+            this.prefilterEnvPiepeline = this.device.createRenderPipeline({
+                label: 'prefilter env',
+                layout: 'auto',
+                vertex: {
+                    module: this.prefilterEnvShaderModule,
+                    buffers: [{
+                        arrayStride: 12,
+                        attributes: [{
+                            shaderLocation: 0,
+                            offset: 0,
+                            format: 'float32x3' as const
+                        }]
+                    }]
+                },
+                fragment: {
+                    module: this.prefilterEnvShaderModule,
+                    targets: [{
+                        format: navigator.gpu.getPreferredCanvasFormat()
+                    }]
+                }
+            });
+            this.prefilterEnvVSBindGroupLayout = this.prefilterEnvPiepeline.getBindGroupLayout(0);
+            this.prefilterEnvFSBindGroupLayout = this.prefilterEnvPiepeline.getBindGroupLayout(1);
+            this.prefilterEnvSampler = this.device.createSampler({
+                label: 'prefilter env',
+                addressModeU: 'clamp-to-edge',
+                addressModeV: 'clamp-to-edge',
+                addressModeW: 'clamp-to-edge',
+                minFilter: 'linear',
+                magFilter: 'linear'
+            });
         }
 
         // if (this.isHD && isWebGL2(this.gl)) {

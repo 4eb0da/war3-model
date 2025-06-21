@@ -14,7 +14,7 @@ struct FSUniforms {
     cameraPos: vec3f,
     shadowParams: vec3f,
     shadowMapLightMatrix: mat4x4f,
-    // env
+    // hasEnv: bool,
 }
 
 @group(0) @binding(0) var<uniform> vsUniforms: VSUniforms;
@@ -26,7 +26,6 @@ struct FSUniforms {
 @group(1) @binding(5) var fsUniformOrmSampler: sampler;
 @group(1) @binding(6) var fsUniformOrmTexture: texture_2d<f32>;
 @group(1) @binding(7) var fsUniformShadowSampler: sampler_comparison;
-// @group(1) @binding(7) var fsUniformShadowSampler: sampler;
 @group(1) @binding(8) var fsUniformShadowTexture: texture_depth_2d;
 
 struct VSIn {
