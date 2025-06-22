@@ -38,7 +38,8 @@ import skeletonShaderSource from './shaders/webgpu/skeleton.wgsl?raw';
 import envShader from './shaders/webgpu/env.wgsl?raw';
 import envToCubemapShader from './shaders/webgpu/envToCubemap.wgsl?raw';
 import convoluteEnvDiffuseShader from './shaders/webgpu/convoluteEnvDiffuse.wgsl?raw';
-import prefilterEnvShaderModule from './shaders/webgpu/prefilterEnv.wgsl?raw';
+import prefilterEnvShader from './shaders/webgpu/prefilterEnv.wgsl?raw';
+import integrateBRDFFShader from './shaders/webgpu/integrateBRDF.wgsl?raw';
 import { generateMips } from './generateMips';
 
 // actually, all is number
@@ -72,7 +73,7 @@ const vertexShaderHDHardwareSkinningOld = vertexShaderHDHardwareSkinningOldSourc
 const vertexShaderHDHardwareSkinningNew = vertexShaderHDHardwareSkinningNewSource.replace(/\$\{MAX_NODES}/g, String(MAX_NODES));
 const fragmentShaderHDNew = fragmentShaderHDNewSource.replace(/\$\{MAX_ENV_MIP_LEVELS}/g, String(MAX_ENV_MIP_LEVELS.toFixed(1)));
 const sdShader = sdShaderSource.replace(/\$\{MAX_NODES}/g, String(MAX_NODES));
-const hdShader = hdShaderSource.replace(/\$\{MAX_NODES}/g, String(MAX_NODES));
+const hdShader = hdShaderSource.replace(/\$\{MAX_NODES}/g, String(MAX_NODES)).replace(/\$\{MAX_ENV_MIP_LEVELS}/g, String(MAX_ENV_MIP_LEVELS.toFixed(1)));
 const depthShader = depthShaderSource.replace(/\$\{MAX_NODES}/g, String(MAX_NODES));
 
 const translation = vec3.create();
@@ -305,6 +306,8 @@ export class ModelRenderer {
     private cubeGPUVertexBuffer: GPUBuffer;
     private squareVertexBuffer: WebGLBuffer;
     private brdfLUT: WebGLTexture;
+    private gpuBrdfLUT: GPUTexture;
+    private gpuBrdfSampler: GPUSampler;
 
     private envToCubemap: WebGLProgramObject<'aPos', 'uPMatrix' | 'uMVMatrix' | 'uEquirectangularMap'>;
     private envToCubemapShaderModule: GPUShaderModule;
@@ -394,6 +397,7 @@ export class ModelRenderer {
             materialLayerTextureID: [],
             materialLayerNormalTextureID: [],
             materialLayerOrmTextureID: [],
+            materialLayerReflectionTextureID: [],
             teamColor: null,
             lastTeamColor: vec3.create(),
             cameraPos: null,
@@ -407,6 +411,7 @@ export class ModelRenderer {
             gpuSamplers: [],
             gpuDepthSampler: null,
             gpuEmptyTexture: null,
+            gpuEmptyCubeTexture: null,
             gpuDepthEmptyTexture: null,
             envTextures: {},
             gpuEnvTextures: {},
@@ -464,6 +469,7 @@ export class ModelRenderer {
             this.rendererData.materialLayerTextureID[i] = new Array(model.Materials[i].Layers.length);
             this.rendererData.materialLayerNormalTextureID[i] = new Array(model.Materials[i].Layers.length);
             this.rendererData.materialLayerOrmTextureID[i] = new Array(model.Materials[i].Layers.length);
+            this.rendererData.materialLayerReflectionTextureID[i] = new Array(model.Materials[i].Layers.length);
         }
 
         this.interp = new ModelInterp(this.rendererData);
@@ -611,8 +617,7 @@ export class ModelRenderer {
         this.initGPUDepthTexture();
         this.initGPUEmptyTexture();
         this.initCube();
-        // this.initSquare();
-        // this.initBRDFLUT();
+        this.initGPUBRDFLUT();
         this.particlesController.initGPUDevice(device);
         this.ribbonsController.initGPUDevice(device);
     }
@@ -829,6 +834,7 @@ export class ModelRenderer {
                 const TextureID: AnimVector|number = layer.TextureID;
                 const NormalTextureID: AnimVector|number = layer.NormalTextureID;
                 const ORMTextureID: AnimVector|number = layer.ORMTextureID;
+                const ReflectionsTextureID: AnimVector|number = layer.ReflectionsTextureID;
 
                 if (typeof TextureID === 'number') {
                     this.rendererData.materialLayerTextureID[materialId][layerId] = TextureID;
@@ -840,6 +846,9 @@ export class ModelRenderer {
                 }
                 if (typeof ORMTextureID !== 'undefined') {
                     this.rendererData.materialLayerOrmTextureID[materialId][layerId] = typeof ORMTextureID === 'number' ? ORMTextureID : this.interp.num(ORMTextureID);
+                }
+                if (typeof ReflectionsTextureID !== 'undefined') {
+                    this.rendererData.materialLayerReflectionTextureID[materialId][layerId] = typeof ReflectionsTextureID === 'number' ? ReflectionsTextureID : this.interp.num(ReflectionsTextureID);
                 }
             }
         }
@@ -978,12 +987,21 @@ export class ModelRenderer {
                     const textures = this.rendererData.materialLayerTextureID[materialID];
                     const normalTextres = this.rendererData.materialLayerNormalTextureID[materialID];
                     const ormTextres = this.rendererData.materialLayerOrmTextureID[materialID];
+                    const envTextres = this.rendererData.materialLayerReflectionTextureID[materialID];
                     const diffuseTextureID = textures[0];
                     const diffuseTexture = this.model.Textures[diffuseTextureID];
                     const normalTextureID = baseLayer?.ShaderTypeId === 1 ? normalTextres[0] : textures[1];
                     const normalTexture = this.model.Textures[normalTextureID];
                     const ormTextureID = baseLayer?.ShaderTypeId === 1 ? ormTextres[0] : textures[2];
                     const ormTexture = this.model.Textures[ormTextureID];
+                    const envTextureID = baseLayer?.ShaderTypeId === 1 ? envTextres[0] : textures[5];
+                    const envTexture = this.model.Textures[envTextureID];
+
+                    const envTextureImage = envTexture?.Image;
+                    const irradianceMap = this.rendererData.gpuIrradianceMap[envTextureImage];
+                    const prefilteredEnv = this.rendererData.gpuPrefilteredEnvMap[envTextureImage];
+
+                    const hasEnv = env && irradianceMap && prefilteredEnv;
 
                     this.gpuFSUniformsBuffers[materialID] ||= [];
                     let gpuFSUniformsBuffer = this.gpuFSUniformsBuffers[materialID][0];
@@ -991,14 +1009,14 @@ export class ModelRenderer {
                     if (!gpuFSUniformsBuffer) {
                         gpuFSUniformsBuffer = this.gpuFSUniformsBuffers[materialID][0] = this.device.createBuffer({
                             label: `fs uniforms ${materialID}`,
-                            size: 192,
+                            size: 208,
                             usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
                         });
                     }
 
                     const tVetexAnim = this.getTexCoordMatrix(baseLayer);
 
-                    const FSUniformsValues = new ArrayBuffer(192);
+                    const FSUniformsValues = new ArrayBuffer(208);
                     const FSUniformsViews = {
                         replaceableColor: new Float32Array(FSUniformsValues, 0, 3),
                         discardAlphaLevel: new Float32Array(FSUniformsValues, 12, 1),
@@ -1008,6 +1026,7 @@ export class ModelRenderer {
                         cameraPos: new Float32Array(FSUniformsValues, 96, 3),
                         shadowParams: new Float32Array(FSUniformsValues, 112, 3),
                         shadowMapLightMatrix: new Float32Array(FSUniformsValues, 128, 16),
+                        hasEnv: new Float32Array(FSUniformsValues, 192, 1)
                     };
                     FSUniformsViews.replaceableColor.set(this.rendererData.teamColor);
                     // FSUniformsViews.replaceableType.set([texture.ReplaceableId || 0]);
@@ -1025,6 +1044,7 @@ export class ModelRenderer {
                         FSUniformsViews.shadowParams.set([0, 0, 0]);
                         FSUniformsViews.shadowMapLightMatrix.set([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
                     }
+                    FSUniformsViews.hasEnv.set([hasEnv ? 1 : 0]);
                     this.device.queue.writeBuffer(gpuFSUniformsBuffer, 0, FSUniformsValues);
 
                     const fsBindGroup = this.device.createBindGroup({
@@ -1066,6 +1086,34 @@ export class ModelRenderer {
                             {
                                 binding: 8,
                                 resource: (shadowMapTexture as GPUTexture || this.rendererData.gpuDepthEmptyTexture).createView()
+                            },
+                            {
+                                binding: 9,
+                                resource: this.prefilterEnvSampler
+                            },
+                            {
+                                binding: 10,
+                                resource: (irradianceMap as GPUTexture || this.rendererData.gpuEmptyCubeTexture).createView({
+                                    dimension: 'cube'
+                                })
+                            },
+                            {
+                                binding: 11,
+                                resource: this.prefilterEnvSampler
+                            },
+                            {
+                                binding: 12,
+                                resource: (prefilteredEnv as GPUTexture || this.rendererData.gpuEmptyCubeTexture).createView({
+                                    dimension: 'cube'
+                                })
+                            },
+                            {
+                                binding: 13,
+                                resource: this.gpuBrdfSampler
+                            },
+                            {
+                                binding: 14,
+                                resource: this.gpuBrdfLUT.createView()
                             }
                         ]
                     });
@@ -1226,7 +1274,7 @@ export class ModelRenderer {
                 const envTexture = this.model.Textures[envTextureId as number]?.Image;
                 const irradianceMap = this.rendererData.irradianceMap[envTexture];
                 const prefilteredEnv = this.rendererData.prefilteredEnvMap[envTexture];
-                if (useEnvironmentMap && irradianceMap) {
+                if (useEnvironmentMap && irradianceMap && prefilteredEnv) {
                     this.gl.uniform1i(this.shaderProgramLocations.hasEnvUniform, 1);
                     this.gl.activeTexture(this.gl.TEXTURE4);
                     this.gl.bindTexture(this.gl.TEXTURE_CUBE_MAP, irradianceMap);
@@ -1342,7 +1390,7 @@ export class ModelRenderer {
 
         pass.setBindGroup(0, this.envVSBindGroup);
 
-        for (const path in this.rendererData.gpuPrefilteredEnvMap) {
+        for (const path in this.rendererData.gpuEnvTextures) {
             const fsUniformsBindGroup = this.device.createBindGroup({
                 label: `env fs uniforms ${path}`,
                 layout: this.envFSBindGroupLayout,
@@ -1353,7 +1401,7 @@ export class ModelRenderer {
                     },
                     {
                         binding: 1,
-                        resource: this.rendererData.gpuPrefilteredEnvMap[path].createView({ dimension: 'cube' })
+                        resource: this.rendererData.gpuEnvTextures[path].createView({ dimension: 'cube' })
                     }
                 ]
             });
@@ -2571,7 +2619,7 @@ export class ModelRenderer {
 
             this.prefilterEnvShaderModule = this.device.createShaderModule({
                 label: 'prefilter env',
-                code: prefilterEnvShaderModule
+                code: prefilterEnvShader
             });
             this.prefilterEnvPiepeline = this.device.createRenderPipeline({
                 label: 'prefilter env',
@@ -2605,45 +2653,6 @@ export class ModelRenderer {
                 magFilter: 'linear'
             });
         }
-
-        // if (this.isHD && isWebGL2(this.gl)) {
-        //     this.envToCubemap = this.initShaderProgram(envToCubemapVertexShader, envToCubemapFragmentShader, {
-        //         aPos: 'aPos'
-        //     }, {
-        //         uPMatrix: 'uPMatrix',
-        //         uMVMatrix: 'uMVMatrix',
-        //         uEquirectangularMap: 'uEquirectangularMap'
-        //     });
-
-        //     this.envSphere = this.initShaderProgram(envVertexShader, envFragmentShader, {
-        //         aPos: 'aPos'
-        //     }, {
-        //         uPMatrix: 'uPMatrix',
-        //         uMVMatrix: 'uMVMatrix',
-        //         uEnvironmentMap: 'uEnvironmentMap'
-        //     });
-
-        //     this.convoluteDiffuseEnv = this.initShaderProgram(convoluteEnvDiffuseVertexShader, convoluteEnvDiffuseFragmentShader, {
-        //         aPos: 'aPos'
-        //     }, {
-        //         uPMatrix: 'uPMatrix',
-        //         uMVMatrix: 'uMVMatrix',
-        //         uEnvironmentMap: 'uEnvironmentMap'
-        //     });
-
-        //     this.prefilterEnv = this.initShaderProgram(prefilterEnvVertexShader, prefilterEnvFragmentShader, {
-        //         aPos: 'aPos'
-        //     }, {
-        //         uPMatrix: 'uPMatrix',
-        //         uMVMatrix: 'uMVMatrix',
-        //         uEnvironmentMap: 'uEnvironmentMap',
-        //         uRoughness: 'uRoughness'
-        //     });
-
-        //     this.integrateBRDF = this.initShaderProgram(integrateBRDFVertexShader, integrateBRDFFragmentShader, {
-        //         aPos: 'aPos'
-        //     }, {});
-        // }
     }
 
     private createWireframeBuffer (index: number): void {
@@ -2868,7 +2877,7 @@ export class ModelRenderer {
                     buffer: {
                         type: 'uniform',
                         hasDynamicOffset: false,
-                        minBindingSize: 192
+                        minBindingSize: 208
                     }
                 },
                 {
@@ -2931,6 +2940,54 @@ export class ModelRenderer {
                     visibility: GPUShaderStage.FRAGMENT,
                     texture: {
                         sampleType: 'depth',
+                        viewDimension: '2d',
+                        multisampled: false
+                    }
+                },
+                {
+                    binding: 9,
+                    visibility: GPUShaderStage.FRAGMENT,
+                    sampler: {
+                        type: 'filtering'
+                    }
+                },
+                {
+                    binding: 10,
+                    visibility: GPUShaderStage.FRAGMENT,
+                    texture: {
+                        sampleType: 'float',
+                        viewDimension: 'cube',
+                        multisampled: false
+                    }
+                },
+                {
+                    binding: 11,
+                    visibility: GPUShaderStage.FRAGMENT,
+                    sampler: {
+                        type: 'filtering'
+                    }
+                },
+                {
+                    binding: 12,
+                    visibility: GPUShaderStage.FRAGMENT,
+                    texture: {
+                        sampleType: 'float',
+                        viewDimension: 'cube',
+                        multisampled: false
+                    }
+                },
+                {
+                    binding: 13,
+                    visibility: GPUShaderStage.FRAGMENT,
+                    sampler: {
+                        type: 'filtering'
+                    }
+                },
+                {
+                    binding: 14,
+                    visibility: GPUShaderStage.FRAGMENT,
+                    texture: {
+                        sampleType: 'float',
                         viewDimension: '2d',
                         multisampled: false
                     }
@@ -3170,6 +3227,13 @@ export class ModelRenderer {
             { width: 1, height: 1 },
         );
 
+        this.rendererData.gpuEmptyCubeTexture = this.device.createTexture({
+            label: 'empty cube texture',
+            size: [1, 1, 6],
+            format: 'rgba8unorm',
+            usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+        });
+
         this.rendererData.gpuDepthEmptyTexture = this.device.createTexture({
             label: 'empty depth texture',
             size: [1, 1],
@@ -3287,6 +3351,92 @@ export class ModelRenderer {
         this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
 
         this.gl.deleteFramebuffer(framebuffer);
+    }
+
+    private initGPUBRDFLUT (): void {
+        const shaderModule = this.device.createShaderModule({
+            label: 'integrate brdf',
+            code: integrateBRDFFShader
+        });
+
+        this.gpuBrdfLUT = this.device.createTexture({
+            label: 'brdf',
+            size: [BRDF_LUT_SIZE, BRDF_LUT_SIZE],
+            format: 'rg16float',
+            usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING
+        });
+
+        const square = new Float32Array([
+            -1.0, -1.0,
+            1.0, -1.0,
+            -1.0, 1.0,
+            1.0, -1.0,
+            1.0, 1.0,
+            -1.0, 1.0,
+        ]);
+        const buffer = this.device.createBuffer({
+            label: 'brdf square',
+            size:  square.byteLength,
+            usage: GPUBufferUsage.VERTEX,
+            mappedAtCreation: true
+        });
+        new Float32Array(
+            buffer.getMappedRange(0, buffer.size)
+        ).set(square);
+        buffer.unmap();
+
+        const encoder = this.device.createCommandEncoder({
+            label: 'integrate brdf'
+        });
+
+        const pass = encoder.beginRenderPass({
+            label: 'integrate brdf',
+            colorAttachments: [{
+                view: this.gpuBrdfLUT.createView(),
+                clearValue: [0, 0, 0, 1],
+                loadOp: 'clear',
+                storeOp: 'store'
+            }] as const
+        });
+
+        pass.setPipeline(this.device.createRenderPipeline({
+            label: 'integrate brdf',
+            layout: 'auto',
+            vertex: {
+                module: shaderModule,
+                buffers: [{
+                    arrayStride: 8,
+                    attributes: [{
+                        shaderLocation: 0,
+                        offset: 0,
+                        format: 'float32x2' as const
+                    }]
+                }]
+            },
+            fragment: {
+                module: shaderModule,
+                targets: [{
+                    format: 'rg16float'
+                }] as const
+            }
+        }));
+
+        pass.setVertexBuffer(0, buffer);
+        pass.draw(6);
+        pass.end();
+
+        const commandBuffer = encoder.finish();
+        this.device.queue.submit([commandBuffer]);
+
+        buffer.destroy();
+
+        this.gpuBrdfSampler = this.device.createSampler({
+            label: 'brdf lut',
+            addressModeU: 'clamp-to-edge',
+            addressModeV: 'clamp-to-edge',
+            minFilter: 'linear',
+            magFilter: 'linear'
+        });
     }
 
     /*private resetGlobalSequences (): void {

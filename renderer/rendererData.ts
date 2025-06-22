@@ -23,6 +23,7 @@ export interface RendererData {
     materialLayerTextureID: number[][];
     materialLayerNormalTextureID: number[][];
     materialLayerOrmTextureID: number[][];
+    materialLayerReflectionTextureID: number[][];
     teamColor: vec3;
     lastTeamColor: vec3;
     cameraPos: vec3;
@@ -44,5 +45,6 @@ export interface RendererData {
     gpuPrefilteredEnvMap: {[key: string]: GPUTexture};
 
     gpuEmptyTexture: GPUTexture;
+    gpuEmptyCubeTexture: GPUTexture;
     gpuDepthEmptyTexture: GPUTexture;
 }

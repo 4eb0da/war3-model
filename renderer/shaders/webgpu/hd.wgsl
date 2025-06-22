@@ -14,7 +14,7 @@ struct FSUniforms {
     cameraPos: vec3f,
     shadowParams: vec3f,
     shadowMapLightMatrix: mat4x4f,
-    // hasEnv: bool,
+    hasEnv: u32,
 }
 
 @group(0) @binding(0) var<uniform> vsUniforms: VSUniforms;
@@ -27,6 +27,12 @@ struct FSUniforms {
 @group(1) @binding(6) var fsUniformOrmTexture: texture_2d<f32>;
 @group(1) @binding(7) var fsUniformShadowSampler: sampler_comparison;
 @group(1) @binding(8) var fsUniformShadowTexture: texture_depth_2d;
+@group(1) @binding(9) var irradienceMapSampler: sampler;
+@group(1) @binding(10) var irradienceMapTexture: texture_cube<f32>;
+@group(1) @binding(11) var prefilteredEnvSampler: sampler;
+@group(1) @binding(12) var prefilteredEnvTexture: texture_cube<f32>;
+@group(1) @binding(13) var brdfLutSampler: sampler;
+@group(1) @binding(14) var brdfLutTexture: texture_2d<f32>;
 
 struct VSIn {
     @location(0) vertexPosition: vec3f,
@@ -103,6 +109,7 @@ fn hypot(z: vec2f) -> f32 {
 
 const PI: f32 = 3.14159265359;
 const gamma: f32 = 2.2;
+const MAX_REFLECTION_LOD: f32 = ${MAX_ENV_MIP_LEVELS};
 
 fn distributionGGX(normal: vec3f, halfWay: vec3f, roughness: f32) -> f32 {
     let a: f32 = roughness * roughness;
@@ -197,12 +204,12 @@ fn fresnelSchlickRoughness(lightFactor: f32, f0: vec3f, roughness: f32) -> vec3f
 
     let kS = f;
     var kD = vec3f(1);// - kS;
-    // if (hasEnv) {
-    //     kD *= 1 - metallic;
-    // }
+    if (fsUniforms.hasEnv > 0) {
+        kD *= 1 - metallic;
+    }
     let num: vec3f = ndf * g * f;
     let denom: f32 = 4. * max(dot(normal, viewDir), 0.) * max(dot(normal, lightDir), 0.) + .0001;
-    let specular: vec3f = num / denom;
+    var specular: vec3f = num / denom;
 
     totalLight = (kD * baseColor.rgb / PI + specular) * radiance * lightFactor;
 
@@ -246,18 +253,27 @@ fn fresnelSchlickRoughness(lightFactor: f32, f0: vec3f, roughness: f32) -> vec3f
 
     var color: vec3f = vec3f(0.0);
 
-    // if (hasEnv) {
-    //     ;
-    // } else {
+    if (fsUniforms.hasEnv > 0) {
+        let f: vec3f = fresnelSchlickRoughness(max(dot(normal, viewDir), 0.0), f0, roughness);
+        let kS: vec3f = f;
+        var kD: vec3f = vec3f(1.0) - kS;
+        kD *= 1.0 - metallic;
+
+        let diffuse: vec3f = textureSample(irradienceMapTexture, irradienceMapSampler, normal).rgb * baseColor.rgb;
+        let prefilteredColor: vec3f = textureSampleLevel(prefilteredEnvTexture, prefilteredEnvSampler, reflected, roughness * MAX_REFLECTION_LOD).rgb;
+        let envBRDF: vec2f = textureSample(brdfLutTexture, brdfLutSampler, vec2f(max(dot(normal, viewDir), 0.0), roughness)).rg;
+        specular = prefilteredColor * (f * envBRDF.x + envBRDF.y);
+
+        let ambient: vec3f = (kD * diffuse + specular) * occlusion;
+        color = ambient + totalLight;
+    } else {
         var ambient: vec3f = vec3(.03);
         ambient *= baseColor.rgb * occlusion;
         color = ambient + totalLight;
-    // }
+    }
 
     color = color / (vec3f(1) + color);
     color = pow(color, vec3f(1 / gamma));
 
     return vec4f(color, baseColor.a);
-
-    // todo discart & alpha
 }
