@@ -66,6 +66,8 @@ interface ParticleEmitterWrapper {
     indices: Uint16Array;
     indexBuffer: WebGLBuffer;
     indexGPUBuffer: GPUBuffer;
+
+    fsUniformsBuffer: GPUBuffer;
 }
 
 const DISCARD_ALPHA_KEY_LEVEL = 0.83;
@@ -159,7 +161,8 @@ export class ParticlesController {
                     colorGPUBuffer: null,
                     indices: null,
                     indexBuffer: null,
-                    indexGPUBuffer: null
+                    indexGPUBuffer: null,
+                    fsUniformsBuffer: null
                 };
 
                 emitter.baseCapacity = Math.ceil(
@@ -187,6 +190,37 @@ export class ParticlesController {
             this.shaderProgram = null;
         }
         this.particleStorage = [];
+
+        if (this.gpuVSUniformsBuffer) {
+            this.gpuVSUniformsBuffer.destroy();
+            this.gpuVSUniformsBuffer = null;
+        }
+
+        for (const emitter of this.emitters) {
+            if (emitter.colorGPUBuffer) {
+                emitter.colorGPUBuffer.destroy();
+            }
+            if (emitter.indexGPUBuffer) {
+                emitter.indexGPUBuffer.destroy();
+            }
+            if (emitter.headVertexGPUBuffer) {
+                emitter.headVertexGPUBuffer.destroy();
+            }
+            if (emitter.tailVertexGPUBuffer) {
+                emitter.tailVertexGPUBuffer.destroy();
+            }
+            if (emitter.headTexCoordGPUBuffer) {
+                emitter.headTexCoordGPUBuffer.destroy();
+            }
+            if (emitter.tailTexCoordGPUBuffer) {
+                emitter.tailTexCoordGPUBuffer.destroy();
+            }
+            if (emitter.fsUniformsBuffer) {
+                emitter.fsUniformsBuffer.destroy();
+            }
+        }
+
+        this.emitters = [];
     }
 
     public initGL (glContext: WebGLRenderingContext): void {
@@ -648,13 +682,15 @@ export class ParticlesController {
                 fsUniformsViews.discardAlphaLevel.set([0]);
             }
 
-            const fsUniformsBuffer = this.device.createBuffer({
-                label: `particles fs uniforms ${emitter.index}`,
-                size: 32,
-                usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
-            });
+            if (!emitter.fsUniformsBuffer) {
+                emitter.fsUniformsBuffer = this.device.createBuffer({
+                    label: `particles fs uniforms ${emitter.index}`,
+                    size: 32,
+                    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+                });
+            }
 
-            this.device.queue.writeBuffer(fsUniformsBuffer, 0, fsUniformsValues);
+            this.device.queue.writeBuffer(emitter.fsUniformsBuffer, 0, fsUniformsValues);
 
             const fsUniformsBindGroup = this.device.createBindGroup({
                 label: `particles fs uniforms ${emitter.index}`,
@@ -662,7 +698,7 @@ export class ParticlesController {
                 entries: [
                     {
                         binding: 0,
-                        resource: { buffer: fsUniformsBuffer }
+                        resource: { buffer: emitter.fsUniformsBuffer }
                     },
                     {
                         binding: 1,

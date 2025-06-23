@@ -27,6 +27,8 @@ interface RibbonEmitterWrapper {
     texCoords: Float32Array;
     texCoordBuffer: WebGLBuffer;
     texCoordGPUBuffer: GPUBuffer;
+
+    fsUnifrmsPerLayer: GPUBuffer[];
 }
 
 export class RibbonsController {
@@ -94,7 +96,8 @@ export class RibbonsController {
                     vertexGPUBuffer: null,
                     texCoords: null,
                     texCoordBuffer: null,
-                    texCoordGPUBuffer: null
+                    texCoordGPUBuffer: null,
+                    fsUnifrmsPerLayer: []
                 };
 
                 emitter.baseCapacity = Math.ceil(
@@ -120,6 +123,15 @@ export class RibbonsController {
             }
             this.gl.deleteProgram(this.shaderProgram);
             this.shaderProgram = null;
+        }
+        if (this.gpuVSUniformsBuffer) {
+            this.gpuVSUniformsBuffer.destroy();
+            this.gpuVSUniformsBuffer = null;
+        }
+        for (const emitter of this.emitters) {
+            for (const buffer of emitter.fsUnifrmsPerLayer) {
+                buffer.destroy();
+            }
         }
         this.emitters = [];
     }
@@ -447,11 +459,14 @@ export class RibbonsController {
                     this.interp.animVectorVal(emitter.props.Alpha, 1)
                 ]);
 
-                const fsUniformsBuffer = this.device.createBuffer({
-                    label: `ribbons fs uniforms ${emitter.index}`,
-                    size: 48,
-                    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
-                });
+                if (!emitter.fsUnifrmsPerLayer[j]) {
+                    emitter.fsUnifrmsPerLayer[j] = this.device.createBuffer({
+                        label: `ribbons fs uniforms ${emitter.index} layer ${j}`,
+                        size: 48,
+                        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+                    });
+                }
+                const fsUniformsBuffer = emitter.fsUnifrmsPerLayer[j];
 
                 this.device.queue.writeBuffer(fsUniformsBuffer, 0, fsUniformsValues);
 

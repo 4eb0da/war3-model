@@ -276,6 +276,9 @@ export class ModelRenderer {
     private skeletonBindGroupLayout: GPUBindGroupLayout;
     private skeletonPipelineLayout: GPUPipelineLayout;
     private skeletonPipeline: GPURenderPipeline;
+    private skeletonGPUVertexBuffer: GPUBuffer;
+    private skeletonGPUColorBuffer: GPUBuffer;
+    private skeletonGPUUniformsBuffer: GPUBuffer;
 
     private model: Model;
     private interp: ModelInterp;
@@ -520,6 +523,30 @@ export class ModelRenderer {
                 for (const buffer of this.gpuFSUniformsBuffers[materialID]) {
                     buffer.destroy();
                 }
+            }
+
+            if (this.skeletonGPUVertexBuffer) {
+                this.skeletonGPUVertexBuffer.destroy();
+                this.skeletonGPUVertexBuffer = null;
+            }
+            if (this.skeletonGPUColorBuffer) {
+                this.skeletonGPUColorBuffer.destroy();
+                this.skeletonGPUColorBuffer = null;
+            }
+            if (this.skeletonGPUUniformsBuffer) {
+                this.skeletonGPUUniformsBuffer.destroy();
+                this.skeletonGPUUniformsBuffer = null;
+            }
+            if (this.envVSUniformsBuffer) {
+                this.envVSUniformsBuffer.destroy();
+                this.envVSUniformsBuffer = null;
+            }
+            if (this.cubeGPUVertexBuffer) {
+                this.cubeGPUVertexBuffer.destroy();
+                this.cubeGPUVertexBuffer = null;
+            }
+            for (const buffer of this.wireframeIndexGPUBuffer) {
+                buffer?.destroy();
             }
         }
 
@@ -1569,7 +1596,11 @@ export class ModelRenderer {
                 });
             }
 
-            const vertex = this.device.createBuffer({
+            this.skeletonGPUVertexBuffer?.destroy();
+            this.skeletonGPUColorBuffer?.destroy();
+            this.skeletonGPUUniformsBuffer?.destroy();
+
+            const vertex = this.skeletonGPUVertexBuffer = this.device.createBuffer({
                 label: 'skeleton vertex',
                 size: vertexBuffer.byteLength,
                 usage: GPUBufferUsage.VERTEX,
@@ -1580,7 +1611,7 @@ export class ModelRenderer {
             ).set(vertexBuffer);
             vertex.unmap();
 
-            const color = this.device.createBuffer({
+            const color = this.skeletonGPUColorBuffer = this.device.createBuffer({
                 label: 'skeleton color',
                 size: colorBuffer.byteLength,
                 usage: GPUBufferUsage.VERTEX,
@@ -1591,7 +1622,7 @@ export class ModelRenderer {
             ).set(colorBuffer);
             color.unmap();
 
-            const uniformsBuffer = this.device.createBuffer({
+            const uniformsBuffer = this.skeletonGPUUniformsBuffer = this.device.createBuffer({
                 label: 'skeleton vs uniforms',
                 size: 128,
                 usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
@@ -1822,6 +1853,7 @@ export class ModelRenderer {
             const encoder = this.device.createCommandEncoder({
                 label: 'env to cubemap'
             });
+            const buffers: GPUBuffer[] = [];
 
             for (let i = 0; i < 6; ++i) {
                 mat4.lookAt(mvMatrix, eye, center[i], up[i]);
@@ -1853,6 +1885,7 @@ export class ModelRenderer {
                     size: 128,
                     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
                 });
+                buffers.push(buffer);
                 this.device.queue.writeBuffer(buffer, 0, VSUniformsValues);
 
                 const bindGroup = this.device.createBindGroup({
@@ -1895,6 +1928,11 @@ export class ModelRenderer {
 
             const commandBuffer = encoder.finish();
             this.device.queue.submit([commandBuffer]);
+            this.device.queue.onSubmittedWorkDone().finally(() => {
+                buffers.forEach(buffer => {
+                    buffer.destroy();
+                });
+            });
         } else if (isWebGL2(this.gl)) {
             framebuffer = this.gl.createFramebuffer();
 
@@ -1963,6 +2001,7 @@ export class ModelRenderer {
             const encoder = this.device.createCommandEncoder({
                 label: 'convolute diffuse'
             });
+            const buffers: GPUBuffer[] = [];
 
             for (let i = 0; i < 6; ++i) {
                 mat4.lookAt(mvMatrix, eye, center[i], up[i]);
@@ -1994,6 +2033,7 @@ export class ModelRenderer {
                     size: 128,
                     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
                 });
+                buffers.push(buffer);
                 this.device.queue.writeBuffer(buffer, 0, VSUniformsValues);
 
                 const bindGroup = this.device.createBindGroup({
@@ -2038,6 +2078,11 @@ export class ModelRenderer {
 
             const commandBuffer = encoder.finish();
             this.device.queue.submit([commandBuffer]);
+            this.device.queue.onSubmittedWorkDone().finally(() => {
+                buffers.forEach(buffer => {
+                    buffer.destroy();
+                });
+            });
         } else if (isWebGL2(this.gl)) {
             this.gl.useProgram(this.convoluteDiffuseEnv.program);
             const diffuseCubemap = this.rendererData.irradianceMap[path] = this.gl.createTexture();
@@ -2097,6 +2142,7 @@ export class ModelRenderer {
             const encoder = this.device.createCommandEncoder({
                 label: 'prefilter env'
             });
+            const buffers: GPUBuffer[] = [];
 
             for (let mip = 0; mip < MAX_ENV_MIP_LEVELS; ++mip) {
                 const FSUniformsValues = new ArrayBuffer(4);
@@ -2110,6 +2156,7 @@ export class ModelRenderer {
                     size: 4,
                     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
                 });
+                buffers.push(fsBuffer);
                 this.device.queue.writeBuffer(fsBuffer, 0, FSUniformsValues);
 
                 const fsUniformsBindGroup = this.device.createBindGroup({
@@ -2165,6 +2212,7 @@ export class ModelRenderer {
                         size: 128,
                         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
                     });
+                    buffers.push(vsBuffer);
                     this.device.queue.writeBuffer(vsBuffer, 0, VSUniformsValues);
 
                     const fsBindGroup = this.device.createBindGroup({
@@ -2193,6 +2241,11 @@ export class ModelRenderer {
 
             const commandBuffer = encoder.finish();
             this.device.queue.submit([commandBuffer]);
+            this.device.queue.onSubmittedWorkDone().finally(() => {
+                buffers.forEach(buffer => {
+                    buffer.destroy();
+                });
+            });
         } else if (isWebGL2(this.gl)) {
             this.gl.useProgram(this.prefilterEnv.program);
 
@@ -3427,8 +3480,9 @@ export class ModelRenderer {
 
         const commandBuffer = encoder.finish();
         this.device.queue.submit([commandBuffer]);
-
-        buffer.destroy();
+        this.device.queue.onSubmittedWorkDone().finally(() => {
+            buffer.destroy();
+        });
 
         this.gpuBrdfSampler = this.device.createSampler({
             label: 'brdf lut',
