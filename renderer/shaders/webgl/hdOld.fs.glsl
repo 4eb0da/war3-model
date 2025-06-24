@@ -12,13 +12,14 @@ uniform sampler2D uNormalSampler;
 uniform sampler2D uOrmSampler;
 uniform vec3 uReplaceableColor;
 uniform float uDiscardAlphaLevel;
-uniform mat3 uTVextexAnim;
+uniform mat3 uTVertexAnim;
 uniform vec3 uLightPos;
 uniform vec3 uLightColor;
 uniform vec3 uCameraPos;
 uniform vec3 uShadowParams;
 uniform sampler2D uShadowMapSampler;
 uniform mat4 uShadowMapLightMatrix;
+uniform float uWireframe;
 
 const float PI = 3.14159265359;
 const float gamma = 2.2;
@@ -61,7 +62,12 @@ vec3 fresnelSchlick(float lightFactor, vec3 f0) {
 }
 
 void main(void) {
-    vec2 texCoord = (uTVextexAnim * vec3(vTextureCoord.s, vTextureCoord.t, 1.)).st;
+    if (uWireframe > 0.) {
+        gl_FragColor = vec4(1.);
+        return;
+    }
+
+    vec2 texCoord = (uTVertexAnim * vec3(vTextureCoord.s, vTextureCoord.t, 1.)).st;
 
     vec4 orm = texture2D(uOrmSampler, texCoord);
 

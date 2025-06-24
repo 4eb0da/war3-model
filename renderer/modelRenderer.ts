@@ -249,6 +249,7 @@ export class ModelRenderer {
         replaceableTypeUniform: WebGLUniformLocation | null;
         discardAlphaLevelUniform: WebGLUniformLocation | null;
         tVertexAnimUniform: WebGLUniformLocation | null;
+        wireframeUniform: WebGLUniformLocation | null;
         nodesMatricesAttributes: (WebGLUniformLocation | null)[];
         lightPosUniform: WebGLUniformLocation | null;
         lightColorUniform: WebGLUniformLocation | null;
@@ -366,6 +367,7 @@ export class ModelRenderer {
             replaceableTypeUniform: null,
             discardAlphaLevelUniform: null,
             tVertexAnimUniform: null,
+            wireframeUniform: null,
             nodesMatricesAttributes: null,
             lightPosUniform: null,
             lightColorUniform: null,
@@ -402,7 +404,6 @@ export class ModelRenderer {
             materialLayerOrmTextureID: [],
             materialLayerReflectionTextureID: [],
             teamColor: null,
-            lastTeamColor: vec3.create(),
             cameraPos: null,
             cameraQuat: null,
             lightPos: null,
@@ -1036,24 +1037,25 @@ export class ModelRenderer {
                     if (!gpuFSUniformsBuffer) {
                         gpuFSUniformsBuffer = this.gpuFSUniformsBuffers[materialID][0] = this.device.createBuffer({
                             label: `fs uniforms ${materialID}`,
-                            size: 208,
+                            size: 192,
                             usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
                         });
                     }
 
                     const tVetexAnim = this.getTexCoordMatrix(baseLayer);
 
-                    const FSUniformsValues = new ArrayBuffer(208);
+                    const FSUniformsValues = new ArrayBuffer(192);
                     const FSUniformsViews = {
                         replaceableColor: new Float32Array(FSUniformsValues, 0, 3),
                         discardAlphaLevel: new Float32Array(FSUniformsValues, 12, 1),
                         tVertexAnim: new Float32Array(FSUniformsValues, 16, 12),
                         lightPos: new Float32Array(FSUniformsValues, 64, 3),
+                        hasEnv: new Uint32Array(FSUniformsValues, 76, 1),
                         lightColor: new Float32Array(FSUniformsValues, 80, 3),
+                        wireframe: new Uint32Array(FSUniformsValues, 92, 1),
                         cameraPos: new Float32Array(FSUniformsValues, 96, 3),
                         shadowParams: new Float32Array(FSUniformsValues, 112, 3),
                         shadowMapLightMatrix: new Float32Array(FSUniformsValues, 128, 16),
-                        hasEnv: new Float32Array(FSUniformsValues, 192, 1)
                     };
                     FSUniformsViews.replaceableColor.set(this.rendererData.teamColor);
                     // FSUniformsViews.replaceableType.set([texture.ReplaceableId || 0]);
@@ -1072,6 +1074,7 @@ export class ModelRenderer {
                         FSUniformsViews.shadowMapLightMatrix.set([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
                     }
                     FSUniformsViews.hasEnv.set([hasEnv ? 1 : 0]);
+                    FSUniformsViews.wireframe.set([wireframe ? 1 : 0]);
                     this.device.queue.writeBuffer(gpuFSUniformsBuffer, 0, FSUniformsValues);
 
                     const fsBindGroup = this.device.createBindGroup({
@@ -1161,34 +1164,32 @@ export class ModelRenderer {
                         this.gpuFSUniformsBuffers[materialID] ||= [];
                         let gpuFSUniformsBuffer = this.gpuFSUniformsBuffers[materialID][j];
 
-                        let needWriteBuffer = typeof layer.TVertexAnimId === 'number' || !vec3.equals(this.rendererData.teamColor, this.rendererData.lastTeamColor);
                         if (!gpuFSUniformsBuffer) {
                             gpuFSUniformsBuffer = this.gpuFSUniformsBuffers[materialID][j] = this.device.createBuffer({
                                 label: `fs uniforms ${materialID} ${j}`,
                                 size: 80,
                                 usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
                             });
-                            needWriteBuffer = true;
                         }
 
-                        if (needWriteBuffer) {
-                            const tVetexAnim = this.getTexCoordMatrix(layer);
+                        const tVetexAnim = this.getTexCoordMatrix(layer);
 
-                            const FSUniformsValues = new ArrayBuffer(80);
-                            const FSUniformsViews = {
-                                replaceableColor: new Float32Array(FSUniformsValues, 0, 3),
-                                replaceableType: new Uint32Array(FSUniformsValues, 12, 1),
-                                discardAlphaLevel: new Float32Array(FSUniformsValues, 16, 1),
-                                tVertexAnim: new Float32Array(FSUniformsValues, 32, 12),
-                            };
-                            FSUniformsViews.replaceableColor.set(this.rendererData.teamColor);
-                            FSUniformsViews.replaceableType.set([texture.ReplaceableId || 0]);
-                            FSUniformsViews.discardAlphaLevel.set([layer.FilterMode === FilterMode.Transparent ? .75 : 0]);
-                            FSUniformsViews.tVertexAnim.set(tVetexAnim.slice(0, 3));
-                            FSUniformsViews.tVertexAnim.set(tVetexAnim.slice(3, 6), 4);
-                            FSUniformsViews.tVertexAnim.set(tVetexAnim.slice(6, 9), 8);
-                            this.device.queue.writeBuffer(gpuFSUniformsBuffer, 0, FSUniformsValues);
-                        }
+                        const FSUniformsValues = new ArrayBuffer(80);
+                        const FSUniformsViews = {
+                            replaceableColor: new Float32Array(FSUniformsValues, 0, 3),
+                            replaceableType: new Uint32Array(FSUniformsValues, 12, 1),
+                            discardAlphaLevel: new Float32Array(FSUniformsValues, 16, 1),
+                            wireframe: new Uint32Array(FSUniformsValues, 20, 1),
+                            tVertexAnim: new Float32Array(FSUniformsValues, 32, 12),
+                        };
+                        FSUniformsViews.replaceableColor.set(this.rendererData.teamColor);
+                        FSUniformsViews.replaceableType.set([texture.ReplaceableId || 0]);
+                        FSUniformsViews.discardAlphaLevel.set([layer.FilterMode === FilterMode.Transparent ? .75 : 0]);
+                        FSUniformsViews.tVertexAnim.set(tVetexAnim.slice(0, 3));
+                        FSUniformsViews.tVertexAnim.set(tVetexAnim.slice(3, 6), 4);
+                        FSUniformsViews.tVertexAnim.set(tVetexAnim.slice(6, 9), 8);
+                        FSUniformsViews.wireframe.set([wireframe ? 1 : 0]);
+                        this.device.queue.writeBuffer(gpuFSUniformsBuffer, 0, FSUniformsValues);
 
                         const fsBindGroup = this.device.createBindGroup({
                             label: `fs uniforms ${materialID} ${j}`,
@@ -1225,8 +1226,6 @@ export class ModelRenderer {
             const commandBuffer = encoder.finish();
             this.device.queue.submit([commandBuffer]);
 
-            vec3.copy(this.rendererData.lastTeamColor, this.rendererData.teamColor);
-
             return;
         }
 
@@ -1238,6 +1237,7 @@ export class ModelRenderer {
 
         this.gl.uniformMatrix4fv(this.shaderProgramLocations.pMatrixUniform, false, pMatrix);
         this.gl.uniformMatrix4fv(this.shaderProgramLocations.mvMatrixUniform, false, mvMatrix);
+        this.gl.uniform1f(this.shaderProgramLocations.wireframeUniform, wireframe ? 1 : 0);
 
         this.gl.enableVertexAttribArray(this.shaderProgramLocations.vertexPositionAttribute);
         this.gl.enableVertexAttribArray(this.shaderProgramLocations.normalsAttribute);
@@ -1642,7 +1642,7 @@ export class ModelRenderer {
                 label: 'skeleton renderPass',
                 colorAttachments: [{
                     view: this.gpuContext.getCurrentTexture().createView(),
-                    clearValue: [0, 0, 0, 1],
+                    clearValue: [0.15, 0.15, 0.15, 1],
                     loadOp: 'load',
                     storeOp: 'store'
                 }] as const
@@ -2439,7 +2439,8 @@ export class ModelRenderer {
             this.shaderProgramLocations.replaceableTypeUniform = this.gl.getUniformLocation(shaderProgram, 'uReplaceableType');
         }
         this.shaderProgramLocations.discardAlphaLevelUniform = this.gl.getUniformLocation(shaderProgram, 'uDiscardAlphaLevel');
-        this.shaderProgramLocations.tVertexAnimUniform = this.gl.getUniformLocation(shaderProgram, 'uTVextexAnim');
+        this.shaderProgramLocations.tVertexAnimUniform = this.gl.getUniformLocation(shaderProgram, 'uTVertexAnim');
+        this.shaderProgramLocations.wireframeUniform = this.gl.getUniformLocation(shaderProgram, 'uWireframe');
 
         if (!this.softwareSkinning) {
             this.shaderProgramLocations.nodesMatricesAttributes = [];
@@ -2930,7 +2931,7 @@ export class ModelRenderer {
                     buffer: {
                         type: 'uniform',
                         hasDynamicOffset: false,
-                        minBindingSize: 208
+                        minBindingSize: 192
                     }
                 },
                 {
@@ -3124,7 +3125,7 @@ export class ModelRenderer {
             colorAttachments: [
                 {
                     view: null,
-                    clearValue: [0, 0, 0, 1],
+                    clearValue: [0.15, 0.15, 0.15, 1],
                     loadOp: 'clear' as const,
                     storeOp: 'store' as const
                 }

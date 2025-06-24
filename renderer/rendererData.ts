@@ -25,7 +25,6 @@ export interface RendererData {
     materialLayerOrmTextureID: number[][];
     materialLayerReflectionTextureID: number[][];
     teamColor: vec3;
-    lastTeamColor: vec3;
     cameraPos: vec3;
     cameraQuat: quat;
     lightPos: vec3;

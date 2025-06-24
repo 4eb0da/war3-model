@@ -7,7 +7,8 @@ uniform sampler2D uSampler;
 uniform vec3 uReplaceableColor;
 uniform float uReplaceableType;
 uniform float uDiscardAlphaLevel;
-uniform mat3 uTVextexAnim;
+uniform mat3 uTVertexAnim;
+uniform float uWireframe;
 
 float hypot (vec2 z) {
     float t;
@@ -20,7 +21,12 @@ float hypot (vec2 z) {
 }
 
 void main(void) {
-    vec2 texCoord = (uTVextexAnim * vec3(vTextureCoord.s, vTextureCoord.t, 1.)).st;
+    if (uWireframe > 0.) {
+        gl_FragColor = vec4(1.);
+        return;
+    }
+
+    vec2 texCoord = (uTVertexAnim * vec3(vTextureCoord.s, vTextureCoord.t, 1.)).st;
 
     if (uReplaceableType == 0.) {
         gl_FragColor = texture2D(uSampler, texCoord);

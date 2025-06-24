@@ -10,11 +10,12 @@ struct FSUniforms {
     discardAlphaLevel: f32,
     tVertexAnim: mat3x3f,
     lightPos: vec3f,
+    hasEnv: u32,
     lightColor: vec3f,
+    wireframe: u32,
     cameraPos: vec3f,
     shadowParams: vec3f,
     shadowMapLightMatrix: mat4x4f,
-    hasEnv: u32,
 }
 
 @group(0) @binding(0) var<uniform> vsUniforms: VSUniforms;
@@ -156,6 +157,10 @@ fn fresnelSchlickRoughness(lightFactor: f32, f0: vec3f, roughness: f32) -> vec3f
     in: VSOut,
     @builtin(front_facing) isFront: bool
 ) -> @location(0) vec4f {
+    if (fsUniforms.wireframe > 0) {
+        return vec4f(1);
+    }
+
     let texCoord: vec2f = (fsUniforms.tVertexAnim * vec3f(in.textureCoord.x, in.textureCoord.y, 1.)).xy;
     var baseColor: vec4f = textureSample(fsUniformDiffuseTexture, fsUniformDiffuseSampler, texCoord);
 
