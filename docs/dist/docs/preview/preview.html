@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport"
+          content="width=device-width, user-scalable=no, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>MDL/MDX Previewer</title>
+  <script type="module" crossorigin src="https://4eb0da.github.io/war3-model/dist/assets/preview-CdFtTN-O.js"></script>
+  <link rel="modulepreload" crossorigin href="https://4eb0da.github.io/war3-model/dist/assets/modulepreload-polyfill-_HzmMr5C.js">
+  <link rel="modulepreload" crossorigin href="https://4eb0da.github.io/war3-model/dist/assets/shim-C4SHjc5J.js">
+  <link rel="modulepreload" crossorigin href="https://4eb0da.github.io/war3-model/dist/assets/decode-t1SF2Phh.js">
+  <link rel="stylesheet" crossorigin href="https://4eb0da.github.io/war3-model/dist/assets/preview-B8PoR-N9.css">
+</head>
+<body>
+<div class="container" dropzone="copy">
+    <div class="inner">
+        <div class="drag-root">
+            <div class="drag-textures"></div>
+            <div class="drag drag-main">Drop models here</div>
+        </div>
+        <canvas id="canvas" width="300" height="300"></canvas>
+    </div>
+    <div class="controls">
+        <label class="row">
+            Team color
+            <div class="sub">
+                <input type="color" id="color" value="#ff0000">
+            </div>
+        </label>
+        <div class="row">
+            Animation
+            <div class="sub sub_flex">
+                <select id="select"><option>None</option></select>
+            </div>
+            <div class="sub sub_flex">
+                <button id="toggle_animation">⏸</button>
+                <input type="range" id="frame_range">
+                <input type="number" id="frame_input">
+            </div>
+        </div>
+        <label class="row">
+            Camera distance
+            <div class="sub sub_flex">
+                <input type="range" id="distance" value="500" min="100" max="1000">
+            </div>
+        </label>
+        <label class="row">
+            Wireframe
+            <div class="sub">
+                <input type="checkbox" id="wireframe">
+            </div>
+        </label>
+        <fieldset class="skeleton-group row">
+            <label>
+                Skeleton
+                <div class="sub">
+                    <input type="checkbox" id="show_skeleton">
+                </div>
+            </label>
+            <div class="sub sub_flex">
+                <label>Skeleton nodes <select id="skeleton" disabled><option value="*">All</option></select></label>
+            </div>
+        </fieldset>
+        <label class="row">
+            Shadow
+            <div class="sub">
+                <input type="checkbox" id="shadow" checked>
+            </div>
+        </label>
+        <label class="row">
+            Image-based lightning
+            <div class="sub">
+                <input type="checkbox" id="ibl">
+            </div>
+        </label>
+        <label class="row">
+            Level of Detail
+            <div class="sub">
+                <select id="lod">
+                    <option value="0">0</option>
+                    <option value="1">1</option>
+                    <option value="2">2</option>
+                    <option value="3">3</option>
+                </select>
+            </div>
+        </label>
+    </div>
+</div>
+</body>
+</html>

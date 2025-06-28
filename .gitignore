@@ -4,3 +4,4 @@ node_modules
 *.js.map
 *.d.ts
 !third_party/decoder.js
+!/docs/dist/**/*.js
