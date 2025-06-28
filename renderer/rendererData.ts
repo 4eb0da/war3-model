@@ -23,6 +23,7 @@ export interface RendererData {
     materialLayerTextureID: number[][];
     materialLayerNormalTextureID: number[][];
     materialLayerOrmTextureID: number[][];
+    materialLayerReflectionTextureID: number[][];
     teamColor: vec3;
     cameraPos: vec3;
     cameraQuat: quat;
@@ -31,8 +32,18 @@ export interface RendererData {
     shadowBias: number;
     shadowSmoothingStep: number;
     textures: {[key: string]: WebGLTexture};
+    gpuTextures: {[key: string]: GPUTexture};
+    gpuSamplers: GPUSampler[];
+    gpuDepthSampler: GPUSampler;
     requiredEnvMaps: {[key: string]: boolean};
     envTextures: {[key: string]: WebGLTexture};
+    gpuEnvTextures: {[key: string]: GPUTexture};
     irradianceMap: {[key: string]: WebGLTexture};
+    gpuIrradianceMap: {[key: string]: GPUTexture};
     prefilteredEnvMap: {[key: string]: WebGLTexture};
+    gpuPrefilteredEnvMap: {[key: string]: GPUTexture};
+
+    gpuEmptyTexture: GPUTexture;
+    gpuEmptyCubeTexture: GPUTexture;
+    gpuDepthEmptyTexture: GPUTexture;
 }

@@ -1,9 +1,11 @@
+/// <reference types="@webgpu/types" />
+
 import { vec3, mat4, quat } from 'gl-matrix';
 import { decodeDds, parseHeaders } from 'dds-parser';
 
 import { parse as parseMDL } from '../../mdl/parse';
 import { parse as parseMDX } from '../../mdx/parse';
-import { Model, TextureFlags } from '../../model';
+import { Model } from '../../model';
 import { DDS_FORMAT, ModelRenderer } from '../../renderer/modelRenderer';
 import { vec3RotateZ } from '../../renderer/util';
 import { decode, getImageData } from '../../blp/decode';
@@ -13,20 +15,27 @@ let model: Model;
 let modelRenderer: ModelRenderer;
 let canvas: HTMLCanvasElement;
 let gl: WebGLRenderingContext | WebGL2RenderingContext;
+let gpuContext: GPUCanvasContext;
+let gpuDevice: GPUDevice;
 const pMatrix = mat4.create();
+const lightPMatrix = mat4.create();
 const mvMatrix = mat4.create();
 const lightMVMatrix = mat4.create();
 const shadowMapMatrix = mat4.create();
 const CLEANUP_NAME_REGEXP = /.*?([^\\/]+)\.\w+$/;
 let ddsExt: WEBGL_compressed_texture_s3tc | null = null;
 let rgtcExt: EXT_texture_compression_rgtc | null = null;
+let hasGPUBC = false;
 
 const SHADOW_QUALITY = 4096;
 const FB_WIDTH = SHADOW_QUALITY;
 const FB_HEIGHT = SHADOW_QUALITY;
+const UNCAPPED_FPS = false;
+const LOG_FPS = false;
 let framebuffer: WebGLFramebuffer;
 let framebufferTexture: WebGLTexture;
 let framebufferDepthTexture: WebGLTexture;
+let gpuDepthTexture: GPUTexture;
 
 let cameraTheta = Math.PI / 4;
 let cameraPhi = 0;
@@ -51,6 +60,37 @@ const lightPosition: vec3 = vec3.fromValues(200, 200, 200);
 const lightTarget: vec3 = vec3.fromValues(0, 0, 0);
 const lightColor: vec3 = vec3.fromValues(1, 1, 1);
 
+const messageChannel = new MessageChannel();
+function nextTick(cb: (now: number) => void): void {
+    messageChannel.port1.onmessage = () => {
+        cb(performance.now());
+    };
+
+    messageChannel.port2.postMessage('');
+}
+
+let frames = 0;
+let framesTs = 0;
+function nextFrame(cb: (now: number) => void): void {
+    if (UNCAPPED_FPS) {
+        nextTick(cb);
+    } else {
+        requestAnimationFrame(cb);
+    }
+
+    if (LOG_FPS) {
+        const now = performance.now();
+        if (now - framesTs > 1000) {
+            framesTs = now;
+            if (frames) {
+                console.log(frames);
+                frames = 0;
+            }
+        }
+        ++frames;
+    }
+}
+
 let start;
 function updateModel(timestamp: number) {
     if (!start) {
@@ -66,21 +106,59 @@ function updateModel(timestamp: number) {
     updateAnimationFrame();
 }
 
-function initGL() {
-    if (gl) {
+async function initGL() {
+    if (gl || gpuDevice) {
         return;
     }
 
     try {
+        try {
+            const adapter = await navigator.gpu?.requestAdapter();
+            hasGPUBC = Array.from(adapter?.features || []).includes('texture-compression-bc');
+            gpuDevice = await adapter?.requestDevice({
+                requiredFeatures: [
+                    hasGPUBC && 'texture-compression-bc'
+                ].filter(Boolean) as GPUFeatureName[]
+            });
+            gpuContext = canvas.getContext('webgpu');
+            if (gpuContext) {
+                gpuContext.configure({
+                    device: gpuDevice,
+                    format: navigator.gpu.getPreferredCanvasFormat(),
+                    alphaMode: 'premultiplied'
+                });
+                gpuDepthTexture = gpuDevice.createTexture({
+                    label: 'shadow depth texture',
+                    size: [FB_WIDTH, FB_HEIGHT],
+                    format: 'depth32float',
+                    usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING
+                });
+                return;
+            }
+        } catch (err) {
+            gpuDevice = null;
+            gpuContext?.unconfigure();
+            gpuContext = null;
+            hasGPUBC = false;
+            gpuDepthTexture?.destroy();
+            gpuDepthTexture = undefined;
+            const newCanvas = canvas.cloneNode() as HTMLCanvasElement;
+            canvas.parentElement.append(newCanvas);
+            canvas.remove();
+            canvas = newCanvas;
+        }
+
         const opts: WebGLContextAttributes = {
             antialias: false,
             alpha: false
         };
 
-        gl = canvas.getContext('webgl2', opts) ||
-            canvas.getContext('webgl', opts) ||
-            canvas.getContext('experimental-webgl', opts) as
-            (WebGL2RenderingContext | WebGLRenderingContext);
+        if (!gpuContext) {
+            gl = canvas.getContext('webgl2', opts) ||
+                canvas.getContext('webgl', opts) ||
+                canvas.getContext('experimental-webgl', opts) as
+                (WebGL2RenderingContext | WebGLRenderingContext);
+        }
 
         let supportShadows = false;
         if (gl instanceof WebGLRenderingContext) {
@@ -156,8 +234,11 @@ function calcCameraQuat(cameraPos: vec3, cameraTarget: vec3): quat {
 }
 
 function drawScene() {
-    gl.depthMask(true);
+    if (gl) {
+        gl.depthMask(true);
+    }
     mat4.perspective(pMatrix, Math.PI / 4, canvas.width / canvas.height, 0.1, 3000.0);
+    mat4.perspective(lightPMatrix, Math.PI / 4, 1, 0.1, 3000.0);
 
     vec3.set(
         cameraBasePos,
@@ -172,9 +253,7 @@ function drawScene() {
     mat4.lookAt(lightMVMatrix, lightPosition, lightTarget, cameraUp);
 
     mat4.identity(shadowMapMatrix);
-    mat4.translate(shadowMapMatrix, shadowMapMatrix, vec3.fromValues(.5, .5, .5));
-    mat4.scale(shadowMapMatrix, shadowMapMatrix, vec3.fromValues(.5, .5, .5));
-    mat4.multiply(shadowMapMatrix, shadowMapMatrix, pMatrix);
+    mat4.multiply(shadowMapMatrix, shadowMapMatrix, lightPMatrix);
     mat4.multiply(shadowMapMatrix, shadowMapMatrix, lightMVMatrix);
 
     const cameraQuat: quat = calcCameraQuat(cameraPos, cameraTarget);
@@ -183,31 +262,39 @@ function drawScene() {
     modelRenderer.setLightPosition(lightPosition);
     modelRenderer.setLightColor(lightColor);
 
-    if (shadow && framebuffer) {
-        gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
-        gl.viewport(0, 0, FB_WIDTH, FB_HEIGHT);
-        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    if (shadow && model.Geosets?.some(it => it.SkinWeights?.length > 0)) {
+        if (gpuDevice) {
+            modelRenderer.setCamera(lightPosition, lightQuat);
+            modelRenderer.render(lightMVMatrix, lightPMatrix, {
+                wireframe: false,
+                depthTextureTarget: gpuDepthTexture
+            });
+        } else if (framebuffer) {
+            gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
+            gl.viewport(0, 0, FB_WIDTH, FB_HEIGHT);
+            gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
-        modelRenderer.setCamera(lightPosition, lightQuat);
-        modelRenderer.render(lightMVMatrix, pMatrix, {
-            wireframe: false
-        });
+            modelRenderer.setCamera(lightPosition, lightQuat);
+            modelRenderer.render(lightMVMatrix, lightPMatrix, {
+                wireframe: false
+            });
 
-        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+            gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+        }
     }
 
-    gl.viewport(0, 0, canvas.width, canvas.height);
-    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    if (gl) {
+        gl.viewport(0, 0, canvas.width, canvas.height);
+        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    }
 
     modelRenderer.setCamera(cameraPos, cameraQuat);
-    if (ibl) {
-        modelRenderer.renderEnvironment(mvMatrix, pMatrix);
-    }
     modelRenderer.render(mvMatrix, pMatrix, {
         levelOfDetail: lod,
         wireframe,
+        env: ibl,
         useEnvironmentMap: ibl,
-        shadowMapTexture: shadow ? framebufferDepthTexture : undefined,
+        shadowMapTexture: shadow ? gpuDepthTexture || framebufferDepthTexture : undefined,
         shadowMapMatrix: shadow ? shadowMapMatrix : undefined,
         shadowBias: 1e-6,
         shadowSmoothingStep: 1 / SHADOW_QUALITY
@@ -219,16 +306,16 @@ function drawScene() {
 }
 
 function tick(timestamp: number) {
-    requestAnimationFrame(tick);
+    nextFrame(tick);
     updateModel(timestamp);
     drawScene();
 }
 
-function loadTexture(src: string, textureName: string, flags: TextureFlags | 0) {
+function loadTexture(src: string, textureName: string) {
     const img = new Image();
 
     img.onload = () => {
-        modelRenderer.setTextureImage(textureName, img, flags);
+        modelRenderer.setTextureImage(textureName, img);
 
         handleLoadedTexture();
     };
@@ -251,14 +338,18 @@ function handleLoadedTexture(): void {
     }
 } */
 
-function processModelLoading() {
+async function processModelLoading() {
     console.log(model);
 
     modelRenderer = new ModelRenderer(model);
     modelRenderer.setTeamColor(parseColor(inputColor.value));
 
-    initGL();
-    modelRenderer.initGL(gl);
+    await initGL();
+    if (gpuDevice) {
+        modelRenderer.initGPUDevice(canvas, gpuDevice, gpuContext);
+    } else {
+        modelRenderer.initGL(gl);
+    }
 
     setAnimationList();
     updateAnimationFrame();
@@ -486,7 +577,12 @@ function initCameraMove() {
         down = false;
     }
 
+    const controls = document.querySelector<HTMLDivElement>('.controls');
     function wheel(event) {
+        if (controls.contains(event.target)) {
+            return;
+        }
+
         updateCameraDistance(cameraDistance * (1 - event.wheelDelta / 600));
     }
 
@@ -581,7 +677,6 @@ function setDragDropTextures() {
             row.className = 'drag';
             row.textContent = texture.Image;
             row.setAttribute('data-texture', texture.Image);
-            row.setAttribute('data-texture-flags', String(texture.Flags));
             texturesContainer.appendChild(row);
         }
     }
@@ -623,7 +718,7 @@ function initDragDrop() {
         const reader = new FileReader();
         const isMDX = file.name.indexOf('.mdx') > -1;
 
-        reader.onload = () => {
+        reader.onload = async () => {
             try {
                 if (isMDX) {
                     model = parseMDX(reader.result as ArrayBuffer);
@@ -636,7 +731,7 @@ function initDragDrop() {
                 return;
             }
 
-            processModelLoading();
+            await processModelLoading();
             setTextures(textures);
             setDragDropTextures();
         };
@@ -648,7 +743,7 @@ function initDragDrop() {
         }
     };
 
-    const dropTexture = (file: File, textureName: string, textureFlags: TextureFlags) => {
+    const dropTexture = (file: File, textureName: string) => {
         return new Promise<void>(resolve => {
             const reader = new FileReader();
             const isBLP = file.name.indexOf('.blp') > -1;
@@ -660,27 +755,50 @@ function initDragDrop() {
                         const array = reader.result as ArrayBuffer;
                         const dds = parseHeaders(array);
 
-                        console.log(dds);
+                        console.log(file.name, dds);
 
                         let format: GLenum;
+                        let gpuFormat: GPUTextureFormat;
 
                         if (dds.format === 'dxt1') {
-                            format = ddsExt?.COMPRESSED_RGB_S3TC_DXT1_EXT;
+                            if (hasGPUBC) {
+                                gpuFormat = 'bc1-rgba-unorm';
+                            } else {
+                                format = ddsExt?.COMPRESSED_RGB_S3TC_DXT1_EXT;
+                            }
                         } else if (dds.format === 'dxt3') {
-                            format = ddsExt?.COMPRESSED_RGBA_S3TC_DXT3_EXT;
+                            if (hasGPUBC) {
+                                gpuFormat = 'bc2-rgba-unorm';
+                            } else {
+                                format = ddsExt?.COMPRESSED_RGBA_S3TC_DXT3_EXT;
+                            }
                         } else if (dds.format === 'dxt5') {
-                            format = ddsExt?.COMPRESSED_RGBA_S3TC_DXT5_EXT;
+                            if (hasGPUBC) {
+                                gpuFormat = 'bc3-rgba-unorm';
+                            } else {
+                                format = ddsExt?.COMPRESSED_RGBA_S3TC_DXT5_EXT;
+                            }
                         } else if (dds.format === 'ati2') {
-                            format = rgtcExt?.COMPRESSED_RED_GREEN_RGTC2_EXT;
+                            if (hasGPUBC) {
+                                gpuFormat = 'bc5-rg-unorm';
+                            } else {
+                                format = rgtcExt?.COMPRESSED_RED_GREEN_RGTC2_EXT;
+                            }
                         }
 
-                        if (format) {
+                        if (gpuFormat) {
+                            modelRenderer.setGPUTextureCompressedImage(
+                                textureName,
+                                gpuFormat,
+                                reader.result as ArrayBuffer,
+                                dds
+                            );
+                        } else if (format) {
                             modelRenderer.setTextureCompressedImage(
                                 textureName,
                                 format as DDS_FORMAT,
                                 reader.result as ArrayBuffer,
-                                dds,
-                                textureFlags
+                                dds
                             );
                         } else {
                             const uint8 = new Uint8Array(array);
@@ -694,8 +812,7 @@ function initDragDrop() {
 
                             modelRenderer.setTextureImageData(
                                 textureName,
-                                datas,
-                                textureFlags
+                                datas
                             );
                         }
 
@@ -707,8 +824,7 @@ function initDragDrop() {
 
                         modelRenderer.setTextureImageData(
                             textureName,
-                            blp.mipmaps.map((_mipmap, i) => getImageData(blp, i)),
-                            textureFlags
+                            blp.mipmaps.map((_mipmap, i) => getImageData(blp, i))
                         );
                         resolve();
                     } else {
@@ -716,7 +832,7 @@ function initDragDrop() {
 
                         img.onload = () => {
                             console.log(file.name, img);
-                            modelRenderer.setTextureImage(textureName, img, textureFlags);
+                            modelRenderer.setTextureImage(textureName, img);
                             resolve();
                         };
 
@@ -750,10 +866,7 @@ function initDragDrop() {
         }
 
         if (dropTarget.getAttribute('data-texture')) {
-            dropTexture(files[0], dropTarget.getAttribute('data-texture'),
-                Number(dropTarget.getAttribute('data-texture-flags'))).then(() => {
-                    handleLoadedTexture();
-                });
+            dropTexture(files[0], dropTarget.getAttribute('data-texture'));
         } else {
             let modelFile;
 
@@ -794,9 +907,9 @@ function initDragDrop() {
             if (texture.Image) {
                 const cleanupName = texture.Image.replace(CLEANUP_NAME_REGEXP, '$1').toLowerCase();
                 if (cleanupName in textures) {
-                    promises.push(dropTexture(textures[cleanupName], texture.Image, texture.Flags));
-                } else {
-                    loadTexture('empty.png', texture.Image, 0);
+                    promises.push(dropTexture(textures[cleanupName], texture.Image));
+                } else if (!gpuDevice) {
+                    loadTexture('empty.png', texture.Image);
                 }
             }
         }

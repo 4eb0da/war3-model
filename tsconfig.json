@@ -14,7 +14,8 @@
 		"noUnusedParameters": true,
         "pretty": true,
         "noEmit": true,
-        "lib": ["DOM"]
+        "lib": ["DOM"],
+        "skipLibCheck": true
     },
     "exclude": [
         "node_modules",

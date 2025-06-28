@@ -1,67 +1,18 @@
+/// <reference types="vite/client" />
+/// <reference types="@webgpu/types" />
+
 import {getShader} from './util';
 import {RendererData} from './rendererData';
 import {ModelInterp} from './modelInterp';
 import {FilterMode, Layer, LayerShading, Material, RibbonEmitter} from '../model';
 import {mat4, vec3} from 'gl-matrix';
-
-const vertexShader = `
-    attribute vec3 aVertexPosition;
-    attribute vec2 aTextureCoord;
-
-    uniform mat4 uMVMatrix;
-    uniform mat4 uPMatrix;
-
-    varying vec2 vTextureCoord;
-
-    void main(void) {
-        vec4 position = vec4(aVertexPosition, 1.0);
-        gl_Position = uPMatrix * uMVMatrix * position;
-        vTextureCoord = aTextureCoord;
-    }
-`;
-
-const fragmentShader = `
-    precision mediump float;
-
-    varying vec2 vTextureCoord;
-
-    uniform sampler2D uSampler;
-    uniform vec3 uReplaceableColor;
-    uniform float uReplaceableType;
-    uniform float uDiscardAlphaLevel;
-    uniform vec4 uColor;
-
-    float hypot (vec2 z) {
-        float t;
-        float x = abs(z.x);
-        float y = abs(z.y);
-        t = min(x, y);
-        x = max(x, y);
-        t = t / x;
-        return (z.x == 0.0 && z.y == 0.0) ? 0.0 : x * sqrt(1.0 + t * t);
-    }
-
-    void main(void) {
-        vec2 coords = vec2(vTextureCoord.s, vTextureCoord.t);
-        if (uReplaceableType == 0.) {
-            gl_FragColor = texture2D(uSampler, coords);
-        } else if (uReplaceableType == 1.) {
-            gl_FragColor = vec4(uReplaceableColor, 1.0);
-        } else if (uReplaceableType == 2.) {
-            float dist = hypot(coords - vec2(0.5, 0.5)) * 2.;
-            float truncateDist = clamp(1. - dist * 1.4, 0., 1.);
-            float alpha = sin(truncateDist);
-            gl_FragColor = vec4(uReplaceableColor * alpha, 1.0);
-        }
-        gl_FragColor *= uColor;
-        
-        if (gl_FragColor[3] < uDiscardAlphaLevel) {
-            discard;
-        }
-    }
-`;
+import vertexShader from './shaders/webgl/ribbon.vs.glsl?raw';
+import fragmentShader from './shaders/webgl/ribbon.fs.glsl?raw';
+import ribbonShader from './shaders/webgpu/ribbons.wgsl?raw';
 
 interface RibbonEmitterWrapper {
+    index: number;
+
     emission: number;
     props: RibbonEmitter;
     capacity: number;
@@ -71,9 +22,13 @@ interface RibbonEmitterWrapper {
     // xyz
     vertices: Float32Array;
     vertexBuffer: WebGLBuffer;
+    vertexGPUBuffer: GPUBuffer;
     // xy
     texCoords: Float32Array;
     texCoordBuffer: WebGLBuffer;
+    texCoordGPUBuffer: GPUBuffer;
+
+    fsUnifrmsPerLayer: GPUBuffer[];
 }
 
 export class RibbonsController {
@@ -81,6 +36,15 @@ export class RibbonsController {
     private shaderProgram: WebGLProgram;
     private vertexShader: WebGLShader;
     private fragmentShader: WebGLShader;
+
+    private device: GPUDevice;
+    private gpuShaderModule: GPUShaderModule;
+    private gpuPipelineLayout: GPUPipelineLayout;
+    private gpuPipelines: GPURenderPipeline[];
+    private vsBindGroupLayout: GPUBindGroupLayout | null;
+    private fsBindGroupLayout: GPUBindGroupLayout | null;
+    private gpuVSUniformsBuffer: GPUBuffer;
+    private gpuVSUniformsBindGroup: GPUBindGroup;
 
     private shaderProgramLocations: {
         vertexPositionAttribute: number,
@@ -116,8 +80,12 @@ export class RibbonsController {
         this.emitters = [];
 
         if (rendererData.model.RibbonEmitters.length) {
-            for (const ribbonEmitter of rendererData.model.RibbonEmitters) {
+            for (let i = 0; i < rendererData.model.RibbonEmitters.length; ++i) {
+                const ribbonEmitter = rendererData.model.RibbonEmitters[i];
+
                 const emitter: RibbonEmitterWrapper = {
+                    index: i,
+
                     emission: 0,
                     props: ribbonEmitter,
                     capacity: 0,
@@ -125,8 +93,11 @@ export class RibbonsController {
                     creationTimes: [],
                     vertices: null,
                     vertexBuffer: null,
+                    vertexGPUBuffer: null,
                     texCoords: null,
-                    texCoordBuffer: null
+                    texCoordBuffer: null,
+                    texCoordGPUBuffer: null,
+                    fsUnifrmsPerLayer: []
                 };
 
                 emitter.baseCapacity = Math.ceil(
@@ -153,6 +124,15 @@ export class RibbonsController {
             this.gl.deleteProgram(this.shaderProgram);
             this.shaderProgram = null;
         }
+        if (this.gpuVSUniformsBuffer) {
+            this.gpuVSUniformsBuffer.destroy();
+            this.gpuVSUniformsBuffer = null;
+        }
+        for (const emitter of this.emitters) {
+            for (const buffer of emitter.fsUnifrmsPerLayer) {
+                buffer.destroy();
+            }
+        }
         this.emitters = [];
     }
 
@@ -160,6 +140,232 @@ export class RibbonsController {
         this.gl = glContext;
 
         this.initShaders();
+    }
+
+    public initGPUDevice (device: GPUDevice): void {
+        this.device = device;
+
+        this.gpuShaderModule = device.createShaderModule({
+            label: 'ribbons shader module',
+            code: ribbonShader
+        });
+
+        this.vsBindGroupLayout = this.device.createBindGroupLayout({
+            label: 'ribbons vs bind group layout',
+            entries: [ {
+                binding: 0,
+                visibility: GPUShaderStage.VERTEX,
+                buffer: {
+                    type: 'uniform',
+                    hasDynamicOffset: false,
+                    minBindingSize: 128
+                }
+            }] as const
+        });
+        this.fsBindGroupLayout = this.device.createBindGroupLayout({
+            label: 'ribbons bind group layout2',
+            entries: [
+                {
+                    binding: 0,
+                    visibility: GPUShaderStage.FRAGMENT,
+                    buffer: {
+                    type: 'uniform',
+                        hasDynamicOffset: false,
+                        minBindingSize: 48
+                    }
+                },
+                {
+                    binding: 1,
+                    visibility: GPUShaderStage.FRAGMENT,
+                        sampler: {
+                        type: 'filtering'
+                    }
+                },
+                {
+                    binding: 2,
+                    visibility: GPUShaderStage.FRAGMENT,
+                    texture: {
+                        sampleType: 'float',
+                        viewDimension: "2d",
+                        multisampled: false
+                    }
+                }
+            ] as const
+        });
+
+        this.gpuPipelineLayout = this.device.createPipelineLayout({
+            label: 'ribbons pipeline layout',
+            bindGroupLayouts: [
+                this.vsBindGroupLayout,
+                this.fsBindGroupLayout
+            ]
+        });
+
+        const createPipeline = (name: string, blend: GPUBlendState, depth: GPUDepthStencilState) => {
+            return device.createRenderPipeline({
+                label: `ribbons pipeline ${name}`,
+                layout: this.gpuPipelineLayout,
+                vertex: {
+                    module: this.gpuShaderModule,
+                    buffers: [{
+                        arrayStride: 12,
+                        attributes: [{
+                            shaderLocation: 0,
+                            offset: 0,
+                            format: 'float32x3' as const
+                        }]
+                    }, {
+                        arrayStride: 8,
+                        attributes: [{
+                            shaderLocation: 1,
+                            offset: 0,
+                            format: 'float32x2' as const
+                        }]
+                    }]
+                },
+                fragment: {
+                    module: this.gpuShaderModule,
+                    targets: [{
+                        format: navigator.gpu.getPreferredCanvasFormat(),
+                        blend
+                    }]
+                },
+                depthStencil: depth,
+                primitive: {
+                    topology: 'triangle-strip'
+                }
+            });
+        };
+
+        this.gpuPipelines = [
+            createPipeline('none', {
+                color: {
+                    operation: 'add',
+                    srcFactor: 'one',
+                    dstFactor: 'zero'
+                },
+                alpha: {
+                    operation: 'add',
+                    srcFactor: 'one',
+                    dstFactor: 'zero'
+                }
+            }, {
+                depthWriteEnabled: true,
+                depthCompare: 'less-equal',
+                format: 'depth24plus'
+            }),
+            createPipeline('transparent', {
+                color: {
+                    operation: 'add',
+                    srcFactor: 'src-alpha',
+                    dstFactor: 'one-minus-src-alpha'
+                },
+                alpha: {
+                    operation: 'add',
+                    srcFactor: 'one',
+                    dstFactor: 'one-minus-src-alpha'
+                }
+            }, {
+                depthWriteEnabled: true,
+                depthCompare: 'less-equal',
+                format: 'depth24plus'
+            }),
+            createPipeline('blend', {
+                color: {
+                    operation: 'add',
+                    srcFactor: 'src-alpha',
+                    dstFactor: 'one-minus-src-alpha'
+                },
+                alpha: {
+                    operation: 'add',
+                    srcFactor: 'one',
+                    dstFactor: 'one-minus-src-alpha'
+                }
+            }, {
+                depthWriteEnabled: false,
+                depthCompare: 'less-equal',
+                format: 'depth24plus'
+            }),
+            createPipeline('additive', {
+                color: {
+                    operation: 'add',
+                    srcFactor: 'src',
+                    dstFactor: 'one'
+                },
+                alpha: {
+                    operation: 'add',
+                    srcFactor: 'src',
+                    dstFactor: 'one'
+                }
+            }, {
+                depthWriteEnabled: false,
+                depthCompare: 'less-equal',
+                format: 'depth24plus'
+            }),
+            createPipeline('addAlpha', {
+                color: {
+                    operation: 'add',
+                    srcFactor: 'src-alpha',
+                    dstFactor: 'one'
+                },
+                alpha: {
+                    operation: 'add',
+                    srcFactor: 'src-alpha',
+                    dstFactor: 'one'
+                }
+            }, {
+                depthWriteEnabled: false,
+                depthCompare: 'less-equal',
+                format: 'depth24plus'
+            }),
+            createPipeline('modulate', {
+                color: {
+                    operation: 'add',
+                    srcFactor: 'zero',
+                    dstFactor: 'src'
+                },
+                alpha: {
+                    operation: 'add',
+                    srcFactor: 'zero',
+                    dstFactor: 'one'
+                }
+            }, {
+                depthWriteEnabled: false,
+                depthCompare: 'less-equal',
+                format: 'depth24plus'
+            }),
+            createPipeline('modulate2x', {
+                color: {
+                    operation: 'add',
+                    srcFactor: 'dst',
+                    dstFactor: 'src'
+                },
+                alpha: {
+                    operation: 'add',
+                    srcFactor: 'zero',
+                    dstFactor: 'one'
+                }
+            }, {
+                depthWriteEnabled: false,
+                depthCompare: 'less-equal',
+                format: 'depth24plus'
+            })
+        ];
+
+        this.gpuVSUniformsBuffer = this.device.createBuffer({
+            label: 'ribbons vs uniforms',
+            size: 128,
+            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+        });
+        this.gpuVSUniformsBindGroup = this.device.createBindGroup({
+            layout: this.vsBindGroupLayout,
+            entries: [
+                {
+                    binding: 0,
+                    resource: { buffer: this.gpuVSUniformsBuffer }
+                }
+            ]
+        });
     }
 
     public update (delta: number): void {
@@ -199,6 +405,95 @@ export class RibbonsController {
 
         this.gl.disableVertexAttribArray(this.shaderProgramLocations.vertexPositionAttribute);
         this.gl.disableVertexAttribArray(this.shaderProgramLocations.textureCoordAttribute);
+    }
+
+    public renderGPU (pass: GPURenderPassEncoder, mvMatrix: mat4, pMatrix: mat4): void {
+        const VSUniformsValues = new ArrayBuffer(128);
+        const VSUniformsViews = {
+            mvMatrix: new Float32Array(VSUniformsValues, 0, 16),
+            pMatrix: new Float32Array(VSUniformsValues, 64, 16)
+        };
+        VSUniformsViews.mvMatrix.set(mvMatrix);
+        VSUniformsViews.pMatrix.set(pMatrix);
+        this.device.queue.writeBuffer(this.gpuVSUniformsBuffer, 0, VSUniformsValues);
+
+        for (const emitter of this.emitters) {
+            if (emitter.creationTimes.length < 2) {
+                continue;
+            }
+
+            this.device.queue.writeBuffer(emitter.vertexGPUBuffer, 0, emitter.vertices);
+            this.device.queue.writeBuffer(emitter.texCoordGPUBuffer, 0, emitter.texCoords);
+
+            pass.setVertexBuffer(0, emitter.vertexGPUBuffer);
+            pass.setVertexBuffer(1, emitter.texCoordGPUBuffer);
+
+            pass.setBindGroup(0, this.gpuVSUniformsBindGroup);
+
+            const materialID: number = emitter.props.MaterialID;
+            const material: Material = this.rendererData.model.Materials[materialID];
+
+            for (let j = 0; j < material.Layers.length; ++j) {
+                const textureID = this.rendererData.materialLayerTextureID[materialID][j];
+                const texture = this.rendererData.model.Textures[textureID];
+                const layer = material.Layers[j];
+
+                const pipeline = this.gpuPipelines[layer.FilterMode] || this.gpuPipelines[0];
+                pass.setPipeline(pipeline);
+
+                const fsUniformsValues = new ArrayBuffer(48);
+                const fsUniformsViews = {
+                    replaceableColor: new Float32Array(fsUniformsValues, 0, 3),
+                    replaceableType: new Uint32Array(fsUniformsValues, 12, 1),
+                    discardAlphaLevel: new Float32Array(fsUniformsValues, 16, 1),
+                    color: new Float32Array(fsUniformsValues, 32, 4),
+                };
+
+                fsUniformsViews.replaceableColor.set(this.rendererData.teamColor);
+                fsUniformsViews.replaceableType.set([texture.ReplaceableId || 0]);
+                fsUniformsViews.discardAlphaLevel.set([layer.FilterMode === FilterMode.Transparent ? .75 : 0]);
+                fsUniformsViews.color.set([
+                    emitter.props.Color[0],
+                    emitter.props.Color[1],
+                    emitter.props.Color[2],
+                    this.interp.animVectorVal(emitter.props.Alpha, 1)
+                ]);
+
+                if (!emitter.fsUnifrmsPerLayer[j]) {
+                    emitter.fsUnifrmsPerLayer[j] = this.device.createBuffer({
+                        label: `ribbons fs uniforms ${emitter.index} layer ${j}`,
+                        size: 48,
+                        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+                    });
+                }
+                const fsUniformsBuffer = emitter.fsUnifrmsPerLayer[j];
+
+                this.device.queue.writeBuffer(fsUniformsBuffer, 0, fsUniformsValues);
+
+                const fsUniformsBindGroup = this.device.createBindGroup({
+                    label: `ribbons fs uniforms ${emitter.index}`,
+                    layout: this.fsBindGroupLayout,
+                    entries: [
+                        {
+                            binding: 0,
+                            resource: { buffer: fsUniformsBuffer }
+                        },
+                        {
+                            binding: 1,
+                            resource: this.rendererData.gpuSamplers[textureID]
+                        },
+                        {
+                            binding: 2,
+                            resource: (this.rendererData.gpuTextures[texture.Image] || this.rendererData.gpuEmptyTexture).createView()
+                        }
+                    ]
+                });
+
+                pass.setBindGroup(1, fsUniformsBindGroup);
+
+                pass.draw(emitter.creationTimes.length * 2);
+            }
+        }
     }
 
     private initShaders (): void {
@@ -253,9 +548,25 @@ export class RibbonsController {
 
         emitter.capacity = size;
 
-        if (!emitter.vertexBuffer) {
-            emitter.vertexBuffer = this.gl.createBuffer();
-            emitter.texCoordBuffer = this.gl.createBuffer();
+        if (this.gl) {
+            if (!emitter.vertexBuffer) {
+                emitter.vertexBuffer = this.gl.createBuffer();
+                emitter.texCoordBuffer = this.gl.createBuffer();
+            }
+        } else if (this.device) {
+            emitter.vertexGPUBuffer?.destroy();
+            emitter.texCoordGPUBuffer?.destroy();
+
+            emitter.vertexGPUBuffer = this.device.createBuffer({
+                label: `ribbon vertex buffer ${emitter.index}`,
+                size: vertices.byteLength,
+                usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST
+            });
+            emitter.texCoordGPUBuffer = this.device.createBuffer({
+                label: `ribbon texCoord buffer ${emitter.index}`,
+                size: texCoords.byteLength,
+                usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST
+            });
         }
     }
 
