@@ -51,12 +51,12 @@ export default defineConfig(() => {
                 entry: 'index.ts',
                 fileName: format => {
                     if (format === 'es') {
-                        return 'es/war3-model.js';
+                        return 'es/war3-model.mjs';
                     }
                     if (format === 'umd') {
                         return 'war3-model.browser.js';
                     }
-                    return 'war3-model.js';
+                    return 'war3-model.cjs';
                 },
                 formats: ['cjs', 'es', 'umd'] as LibraryFormats[],
                 name: 'war3model'

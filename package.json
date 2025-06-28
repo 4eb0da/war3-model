@@ -1,6 +1,6 @@
 {
   "name": "war3-model",
-  "version": "3.4.1",
+  "version": "4.0.0",
   "description": "Warcraft 3 model parser, generator, convertor and previewer",
   "keywords": [
     "warcraft3",
@@ -9,6 +9,7 @@
     "mdx",
     "blp",
     "webgl",
+    "webgpu",
     "typescript",
     "front-end",
     "backend"
@@ -50,19 +51,19 @@
     "rollup": "4.40.1",
     "rollup-plugin-dts": "6.2.1",
     "typescript": "4.8.4",
-    "vite": "6.3.4"
+    "vite": "6.3.5"
   },
   "files": [
     "dist/*"
   ],
-  "main": "dist/war3-model.js",
-  "module": "dist/es/war3-model.js",
+  "main": "dist/war3-model.cjs",
+  "module": "dist/es/war3-model.mjs",
   "typings": "dist/war3-model.d.ts",
   "exports": {
     ".": {
       "types": "./dist/war3-model.d.ts",
-      "require": "./dist/war3-model.js",
-      "import": "./dist/es/war3-model.js"
+      "require": "./dist/war3-model.cjs",
+      "import": "./dist/es/war3-model.mjs"
     },
     "./dist/": "./dist/"
   },

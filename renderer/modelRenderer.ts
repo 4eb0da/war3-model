@@ -68,13 +68,13 @@ interface WebGLProgramObject<A extends string, U extends string> {
     uniforms: Record<U, WebGLUniformLocation>;
 }
 
-const vertexShaderHardwareSkinning = vertexShaderHardwareSkinningSource.replace(/\$\{MAX_NODES}/g, String(MAX_NODES));
-const vertexShaderHDHardwareSkinningOld = vertexShaderHDHardwareSkinningOldSource.replace(/\$\{MAX_NODES}/g, String(MAX_NODES));
-const vertexShaderHDHardwareSkinningNew = vertexShaderHDHardwareSkinningNewSource.replace(/\$\{MAX_NODES}/g, String(MAX_NODES));
-const fragmentShaderHDNew = fragmentShaderHDNewSource.replace(/\$\{MAX_ENV_MIP_LEVELS}/g, String(MAX_ENV_MIP_LEVELS.toFixed(1)));
-const sdShader = sdShaderSource.replace(/\$\{MAX_NODES}/g, String(MAX_NODES));
-const hdShader = hdShaderSource.replace(/\$\{MAX_NODES}/g, String(MAX_NODES)).replace(/\$\{MAX_ENV_MIP_LEVELS}/g, String(MAX_ENV_MIP_LEVELS.toFixed(1)));
-const depthShader = depthShaderSource.replace(/\$\{MAX_NODES}/g, String(MAX_NODES));
+const vertexShaderHardwareSkinning = /*#__PURE__*/ vertexShaderHardwareSkinningSource.replace(/\$\{MAX_NODES}/g, String(MAX_NODES));
+const vertexShaderHDHardwareSkinningOld = /*#__PURE__*/ vertexShaderHDHardwareSkinningOldSource.replace(/\$\{MAX_NODES}/g, String(MAX_NODES));
+const vertexShaderHDHardwareSkinningNew = /*#__PURE__*/ vertexShaderHDHardwareSkinningNewSource.replace(/\$\{MAX_NODES}/g, String(MAX_NODES));
+const fragmentShaderHDNew = /*#__PURE__*/ fragmentShaderHDNewSource.replace(/\$\{MAX_ENV_MIP_LEVELS}/g, String(MAX_ENV_MIP_LEVELS.toFixed(1)));
+const sdShader = /*#__PURE__*/ sdShaderSource.replace(/\$\{MAX_NODES}/g, String(MAX_NODES));
+const hdShader = /*#__PURE__*/ hdShaderSource.replace(/\$\{MAX_NODES}/g, String(MAX_NODES)).replace(/\$\{MAX_ENV_MIP_LEVELS}/g, String(MAX_ENV_MIP_LEVELS.toFixed(1)));
+const depthShader = /*#__PURE__*/ depthShaderSource.replace(/\$\{MAX_NODES}/g, String(MAX_NODES));
 
 const translation = vec3.create();
 const rotation = quat.create();
