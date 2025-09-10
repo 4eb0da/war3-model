@@ -51,7 +51,7 @@
     "rollup": "4.40.1",
     "rollup-plugin-dts": "6.2.1",
     "typescript": "4.8.4",
-    "vite": "6.3.5"
+    "vite": "6.3.6"
   },
   "files": [
     "dist/*"
