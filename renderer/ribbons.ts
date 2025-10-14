@@ -10,6 +10,8 @@ import vertexShader from './shaders/webgl/ribbon.vs.glsl?raw';
 import fragmentShader from './shaders/webgl/ribbon.fs.glsl?raw';
 import ribbonShader from './shaders/webgpu/ribbons.wgsl?raw';
 
+const MULTISAMPLE = 4;
+
 interface RibbonEmitterWrapper {
     index: number;
 
@@ -233,6 +235,9 @@ export class RibbonsController {
                 depthStencil: depth,
                 primitive: {
                     topology: 'triangle-strip'
+                },
+                multisample: {
+                    count: MULTISAMPLE
                 }
             });
         };
