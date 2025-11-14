@@ -45,7 +45,7 @@
     "@typescript-eslint/eslint-plugin": "5.43.0",
     "@typescript-eslint/parser": "5.43.0",
     "dds-parser": "1.0.1",
-    "eslint": "7.32.0",
+    "eslint": "9.39.1",
     "husky": "7.0.4",
     "monaco-editor": "0.27.0",
     "rollup": "4.40.1",
