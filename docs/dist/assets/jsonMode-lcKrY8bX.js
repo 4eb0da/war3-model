@@ -1,4 +1,4 @@
-import{e as J,R as Mt,l as W,a as fe}from"./convert-Dugc0jZn.js";import"./modulepreload-polyfill-_HzmMr5C.js";import"./shim-C4SHjc5J.js";import"./generate-LVWF5mo4.js";/*!
+import{e as J,R as Mt,l as W,a as fe}from"./convert-BXKCkRzW.js";import"./modulepreload-polyfill-_HzmMr5C.js";import"./shim-C4SHjc5J.js";import"./generate-LVWF5mo4.js";/*!
     war3-model v4.0.0
 	https://github.com/4eb0da/war3-model
 	Released under the MIT License.
