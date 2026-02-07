@@ -132,3 +132,7 @@ button {
     flex-direction: row;
     flex-wrap: wrap;
 }
+
+.github {
+    margin-top: auto;
+}
