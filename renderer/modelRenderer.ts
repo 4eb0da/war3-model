@@ -867,16 +867,32 @@ export class ModelRenderer {
                 if (typeof TextureID === 'number') {
                     this.rendererData.materialLayerTextureID[materialId][layerId] = TextureID;
                 } else {
-                    this.rendererData.materialLayerTextureID[materialId][layerId] = this.interp.num(TextureID);
+                    const discreteResult = this.interp.discreteNum(TextureID);
+                    this.rendererData.materialLayerTextureID[materialId][layerId] = discreteResult !== null ? discreteResult : 0;
                 }
                 if (typeof NormalTextureID !== 'undefined') {
-                    this.rendererData.materialLayerNormalTextureID[materialId][layerId] = typeof NormalTextureID === 'number' ? NormalTextureID : this.interp.num(NormalTextureID);
+                    if (typeof NormalTextureID === 'number') {
+                        this.rendererData.materialLayerNormalTextureID[materialId][layerId] = NormalTextureID;
+                    } else {
+                        const discreteResult = this.interp.discreteNum(NormalTextureID);
+                        this.rendererData.materialLayerNormalTextureID[materialId][layerId] = discreteResult !== null ? discreteResult : 0;
+                    }
                 }
                 if (typeof ORMTextureID !== 'undefined') {
-                    this.rendererData.materialLayerOrmTextureID[materialId][layerId] = typeof ORMTextureID === 'number' ? ORMTextureID : this.interp.num(ORMTextureID);
+                    if (typeof ORMTextureID === 'number') {
+                        this.rendererData.materialLayerOrmTextureID[materialId][layerId] = ORMTextureID;
+                    } else {
+                        const discreteResult = this.interp.discreteNum(ORMTextureID);
+                        this.rendererData.materialLayerOrmTextureID[materialId][layerId] = discreteResult !== null ? discreteResult : 0;
+                    }
                 }
                 if (typeof ReflectionsTextureID !== 'undefined') {
-                    this.rendererData.materialLayerReflectionTextureID[materialId][layerId] = typeof ReflectionsTextureID === 'number' ? ReflectionsTextureID : this.interp.num(ReflectionsTextureID);
+                    if (typeof ReflectionsTextureID === 'number') {
+                        this.rendererData.materialLayerReflectionTextureID[materialId][layerId] = ReflectionsTextureID;
+                    } else {
+                        const discreteResult = this.interp.discreteNum(ReflectionsTextureID);
+                        this.rendererData.materialLayerReflectionTextureID[materialId][layerId] = discreteResult !== null ? discreteResult : 0;
+                    }
                 }
             }
         }
@@ -1157,7 +1173,6 @@ export class ModelRenderer {
                         const layer = material.Layers[j];
                         const textureID = this.rendererData.materialLayerTextureID[materialID][j];
                         const texture = this.model.Textures[textureID];
-
                         const pipeline = wireframe ? this.gpuWireframePipeline : this.getGPUPipeline(layer);
                         pass.setPipeline(pipeline);
 
@@ -3638,7 +3653,6 @@ export class ModelRenderer {
 
     private setLayerProps (layer: Layer, textureID: number): void {
         const texture = this.model.Textures[textureID];
-
         if (layer.Shading & LayerShading.TwoSided) {
             this.gl.disable(this.gl.CULL_FACE);
         } else {

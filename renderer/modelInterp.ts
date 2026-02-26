@@ -1,4 +1,4 @@
-import {AnimKeyframe, AnimVector} from '../model';
+import {AnimKeyframe, AnimVector, LineType} from '../model';
 import {findKeyframes, interpNum, interpVec3, interpQuat} from './interp';
 import {vec3, quat} from 'gl-matrix';
 import {RendererData} from './rendererData';
@@ -69,6 +69,32 @@ export class ModelInterp {
         }
 
         return res;
+    }
+
+    /**
+     * 获取动画向量的整数值，用于纹理ID等离散值
+     * 对于离散值，不进行插值，而是选择适当的关键帧值
+     * 防止一些插值算法产生的浮点数误差
+     * @param animVector 动画向量
+     * @returns 整数值，找不到关键帧时返回null
+     */
+    public discreteNum (animVector: AnimVector): number|null {
+        const res = this.findKeyframes(animVector);
+        if (!res) {
+            return null;
+        }
+        
+        // 如果动画类型本身就是不插值的，直接返回左侧关键帧的值
+        if (animVector.LineType === LineType.DontInterp) {
+            return Math.round(res.left.Vector[0]);
+        }
+        
+        // 对于其他类型，选择最近的关键帧值，避免插值产生的浮点数
+        const leftDistance = Math.abs(res.frame - res.left.Frame);
+        const rightDistance = Math.abs(res.frame - res.right.Frame);
+        
+        const closestKeyframe = leftDistance <= rightDistance ? res.left : res.right;
+        return Math.round(closestKeyframe.Vector[0]); // 确保返回整数
     }
 
     public findKeyframes (animVector: AnimVector): null | {frame: number, left: AnimKeyframe, right: AnimKeyframe} {

@@ -12,6 +12,8 @@ import vertexShader from './shaders/webgl/particles.vs.glsl?raw';
 import fragmentShader from './shaders/webgl/particles.fs.glsl?raw';
 import particlesShader from './shaders/webgpu/particles.wgsl?raw';
 
+const MULTISAMPLE = 4;
+
 const rotateCenter: vec3 = vec3.fromValues(0, 0, 0);
 const firstColor = vec4.create();
 const secondColor = vec4.create();
@@ -324,7 +326,10 @@ export class ParticlesController {
                         blend
                     }]
                 },
-                depthStencil: depth
+                depthStencil: depth,
+                multisample: {
+                    count: MULTISAMPLE
+                }
             });
         };
 
