@@ -8,13 +8,14 @@
         // "allowJs": true,
         "resolveJsonModule": true,
         "esModuleInterop": true,
-        "moduleResolution": "node",
+        "moduleResolution": "bundler",
 		"noEmitOnError": true,
 		"noUnusedLocals": true,
 		"noUnusedParameters": true,
         "pretty": true,
         "noEmit": true,
         "lib": ["DOM"],
+        "types": ["@webgpu/types"],
         "skipLibCheck": true
     },
     "exclude": [

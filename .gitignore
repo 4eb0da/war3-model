@@ -5,3 +5,4 @@ node_modules
 *.js.map
 *.d.ts
 !third_party/decoder.js
+!eslint.config.js
