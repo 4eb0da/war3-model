@@ -43,27 +43,27 @@ interface ParticleEmitterWrapper {
     type: number;
 
     // xyz
-    tailVertices: Float32Array;
+    tailVertices: Float32Array<ArrayBuffer>;
     tailVertexBuffer: WebGLBuffer;
     tailVertexGPUBuffer: GPUBuffer;
     // xyz
-    headVertices: Float32Array;
+    headVertices: Float32Array<ArrayBuffer>;
     headVertexBuffer: WebGLBuffer;
     headVertexGPUBuffer: GPUBuffer;
     // xy
-    tailTexCoords: Float32Array;
+    tailTexCoords: Float32Array<ArrayBuffer>;
     tailTexCoordBuffer: WebGLBuffer;
     tailTexCoordGPUBuffer: GPUBuffer;
     // xy
-    headTexCoords: Float32Array;
+    headTexCoords: Float32Array<ArrayBuffer>;
     headTexCoordBuffer: WebGLBuffer;
     headTexCoordGPUBuffer: GPUBuffer;
     // rgba
-    colors: Float32Array;
+    colors: Float32Array<ArrayBuffer>;
     colorBuffer: WebGLBuffer;
     colorGPUBuffer: GPUBuffer;
     // 2 * triangles
-    indices: Uint16Array;
+    indices: Uint16Array<ArrayBuffer>;
     indexBuffer: WebGLBuffer;
     indexGPUBuffer: GPUBuffer;
 

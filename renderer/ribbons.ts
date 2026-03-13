@@ -20,11 +20,11 @@ interface RibbonEmitterWrapper {
     creationTimes: number[];
 
     // xyz
-    vertices: Float32Array;
+    vertices: Float32Array<ArrayBuffer>;
     vertexBuffer: WebGLBuffer;
     vertexGPUBuffer: GPUBuffer;
     // xy
-    texCoords: Float32Array;
+    texCoords: Float32Array<ArrayBuffer>;
     texCoordBuffer: WebGLBuffer;
     texCoordGPUBuffer: GPUBuffer;
 

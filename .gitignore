@@ -5,3 +5,4 @@ node_modules
 *.d.ts
 !third_party/decoder.js
 !/docs/dist/**/*.js
+!eslint.config.js

@@ -135,7 +135,7 @@ async function initGL() {
                 });
                 return;
             }
-        } catch (err) {
+        } catch (_err) {
             gpuDevice = null;
             gpuContext?.unconfigure();
             gpuContext = null;

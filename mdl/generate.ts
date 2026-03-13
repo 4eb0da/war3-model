@@ -819,7 +819,7 @@ function generateCollisionShapes (model: Model): string {
 }
 
 function generateCollisionShapeChunk (collisionShape: CollisionShape): string {
-    let middle = '';
+    let middle;
 
     if (collisionShape.Shape === CollisionShapeType.Box) {
         middle = generateBooleanProp('Box');

@@ -28,30 +28,28 @@
     "prepublishOnly": "npm run build-lib",
     "prepare": "husky install",
     "dev": "vite",
-    "build-lib": "rm -rf dist && vite build && rollup --config rollup.config.ts --configPlugin typescript",
-    "build-samples": "rm -rf docs/dist && SAMPLES=1 npx vite build",
+    "build-lib": "vite build",
+    "build-samples": "SAMPLES=1 vite build",
     "typecheck": "tsc --noEmit",
     "lint": "eslint --ext .ts ."
   },
   "dependencies": {
-    "@webgpu/types": "0.1.60",
     "gl-matrix": "3.3.0"
   },
   "devDependencies": {
-    "@rollup/plugin-typescript": "12.1.2",
-    "@types/eslint": "7.29.0",
-    "@types/estree": "0.0.51",
-    "@types/node": "22.15.3",
-    "@typescript-eslint/eslint-plugin": "5.43.0",
-    "@typescript-eslint/parser": "5.43.0",
+    "@eslint/js": "10.0.1",
+    "@types/eslint": "9.6.1",
+    "@types/estree": "1.0.8",
+    "@types/node": "25.5.0",
+    "@webgpu/types": "0.1.69",
     "dds-parser": "1.0.1",
-    "eslint": "7.32.0",
+    "eslint": "10.0.3",
     "husky": "7.0.4",
-    "monaco-editor": "0.27.0",
-    "rollup": "4.40.1",
-    "rollup-plugin-dts": "6.2.1",
-    "typescript": "4.8.4",
-    "vite": "6.3.5"
+    "monaco-editor": "0.55.1",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.57.0",
+    "vite": "8.0.0",
+    "vite-plugin-dts": "4.5.4"
   },
   "files": [
     "dist/*"

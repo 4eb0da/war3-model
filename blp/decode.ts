@@ -25,7 +25,7 @@ function bitVal (data: Uint8Array, bitCount: number, index: number): number {
 interface ImageDataLike {
     width: number;
     height: number;
-    data: Uint8ClampedArray;
+    data: ImageDataArray;
     colorSpace: 'srgb' | 'display-p3' | undefined;
 }
 
