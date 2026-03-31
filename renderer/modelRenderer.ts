@@ -351,6 +351,34 @@ export class ModelRenderer {
     private gpuFSUniformsBuffers: GPUBuffer[][] = [];
     private debugMessagesLogged = new Set<string>();
 
+    private isDebugLoggingEnabled (): boolean {
+        const runtime = globalThis as typeof globalThis & {
+            __WAR3_MODEL_DEBUG?: boolean | string | number;
+            location?: { search?: string };
+            localStorage?: { getItem(key: string): string | null };
+        };
+        const debugFlag = runtime.__WAR3_MODEL_DEBUG;
+        if (debugFlag === true || debugFlag === '1' || debugFlag === 1 || debugFlag === 'true') {
+            return true;
+        }
+        try {
+            if (runtime.location?.search && /(?:\?|&)war3ModelDebug=(?:1|true)(?:&|$)/i.test(runtime.location.search)) {
+                return true;
+            }
+        } catch {
+            // ignore runtime-specific access issues
+        }
+        try {
+            const storedValue = runtime.localStorage?.getItem('war3-model-debug');
+            if (storedValue === '1' || storedValue === 'true') {
+                return true;
+            }
+        } catch {
+            // ignore storage access issues
+        }
+        return false;
+    }
+
     constructor(model: Model) {
         this.isHD = model.Geosets?.some(it => it.SkinWeights?.length > 0);
 
@@ -489,6 +517,9 @@ export class ModelRenderer {
     }
 
     private debugLogOnce (key: string, ...args: unknown[]): void {
+        if (!this.isDebugLoggingEnabled()) {
+            return;
+        }
         if (this.debugMessagesLogged.has(key)) {
             return;
         }
