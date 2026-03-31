@@ -157,7 +157,7 @@ const GPU_LAYER_PROPS: [string, GPUBlendState, GPUDepthStencilState][] = [['none
     },
     alpha: {
         operation: 'add',
-        srcFactor: 'src',
+        srcFactor: 'one',
         dstFactor: 'one'
     }
 }, {
@@ -243,12 +243,15 @@ export class ModelRenderer {
         pMatrixUniform: WebGLUniformLocation | null;
         mvMatrixUniform: WebGLUniformLocation | null;
         samplerUniform: WebGLUniformLocation | null;
+        maskSamplerUniform: WebGLUniformLocation | null;
         normalSamplerUniform: WebGLUniformLocation | null;
         ormSamplerUniform: WebGLUniformLocation | null;
         replaceableColorUniform: WebGLUniformLocation | null;
         replaceableTypeUniform: WebGLUniformLocation | null;
+        layerAlphaUniform: WebGLUniformLocation | null;
         discardAlphaLevelUniform: WebGLUniformLocation | null;
         tVertexAnimUniform: WebGLUniformLocation | null;
+        useReplaceableMaskUniform: WebGLUniformLocation | null;
         wireframeUniform: WebGLUniformLocation | null;
         nodesMatricesAttributes: (WebGLUniformLocation | null)[];
         lightPosUniform: WebGLUniformLocation | null;
@@ -346,6 +349,7 @@ export class ModelRenderer {
     private gpuVSUniformsBuffer: GPUBuffer;
     private gpuVSUniformsBindGroup: GPUBindGroup;
     private gpuFSUniformsBuffers: GPUBuffer[][] = [];
+    private debugMessagesLogged = new Set<string>();
 
     constructor(model: Model) {
         this.isHD = model.Geosets?.some(it => it.SkinWeights?.length > 0);
@@ -361,12 +365,15 @@ export class ModelRenderer {
             pMatrixUniform: null,
             mvMatrixUniform: null,
             samplerUniform: null,
+            maskSamplerUniform: null,
             normalSamplerUniform: null,
             ormSamplerUniform: null,
             replaceableColorUniform: null,
             replaceableTypeUniform: null,
+            layerAlphaUniform: null,
             discardAlphaLevelUniform: null,
             tVertexAnimUniform: null,
+            useReplaceableMaskUniform: null,
             wireframeUniform: null,
             nodesMatricesAttributes: null,
             lightPosUniform: null,
@@ -479,6 +486,15 @@ export class ModelRenderer {
         this.interp = new ModelInterp(this.rendererData);
         this.particlesController = new ParticlesController(this.interp, this.rendererData);
         this.ribbonsController = new RibbonsController(this.interp, this.rendererData);
+    }
+
+    private debugLogOnce (key: string, ...args: unknown[]): void {
+        if (this.debugMessagesLogged.has(key)) {
+            return;
+        }
+
+        this.debugMessagesLogged.add(key);
+        console.log('[war3-model]', ...args);
     }
 
     public destroy (): void {
@@ -651,6 +667,12 @@ export class ModelRenderer {
     }
 
     public setTextureImage (path: string, img: HTMLImageElement): void {
+        this.debugLogOnce(`texture-image:${path}`, 'Uploading texture image', {
+            path,
+            width: img.width,
+            height: img.height,
+        });
+
         if (this.device) {
             const texture = this.rendererData.gpuTextures[path] = this.device.createTexture({
                 size: [img.width, img.height],
@@ -686,6 +708,41 @@ export class ModelRenderer {
     }
 
     public setTextureImageData (path: string, imageData: ImageData[]): void {
+        const data0 = imageData[0]?.data;
+        let minAlpha = 255;
+        let maxAlpha = 0;
+        let zeroAlpha = 0;
+        let fullAlpha = 0;
+        let partialAlpha = 0;
+        if (data0) {
+            for (let i = 3; i < data0.length; i += 4) {
+                const alpha = data0[i];
+                if (alpha < minAlpha) minAlpha = alpha;
+                if (alpha > maxAlpha) maxAlpha = alpha;
+                if (alpha === 0) {
+                    zeroAlpha++;
+                } else if (alpha === 255) {
+                    fullAlpha++;
+                } else {
+                    partialAlpha++;
+                }
+            }
+        }
+        this.debugLogOnce(`texture-imagedata:${path}`, 'Uploading texture image data', {
+            path,
+            mipLevels: imageData.length,
+            width: imageData[0]?.width,
+            height: imageData[0]?.height,
+            firstPixelAlpha: imageData[0]?.data[3],
+            secondPixelAlpha: imageData[0]?.data[7],
+            thirdPixelAlpha: imageData[0]?.data[11],
+            minAlpha,
+            maxAlpha,
+            zeroAlpha,
+            fullAlpha,
+            partialAlpha,
+        });
+
         let count = 1;
         for (let i = 1; i < imageData.length; ++i, ++count) {
             if (
@@ -1157,6 +1214,17 @@ export class ModelRenderer {
                         const layer = material.Layers[j];
                         const textureID = this.rendererData.materialLayerTextureID[materialID][j];
                         const texture = this.model.Textures[textureID];
+                        this.debugLogOnce(`gpu-sd-geoset:${i}:layer:${j}`, 'Rendering GPU SD geoset layer', {
+                            geosetId: i,
+                            materialID,
+                            layerIndex: j,
+                            textureID,
+                            texturePath: texture?.Image || null,
+                            replaceableId: texture?.ReplaceableId ?? null,
+                            geosetAlpha: this.rendererData.geosetAlpha[i],
+                            filterMode: layer.FilterMode,
+                            shading: layer.Shading,
+                        });
 
                         const pipeline = wireframe ? this.gpuWireframePipeline : this.getGPUPipeline(layer);
                         pass.setPipeline(pipeline);
@@ -1179,12 +1247,32 @@ export class ModelRenderer {
                             replaceableColor: new Float32Array(FSUniformsValues, 0, 3),
                             replaceableType: new Uint32Array(FSUniformsValues, 12, 1),
                             discardAlphaLevel: new Float32Array(FSUniformsValues, 16, 1),
-                            wireframe: new Uint32Array(FSUniformsValues, 20, 1),
+                            layerAlpha: new Float32Array(FSUniformsValues, 20, 1),
+                            wireframe: new Uint32Array(FSUniformsValues, 24, 1),
+                            useReplaceableMask: new Uint32Array(FSUniformsValues, 28, 1),
                             tVertexAnim: new Float32Array(FSUniformsValues, 32, 12),
                         };
+                        const maskTextureID = texture.ReplaceableId === 1 || texture.ReplaceableId === 2 ?
+                            this.getReplaceableMaskTextureID(materialID, j) :
+                            null;
+                        const maskTexture = maskTextureID === null ? null : this.model.Textures[maskTextureID];
+                        this.debugLogOnce(`gpu-sd-layer-setup:${materialID}:${j}`, 'GPU SD material layer setup', {
+                            materialID,
+                            layerIndex: j,
+                            textureID,
+                            texturePath: texture?.Image || null,
+                            replaceableId: texture?.ReplaceableId ?? null,
+                            maskTextureID,
+                            maskTexturePath: maskTexture?.Image || null,
+                            layerAlpha: this.getLayerAlpha(layer),
+                            filterMode: layer.FilterMode,
+                            shading: layer.Shading,
+                        });
                         FSUniformsViews.replaceableColor.set(this.rendererData.teamColor);
                         FSUniformsViews.replaceableType.set([texture.ReplaceableId || 0]);
                         FSUniformsViews.discardAlphaLevel.set([layer.FilterMode === FilterMode.Transparent ? .75 : 0]);
+                        FSUniformsViews.layerAlpha.set([this.getLayerAlpha(layer)]);
+                        FSUniformsViews.useReplaceableMask.set([maskTexture ? 1 : 0]);
                         FSUniformsViews.tVertexAnim.set(tVetexAnim.slice(0, 3));
                         FSUniformsViews.tVertexAnim.set(tVetexAnim.slice(3, 6), 4);
                         FSUniformsViews.tVertexAnim.set(tVetexAnim.slice(6, 9), 8);
@@ -1206,6 +1294,14 @@ export class ModelRenderer {
                                 {
                                     binding: 2,
                                     resource: (this.rendererData.gpuTextures[texture.Image] || this.rendererData.gpuEmptyTexture).createView()
+                                },
+                                {
+                                    binding: 3,
+                                    resource: this.rendererData.gpuSamplers[maskTextureID ?? textureID]
+                                },
+                                {
+                                    binding: 4,
+                                    resource: ((maskTexture?.Image && this.rendererData.gpuTextures[maskTexture.Image]) || this.rendererData.gpuEmptyTexture).createView()
                                 }
                             ]
                         });
@@ -1354,8 +1450,32 @@ export class ModelRenderer {
                     this.gl.bindTexture(this.gl.TEXTURE_2D, null);
                 }
             } else {
+                let skipLayerIndex = -1;
                 for (let j = 0; j < material.Layers.length; ++j) {
-                    this.setLayerProps(material.Layers[j], this.rendererData.materialLayerTextureID[materialID][j]);
+                    if (j === skipLayerIndex) {
+                        continue;
+                    }
+                    const textureID = this.rendererData.materialLayerTextureID[materialID][j];
+                    const texture = this.model.Textures[textureID];
+                    const maskLayerIndex = texture?.ReplaceableId === 1 || texture?.ReplaceableId === 2 ?
+                        this.getReplaceableMaskLayerIndex(materialID, j) :
+                        null;
+                    this.debugLogOnce(`sd-geoset:${i}:layer:${j}`, 'Rendering SD geoset layer', {
+                        geosetId: i,
+                        materialID,
+                        layerIndex: j,
+                        textureID,
+                        texturePath: texture?.Image || null,
+                        replaceableId: texture?.ReplaceableId ?? null,
+                        maskLayerIndex,
+                        geosetAlpha: this.rendererData.geosetAlpha[i],
+                        filterMode: material.Layers[j].FilterMode,
+                        shading: material.Layers[j].Shading,
+                    });
+                    this.setLayerProps(materialID, j, material.Layers[j], this.rendererData.materialLayerTextureID[materialID][j]);
+                    if (maskLayerIndex !== null && maskLayerIndex > j) {
+                        skipLayerIndex = maskLayerIndex;
+                    }
 
                     this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.vertexBuffer[i]);
                     this.gl.vertexAttribPointer(this.shaderProgramLocations.vertexPositionAttribute, 3, this.gl.FLOAT, false, 0, 0);
@@ -2419,6 +2539,7 @@ export class ModelRenderer {
         this.shaderProgramLocations.pMatrixUniform = this.gl.getUniformLocation(shaderProgram, 'uPMatrix');
         this.shaderProgramLocations.mvMatrixUniform = this.gl.getUniformLocation(shaderProgram, 'uMVMatrix');
         this.shaderProgramLocations.samplerUniform = this.gl.getUniformLocation(shaderProgram, 'uSampler');
+        this.shaderProgramLocations.maskSamplerUniform = this.gl.getUniformLocation(shaderProgram, 'uMaskSampler');
         this.shaderProgramLocations.replaceableColorUniform = this.gl.getUniformLocation(shaderProgram, 'uReplaceableColor');
         if (this.isHD) {
             this.shaderProgramLocations.normalSamplerUniform = this.gl.getUniformLocation(shaderProgram, 'uNormalSampler');
@@ -2438,8 +2559,10 @@ export class ModelRenderer {
         } else {
             this.shaderProgramLocations.replaceableTypeUniform = this.gl.getUniformLocation(shaderProgram, 'uReplaceableType');
         }
+        this.shaderProgramLocations.layerAlphaUniform = this.gl.getUniformLocation(shaderProgram, 'uLayerAlpha');
         this.shaderProgramLocations.discardAlphaLevelUniform = this.gl.getUniformLocation(shaderProgram, 'uDiscardAlphaLevel');
         this.shaderProgramLocations.tVertexAnimUniform = this.gl.getUniformLocation(shaderProgram, 'uTVertexAnim');
+        this.shaderProgramLocations.useReplaceableMaskUniform = this.gl.getUniformLocation(shaderProgram, 'uUseReplaceableMask');
         this.shaderProgramLocations.wireframeUniform = this.gl.getUniformLocation(shaderProgram, 'uWireframe');
 
         if (!this.softwareSkinning) {
@@ -3071,6 +3194,22 @@ export class ModelRenderer {
                         viewDimension: '2d',
                         multisampled: false
                     }
+                },
+                {
+                    binding: 3,
+                    visibility: GPUShaderStage.FRAGMENT,
+                    sampler: {
+                        type: 'filtering'
+                    }
+                },
+                {
+                    binding: 4,
+                    visibility: GPUShaderStage.FRAGMENT,
+                    texture: {
+                        sampleType: 'float',
+                        viewDimension: '2d',
+                        multisampled: false
+                    }
                 }
             ] as const
         });
@@ -3636,8 +3775,68 @@ export class ModelRenderer {
         }
     }
 
-    private setLayerProps (layer: Layer, textureID: number): void {
+    private getLayerAlpha (layer: Layer): number {
+        if (layer.Alpha === undefined || layer.Alpha === null) {
+            return 1;
+        }
+        if (typeof layer.Alpha === 'number') {
+            return layer.Alpha;
+        }
+        const interpRes = this.interp.num(layer.Alpha);
+        return interpRes === null ? 1 : interpRes;
+    }
+
+    private getReplaceableMaskLayerIndex (materialID: number, layerIndex: number): number | null {
+        for (let i = layerIndex + 1; i < this.rendererData.materialLayerTextureID[materialID].length; ++i) {
+            const textureID = this.rendererData.materialLayerTextureID[materialID][i];
+            const texture = this.model.Textures[textureID];
+
+            if (texture?.Image) {
+                return i;
+            }
+        }
+
+        for (let i = layerIndex - 1; i >= 0; --i) {
+            const textureID = this.rendererData.materialLayerTextureID[materialID][i];
+            const texture = this.model.Textures[textureID];
+
+            if (texture?.Image) {
+                return i;
+            }
+        }
+
+        return null;
+    }
+
+    private getReplaceableMaskTextureID (materialID: number, layerIndex: number): number | null {
+        const maskLayerIndex = this.getReplaceableMaskLayerIndex(materialID, layerIndex);
+        if (maskLayerIndex === null) {
+            return null;
+        }
+        return this.rendererData.materialLayerTextureID[materialID][maskLayerIndex];
+    }
+
+    private setLayerProps (materialID: number, layerIndex: number, layer: Layer, textureID: number): void {
         const texture = this.model.Textures[textureID];
+        const maskTextureID = texture.ReplaceableId === 1 || texture.ReplaceableId === 2 ?
+            this.getReplaceableMaskTextureID(materialID, layerIndex) :
+            null;
+        const maskTexture = maskTextureID === null ? null : this.model.Textures[maskTextureID];
+
+        this.debugLogOnce(`sd-layer-setup:${materialID}:${layerIndex}`, 'SD material layer setup', {
+            materialID,
+            layerIndex,
+            textureID,
+            texturePath: texture?.Image || null,
+            replaceableId: texture?.ReplaceableId ?? null,
+            maskTextureID,
+            maskTexturePath: maskTexture?.Image || null,
+            layerAlpha: this.getLayerAlpha(layer),
+            filterMode: layer.FilterMode,
+            shading: layer.Shading,
+            coordId: layer.CoordId,
+            tVertexAnimId: layer.TVertexAnimId ?? null,
+        });
 
         if (layer.Shading & LayerShading.TwoSided) {
             this.gl.disable(this.gl.CULL_FACE);
@@ -3697,6 +3896,13 @@ export class ModelRenderer {
             this.gl.uniform3fv(this.shaderProgramLocations.replaceableColorUniform, this.rendererData.teamColor);
             this.gl.uniform1f(this.shaderProgramLocations.replaceableTypeUniform, texture.ReplaceableId);
         }
+
+        this.gl.activeTexture(this.gl.TEXTURE1);
+        this.gl.bindTexture(this.gl.TEXTURE_2D, maskTexture?.Image ? this.rendererData.textures[maskTexture.Image] : null);
+        this.gl.uniform1i(this.shaderProgramLocations.maskSamplerUniform, 1);
+        this.gl.uniform1f(this.shaderProgramLocations.useReplaceableMaskUniform, maskTexture ? 1 : 0);
+        this.gl.uniform1f(this.shaderProgramLocations.layerAlphaUniform, this.getLayerAlpha(layer));
+        this.gl.activeTexture(this.gl.TEXTURE0);
 
         if (layer.Shading & LayerShading.NoDepthTest) {
             this.gl.disable(this.gl.DEPTH_TEST);

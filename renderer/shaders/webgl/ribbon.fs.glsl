@@ -28,7 +28,7 @@ void main(void) {
         float dist = hypot(coords - vec2(0.5, 0.5)) * 2.;
         float truncateDist = clamp(1. - dist * 1.4, 0., 1.);
         float alpha = sin(truncateDist);
-        gl_FragColor = vec4(uReplaceableColor * alpha, 1.0);
+        gl_FragColor = vec4(uReplaceableColor * alpha, alpha);
     }
     gl_FragColor *= uColor;
 
