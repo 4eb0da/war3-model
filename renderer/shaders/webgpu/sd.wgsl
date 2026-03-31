@@ -8,7 +8,9 @@ struct FSUniforms {
     replaceableColor: vec3f,
     replaceableType: u32,
     discardAlphaLevel: f32,
+    layerAlpha: f32,
     wireframe: u32,
+    useReplaceableMask: u32,
     tVertexAnim: mat3x3f,
 }
 
@@ -16,6 +18,8 @@ struct FSUniforms {
 @group(1) @binding(0) var<uniform> fsUniforms: FSUniforms;
 @group(1) @binding(1) var fsUniformSampler: sampler;
 @group(1) @binding(2) var fsUniformTexture: texture_2d<f32>;
+@group(1) @binding(3) var fsMaskSampler: sampler;
+@group(1) @binding(4) var fsMaskTexture: texture_2d<f32>;
 
 struct VSIn {
     @location(0) vertexPosition: vec3f,
@@ -82,6 +86,17 @@ fn hypot(z: vec2f) -> f32 {
 
     let texCoord: vec2f = (fsUniforms.tVertexAnim * vec3f(in.textureCoord.x, in.textureCoord.y, 1.)).xy;
     var color: vec4f = vec4f(0.0);
+    var diffuseAlpha: f32 = 0.0;
+    var teamMask: f32 = 1.0;
+
+    if (fsUniforms.useReplaceableMask != 0) {
+        diffuseAlpha = textureSample(fsMaskTexture, fsMaskSampler, texCoord).a;
+        teamMask = 1.0 - diffuseAlpha;
+    }
+
+    if (fsUniforms.replaceableType != 0 && fsUniforms.useReplaceableMask != 0 && teamMask <= 0.001) {
+        discard;
+    }
 
     if (fsUniforms.replaceableType == 0) {
         color = textureSample(fsUniformTexture, fsUniformSampler, texCoord);
@@ -91,8 +106,10 @@ fn hypot(z: vec2f) -> f32 {
         let dist: f32 = hypot(texCoord - vec2(0.5, 0.5)) * 2.;
         let truncateDist: f32 = clamp(1. - dist * 1.4, 0., 1.);
         let alpha: f32 = sin(truncateDist);
-        color = vec4f(fsUniforms.replaceableColor * alpha, 1.0);
+        color = vec4f(fsUniforms.replaceableColor * alpha * teamMask, alpha * teamMask);
     }
+
+    color *= fsUniforms.layerAlpha;
 
     // hand-made alpha-test
     if (color.a < fsUniforms.discardAlphaLevel) {
