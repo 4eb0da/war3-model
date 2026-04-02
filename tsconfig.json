@@ -4,7 +4,6 @@
 		"forceConsistentCasingInFileNames": true,
 		"isolatedModules": true,
         "module": "esnext",
-        "target": "es5",
         // "allowJs": true,
         "resolveJsonModule": true,
         "esModuleInterop": true,
@@ -16,7 +15,8 @@
         "noEmit": true,
         "lib": ["DOM"],
         "types": ["@webgpu/types"],
-        "skipLibCheck": true
+        "skipLibCheck": true,
+        "strict": false
     },
     "exclude": [
         "node_modules",

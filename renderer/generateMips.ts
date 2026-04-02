@@ -86,7 +86,7 @@ export function generateMips(device: GPUDevice, texture: GPUTexture): void {
                 ]
             });
 
-            const renderPassDescriptor = {
+            const renderPassDescriptor: GPURenderPassDescriptor = {
                 label: 'mips render pass',
                 colorAttachments: [
                     {

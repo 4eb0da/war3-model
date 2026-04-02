@@ -46,7 +46,7 @@
     "eslint": "10.0.3",
     "husky": "7.0.4",
     "monaco-editor": "0.55.1",
-    "typescript": "5.9.3",
+    "typescript": "6.0.2",
     "typescript-eslint": "8.57.0",
     "vite": "8.0.0",
     "vite-plugin-dts": "4.5.4"
