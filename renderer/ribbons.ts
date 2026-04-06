@@ -294,7 +294,7 @@ export class RibbonsController {
                 },
                 alpha: {
                     operation: 'add',
-                    srcFactor: 'src',
+                    srcFactor: 'zero',
                     dstFactor: 'one'
                 }
             }, {
@@ -310,7 +310,7 @@ export class RibbonsController {
                 },
                 alpha: {
                     operation: 'add',
-                    srcFactor: 'src-alpha',
+                    srcFactor: 'zero',
                     dstFactor: 'one'
                 }
             }, {
@@ -685,12 +685,12 @@ export class RibbonsController {
         } else if (layer.FilterMode === FilterMode.Additive) {
             this.gl.enable(this.gl.BLEND);
             this.gl.enable(this.gl.DEPTH_TEST);
-            this.gl.blendFunc(this.gl.SRC_COLOR, this.gl.ONE);
+            this.gl.blendFuncSeparate(this.gl.SRC_COLOR, this.gl.ONE, this.gl.ZERO, this.gl.ONE);
             this.gl.depthMask(false);
         } else if (layer.FilterMode === FilterMode.AddAlpha) {
             this.gl.enable(this.gl.BLEND);
             this.gl.enable(this.gl.DEPTH_TEST);
-            this.gl.blendFunc(this.gl.SRC_ALPHA, this.gl.ONE);
+            this.gl.blendFuncSeparate(this.gl.SRC_ALPHA, this.gl.ONE, this.gl.ZERO, this.gl.ONE);
             this.gl.depthMask(false);
         } else if (layer.FilterMode === FilterMode.Modulate) {
             this.gl.enable(this.gl.BLEND);
