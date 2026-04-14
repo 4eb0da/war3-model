@@ -111,8 +111,12 @@ fn hypot(z: vec2f) -> f32 {
 
     color *= fsUniforms.layerAlpha;
 
-    // hand-made alpha-test
-    if (color.a < fsUniforms.discardAlphaLevel) {
+    // A negative threshold means "discard near-black texels" for additive color-keyed effects.
+    if (fsUniforms.discardAlphaLevel < 0.0) {
+        if (max(color.r, max(color.g, color.b)) < -fsUniforms.discardAlphaLevel) {
+            discard;
+        }
+    } else if (color.a < fsUniforms.discardAlphaLevel) {
         discard;
     }
 

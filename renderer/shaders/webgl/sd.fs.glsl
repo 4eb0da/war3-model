@@ -55,8 +55,12 @@ void main(void) {
 
     gl_FragColor *= uLayerAlpha;
 
-    // hand-made alpha-test
-    if (gl_FragColor[3] < uDiscardAlphaLevel) {
+    // A negative threshold means "discard near-black texels" for additive color-keyed effects.
+    if (uDiscardAlphaLevel < 0.) {
+        if (max(gl_FragColor.r, max(gl_FragColor.g, gl_FragColor.b)) < -uDiscardAlphaLevel) {
+            discard;
+        }
+    } else if (gl_FragColor[3] < uDiscardAlphaLevel) {
         discard;
     }
 }

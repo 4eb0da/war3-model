@@ -57,6 +57,7 @@ const MAX_ENV_MIP_LEVELS = 8;
 const BRDF_LUT_SIZE = 512;
 
 const MULTISAMPLE = 4;
+const ADDITIVE_BLACK_COLOR_KEY_LEVEL = 8 / 255;
 
 const FILTER_MODES_WITH_DEPTH_WRITE = new Set([0, 1]);
 
@@ -152,12 +153,12 @@ const GPU_LAYER_PROPS: [string, GPUBlendState, GPUDepthStencilState][] = [['none
 }], ['additive', {
     color: {
         operation: 'add',
-        srcFactor: 'src',
+        srcFactor: 'src-alpha',
         dstFactor: 'one'
     },
     alpha: {
         operation: 'add',
-        srcFactor: 'one',
+        srcFactor: 'zero',
         dstFactor: 'one'
     }
 }, {
@@ -172,7 +173,7 @@ const GPU_LAYER_PROPS: [string, GPUBlendState, GPUDepthStencilState][] = [['none
     },
     alpha: {
         operation: 'add',
-        srcFactor: 'src-alpha',
+        srcFactor: 'zero',
         dstFactor: 'one'
     }
 }, {
@@ -1147,7 +1148,7 @@ export class ModelRenderer {
                     };
                     FSUniformsViews.replaceableColor.set(this.rendererData.teamColor);
                     // FSUniformsViews.replaceableType.set([texture.ReplaceableId || 0]);
-                    FSUniformsViews.discardAlphaLevel.set([baseLayer.FilterMode === FilterMode.Transparent ? .75 : 0]);
+                    FSUniformsViews.discardAlphaLevel.set([this.getDiscardAlphaLevel(baseLayer.FilterMode)]);
                     FSUniformsViews.tVertexAnim.set(tVetexAnim.slice(0, 3));
                     FSUniformsViews.tVertexAnim.set(tVetexAnim.slice(3, 6), 4);
                     FSUniformsViews.tVertexAnim.set(tVetexAnim.slice(6, 9), 8);
@@ -1301,7 +1302,7 @@ export class ModelRenderer {
                         });
                         FSUniformsViews.replaceableColor.set(this.rendererData.teamColor);
                         FSUniformsViews.replaceableType.set([texture.ReplaceableId || 0]);
-                        FSUniformsViews.discardAlphaLevel.set([layer.FilterMode === FilterMode.Transparent ? .75 : 0]);
+                        FSUniformsViews.discardAlphaLevel.set([this.getDiscardAlphaLevel(layer.FilterMode)]);
                         FSUniformsViews.layerAlpha.set([this.getLayerAlpha(layer)]);
                         FSUniformsViews.useReplaceableMask.set([maskTexture ? 1 : 0]);
                         FSUniformsViews.tVertexAnim.set(tVetexAnim.slice(0, 3));
@@ -1629,6 +1630,7 @@ export class ModelRenderer {
     public renderSkeleton (mvMatrix: mat4, pMatrix: mat4, nodes: string[] | null): void {
         const coords = [];
         const colors = [];
+        const markerSize = Math.max(2, (this.model.Info?.BoundsRadius || 100) * 0.02);
         const line = (node0: NodeWrapper, node1: NodeWrapper) => {
             vec3.transformMat4(tempPos, node0.node.PivotPoint, node0.matrix);
             coords.push(
@@ -1652,9 +1654,33 @@ export class ModelRenderer {
                 1,
             );
         };
+        const marker = (node: NodeWrapper) => {
+            vec3.transformMat4(tempPos, node.node.PivotPoint, node.matrix);
+
+            coords.push(
+                tempPos[0] - markerSize, tempPos[1], tempPos[2],
+                tempPos[0] + markerSize, tempPos[1], tempPos[2],
+                tempPos[0], tempPos[1] - markerSize, tempPos[2],
+                tempPos[0], tempPos[1] + markerSize, tempPos[2],
+                tempPos[0], tempPos[1], tempPos[2] - markerSize,
+                tempPos[0], tempPos[1], tempPos[2] + markerSize,
+            );
+
+            colors.push(
+                1, 0.75, 0,
+                1, 0.75, 0,
+                1, 0.75, 0,
+                1, 0.75, 0,
+                1, 0.75, 0,
+                1, 0.75, 0,
+            );
+        };
         const updateNode = (node: NodeWrapper) => {
-            if ((node.node.Parent || node.node.Parent === 0) && (!nodes || nodes.includes(node.node.Name))) {
-                line(node, this.rendererData.nodes[node.node.Parent]);
+            if (node.node?.Name && (!nodes || nodes.includes(node.node.Name))) {
+                marker(node);
+                if (node.node.Parent || node.node.Parent === 0) {
+                    line(node, this.rendererData.nodes[node.node.Parent]);
+                }
             }
             for (const child of node.childs) {
                 updateNode(child);
@@ -3817,6 +3843,17 @@ export class ModelRenderer {
         return interpRes === null ? 1 : interpRes;
     }
 
+    private getDiscardAlphaLevel (filterMode: FilterMode): number {
+        if (filterMode === FilterMode.Transparent) {
+            return 0.75;
+        }
+        if (filterMode === FilterMode.Additive) {
+            // Some classic additive spell textures are authored with opaque alpha and black RGB as the implicit cutout.
+            return -ADDITIVE_BLACK_COLOR_KEY_LEVEL;
+        }
+        return 0;
+    }
+
     private getReplaceableMaskLayerIndex (materialID: number, layerIndex: number): number | null {
         for (let i = layerIndex + 1; i < this.rendererData.materialLayerTextureID[materialID].length; ++i) {
             const textureID = this.rendererData.materialLayerTextureID[materialID][i];
@@ -3875,11 +3912,7 @@ export class ModelRenderer {
             this.gl.enable(this.gl.CULL_FACE);
         }
 
-        if (layer.FilterMode === FilterMode.Transparent) {
-            this.gl.uniform1f(this.shaderProgramLocations.discardAlphaLevelUniform, 0.75);
-        } else {
-            this.gl.uniform1f(this.shaderProgramLocations.discardAlphaLevelUniform, 0.);
-        }
+        this.gl.uniform1f(this.shaderProgramLocations.discardAlphaLevelUniform, this.getDiscardAlphaLevel(layer.FilterMode));
 
         if (layer.FilterMode === FilterMode.None) {
             this.gl.disable(this.gl.BLEND);
@@ -3899,12 +3932,12 @@ export class ModelRenderer {
         } else if (layer.FilterMode === FilterMode.Additive) {
             this.gl.enable(this.gl.BLEND);
             this.gl.enable(this.gl.DEPTH_TEST);
-            this.gl.blendFunc(this.gl.SRC_COLOR, this.gl.ONE);
+            this.gl.blendFuncSeparate(this.gl.SRC_ALPHA, this.gl.ONE, this.gl.ZERO, this.gl.ONE);
             this.gl.depthMask(false);
         } else if (layer.FilterMode === FilterMode.AddAlpha) {
             this.gl.enable(this.gl.BLEND);
             this.gl.enable(this.gl.DEPTH_TEST);
-            this.gl.blendFunc(this.gl.SRC_ALPHA, this.gl.ONE);
+            this.gl.blendFuncSeparate(this.gl.SRC_ALPHA, this.gl.ONE, this.gl.ZERO, this.gl.ONE);
             this.gl.depthMask(false);
         } else if (layer.FilterMode === FilterMode.Modulate) {
             this.gl.enable(this.gl.BLEND);
@@ -3969,11 +4002,7 @@ export class ModelRenderer {
             this.gl.enable(this.gl.CULL_FACE);
         }
 
-        if (baseLayer.FilterMode === FilterMode.Transparent) {
-            this.gl.uniform1f(this.shaderProgramLocations.discardAlphaLevelUniform, 0.75);
-        } else {
-            this.gl.uniform1f(this.shaderProgramLocations.discardAlphaLevelUniform, 0.);
-        }
+        this.gl.uniform1f(this.shaderProgramLocations.discardAlphaLevelUniform, this.getDiscardAlphaLevel(baseLayer.FilterMode));
 
         if (baseLayer.FilterMode === FilterMode.None) {
             this.gl.disable(this.gl.BLEND);
@@ -3993,12 +4022,12 @@ export class ModelRenderer {
         } else if (baseLayer.FilterMode === FilterMode.Additive) {
             this.gl.enable(this.gl.BLEND);
             this.gl.enable(this.gl.DEPTH_TEST);
-            this.gl.blendFunc(this.gl.SRC_COLOR, this.gl.ONE);
+            this.gl.blendFuncSeparate(this.gl.SRC_ALPHA, this.gl.ONE, this.gl.ZERO, this.gl.ONE);
             this.gl.depthMask(false);
         } else if (baseLayer.FilterMode === FilterMode.AddAlpha) {
             this.gl.enable(this.gl.BLEND);
             this.gl.enable(this.gl.DEPTH_TEST);
-            this.gl.blendFunc(this.gl.SRC_ALPHA, this.gl.ONE);
+            this.gl.blendFuncSeparate(this.gl.SRC_ALPHA, this.gl.ONE, this.gl.ZERO, this.gl.ONE);
             this.gl.depthMask(false);
         } else if (baseLayer.FilterMode === FilterMode.Modulate) {
             this.gl.enable(this.gl.BLEND);

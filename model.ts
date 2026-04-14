@@ -316,7 +316,7 @@ export interface Light extends Node {
     AmbIntensity?: AnimVector|number;
     AmbColor?: AnimVector|Float32Array;
 
-    Visibility?: AnimVector;
+    Visibility?: AnimVector|number;
 }
 
 export interface RibbonEmitter extends Node {
