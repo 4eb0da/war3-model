@@ -53,6 +53,15 @@ class State {
         return res;
     }
 
+    public peekKeyword (): string {
+        return String.fromCharCode(
+            this.uint[this.pos],
+            this.uint[this.pos + 1],
+            this.uint[this.pos + 2],
+            this.uint[this.pos + 3]
+        );
+    }
+
     public expectKeyword (keyword: string, errorText: string): void {
         const curKeyword = this.keyword();
         if (curKeyword !== keyword) {
@@ -876,6 +885,7 @@ function parseCameras (model: Model, state: State, size: number): void {
 
 function parseLights (model: Model, state: State, size: number): void {
     const startPos = state.pos;
+    const lightAnimKeywords = new Set(['KLAV', 'KLAC', 'KLAI', 'KLBC', 'KLBI', 'KLAS', 'KLAE']);
 
     while (state.pos < startPos + size) {
         const lightStart = state.pos;
@@ -904,6 +914,14 @@ function parseLights (model: Model, state: State, size: number): void {
         }
 
         light.AmbIntensity = state.float32();
+        light.Visibility = 1;
+
+        if (state.pos + 4 <= lightStart + lightSize) {
+            const nextKeyword = state.peekKeyword();
+            if (!lightAnimKeywords.has(nextKeyword)) {
+                light.Visibility = state.float32();
+            }
+        }
 
         while (state.pos < lightStart + lightSize) {
             const keyword = state.keyword();
@@ -1171,7 +1189,7 @@ export function parse (arrayBuffer: ArrayBuffer): Model {
         Nodes: []
     };
 
-    while (state.pos < state.length) {
+    while (state.pos + 8 <= state.length) {
         const keyword = state.keyword();
         const size = state.int32();
 
@@ -1180,6 +1198,14 @@ export function parse (arrayBuffer: ArrayBuffer): Model {
         } else {
             // throw new Error('Unknown group ' + keyword);
             state.pos += size;
+        }
+    }
+
+    // Some game models are padded with trailing zero bytes after the last chunk.
+    // Ignore that padding, but keep rejecting non-zero trailing garbage.
+    while (state.pos < state.length) {
+        if (state.uint8() !== 0) {
+            throw new Error('Unexpected trailing data in mdx model');
         }
     }
 

@@ -63,7 +63,7 @@ fn hypot(z: vec2f) -> f32 {
         let dist: f32 = hypot(texCoord - vec2(0.5, 0.5)) * 2.;
         let truncateDist: f32 = clamp(1. - dist * 1.4, 0., 1.);
         let alpha: f32 = sin(truncateDist);
-        color = vec4f(fsUniforms.replaceableColor * alpha, 1.0);
+        color = vec4f(fsUniforms.replaceableColor * alpha, alpha);
     }
 
     color *= fsUniforms.color;

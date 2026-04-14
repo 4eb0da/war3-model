@@ -348,12 +348,12 @@ export class ParticlesController {
             createPipeline('additive', {
                 color: {
                     operation: 'add',
-                    srcFactor: 'src',
+                    srcFactor: 'src-alpha',
                     dstFactor: 'one'
                 },
                 alpha: {
                     operation: 'add',
-                    srcFactor: 'src',
+                    srcFactor: 'zero',
                     dstFactor: 'one'
                 }
             }, {
@@ -401,7 +401,7 @@ export class ParticlesController {
                 },
                 alpha: {
                     operation: 'add',
-                    srcFactor: 'src-alpha',
+                    srcFactor: 'zero',
                     dstFactor: 'one'
                 }
             }, {
@@ -588,7 +588,7 @@ export class ParticlesController {
     }
 
     public render (mvMatrix: mat4, pMatrix: mat4): void {
-        this.gl.enable(this.gl.CULL_FACE);
+        this.gl.disable(this.gl.CULL_FACE);
         this.gl.useProgram(this.shaderProgram);
 
         this.gl.uniformMatrix4fv(this.shaderProgramLocations.pMatrixUniform, false, pMatrix);
@@ -603,6 +603,7 @@ export class ParticlesController {
                 continue;
             }
 
+            this.refreshEmitterBuffers(emitter);
             this.setLayerProps(emitter);
             this.setGeneralBuffers(emitter);
 
@@ -656,6 +657,7 @@ export class ParticlesController {
                 continue;
             }
 
+            this.refreshEmitterBuffers(emitter);
             const pipeline = this.gpuPipelines[emitter.props.FilterMode] || this.gpuPipelines[0];
             pass.setPipeline(pipeline);
 
@@ -746,8 +748,8 @@ export class ParticlesController {
                 emitter.emission += emissionRate * delta;
             }
 
-            while (emitter.emission >= 1000) {
-                emitter.emission -= 1000;
+            while (emitter.emission >= 2000) {
+                emitter.emission -= 2000;
                 emitter.particles.push(
                     this.createParticle(emitter, this.rendererData.nodes[emitter.props.ObjectId].matrix)
                 );
@@ -766,29 +768,32 @@ export class ParticlesController {
             }
             emitter.particles = updatedParticles;
 
-            if (emitter.type & ParticleEmitter2FramesFlags.Head) {
-                if (emitter.props.Flags & ParticleEmitter2Flags.XYQuad) {
-                    vec3.set(this.particleBaseVectors[0], -1,  1, 0);
-                    vec3.set(this.particleBaseVectors[1], -1, -1, 0);
-                    vec3.set(this.particleBaseVectors[2],  1,  1, 0);
-                    vec3.set(this.particleBaseVectors[3],  1, -1, 0);
-                } else {
-                    vec3.set(this.particleBaseVectors[0], 0, -1,  1);
-                    vec3.set(this.particleBaseVectors[1], 0, -1, -1);
-                    vec3.set(this.particleBaseVectors[2], 0,  1,  1);
-                    vec3.set(this.particleBaseVectors[3], 0,  1, -1);
+            this.resizeEmitterBuffers(emitter, emitter.particles.length);
+        }
+    }
 
-                    for (let i = 0; i < 4; ++i) {
-                        vec3.transformQuat(this.particleBaseVectors[i], this.particleBaseVectors[i],
-                            this.rendererData.cameraQuat);
-                    }
+    private refreshEmitterBuffers (emitter: ParticleEmitterWrapper): void {
+        if (emitter.type & ParticleEmitter2FramesFlags.Head) {
+            if (emitter.props.Flags & ParticleEmitter2Flags.XYQuad) {
+                vec3.set(this.particleBaseVectors[0], -1,  1, 0);
+                vec3.set(this.particleBaseVectors[1], -1, -1, 0);
+                vec3.set(this.particleBaseVectors[2],  1,  1, 0);
+                vec3.set(this.particleBaseVectors[3],  1, -1, 0);
+            } else {
+                vec3.set(this.particleBaseVectors[0], 0, -1,  1);
+                vec3.set(this.particleBaseVectors[1], 0, -1, -1);
+                vec3.set(this.particleBaseVectors[2], 0,  1,  1);
+                vec3.set(this.particleBaseVectors[3], 0,  1, -1);
+
+                for (let i = 0; i < 4; ++i) {
+                    vec3.transformQuat(this.particleBaseVectors[i], this.particleBaseVectors[i],
+                        this.rendererData.cameraQuat);
                 }
             }
+        }
 
-            this.resizeEmitterBuffers(emitter, emitter.particles.length);
-            for (let i = 0; i < emitter.particles.length; ++i) {
-                this.updateParticleBuffers(emitter.particles[i], i, emitter);
-            }
+        for (let i = 0; i < emitter.particles.length; ++i) {
+            this.updateParticleBuffers(emitter.particles[i], i, emitter);
         }
     }
 
@@ -813,11 +818,13 @@ export class ParticlesController {
         let speedScale: number = this.interp.animVectorVal(emitter.props.Speed, 0);
         const variation: number = this.interp.animVectorVal(emitter.props.Variation, 0);
         const latitude: number = degToRad(this.interp.animVectorVal(emitter.props.Latitude, 0));
+        const halfWidth = width / 2;
+        const halfLength = length / 2;
 
         particle.emitter = emitter;
 
-        particle.pos[0] = emitter.props.PivotPoint[0] + rand(-width, width);
-        particle.pos[1] = emitter.props.PivotPoint[1] + rand(-length, length);
+        particle.pos[0] = emitter.props.PivotPoint[0] + rand(-halfWidth, halfWidth);
+        particle.pos[1] = emitter.props.PivotPoint[1] + rand(-halfLength, halfLength);
         particle.pos[2] = emitter.props.PivotPoint[2];
         vec3.transformMat4(particle.pos, particle.pos, emitterMatrix);
 
@@ -1026,12 +1033,12 @@ export class ParticlesController {
         } else if (emitter.props.FilterMode === ParticleEmitter2FilterMode.Additive) {
             this.gl.enable(this.gl.BLEND);
             this.gl.enable(this.gl.DEPTH_TEST);
-            this.gl.blendFunc(this.gl.SRC_ALPHA, this.gl.ONE);
+            this.gl.blendFuncSeparate(this.gl.SRC_ALPHA, this.gl.ONE, this.gl.ZERO, this.gl.ONE);
             this.gl.depthMask(false);
         } else if (emitter.props.FilterMode === ParticleEmitter2FilterMode.AlphaKey) {
             this.gl.enable(this.gl.BLEND);
             this.gl.enable(this.gl.DEPTH_TEST);
-            this.gl.blendFunc(this.gl.SRC_ALPHA, this.gl.ONE);
+            this.gl.blendFuncSeparate(this.gl.SRC_ALPHA, this.gl.ONE, this.gl.ZERO, this.gl.ONE);
             this.gl.depthMask(false);
         } else if (emitter.props.FilterMode === ParticleEmitter2FilterMode.Modulate) {
             this.gl.enable(this.gl.BLEND);

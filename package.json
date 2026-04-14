@@ -30,6 +30,7 @@
     "dev": "vite",
     "build-lib": "vite build",
     "build-samples": "SAMPLES=1 vite build",
+    "test": "node test/mdx-light.test.mjs",
     "typecheck": "tsc --noEmit",
     "lint": "eslint --ext .ts ."
   },

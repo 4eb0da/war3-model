@@ -801,7 +801,11 @@ function byteLengthLight (light: Light): number {
         4 /* static Intensity */ +
         4 * 3 /* static AmbColor */ +
         4 /* static AmbIntensity */ +
-        (light.Visibility ? 4 /* keyword */ + byteLengthAnimVector(light.Visibility, AnimVectorType.FLOAT1) : 0) +
+        (typeof light.Visibility === 'number' ? 4 /* static Visibility */ : 0) +
+        (light.Visibility && typeof light.Visibility !== 'number' ?
+            4 /* keyword */ + byteLengthAnimVector(light.Visibility, AnimVectorType.FLOAT1) :
+            0
+        ) +
         (light.Color && !(light.Color instanceof Float32Array) ?
             4 /* keyword */ + byteLengthAnimVector(light.Color as AnimVector, AnimVectorType.FLOAT3) :
             0
@@ -877,11 +881,15 @@ function generateLights (model: Model, stream: Stream): void {
 
         stream.float32(typeof light.AmbIntensity === 'number' ? light.AmbIntensity : 0);
 
+        if (typeof light.Visibility === 'number') {
+            stream.float32(light.Visibility);
+        }
+
         if (light.Intensity && typeof light.Intensity !== 'number') {
             stream.keyword('KLAI');
             stream.animVector(light.Intensity, AnimVectorType.FLOAT1);
         }
-        if (light.Visibility) {
+        if (light.Visibility && typeof light.Visibility !== 'number') {
             stream.keyword('KLAV');
             stream.animVector(light.Visibility, AnimVectorType.FLOAT1);
         }
