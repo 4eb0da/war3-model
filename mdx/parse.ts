@@ -826,12 +826,28 @@ function parseParticleEmitters2 (model: Model, state: State, size: number): void
 }
 
 const MODEL_CAMERA_NAME_LENGTH = 0x50;
+const MODEL_CAMERA_MIN_SIZE = 4 + MODEL_CAMERA_NAME_LENGTH + 12 + 4 + 4 + 4 + 12;
 function parseCameras (model: Model, state: State, size: number): void {
     const startPos = state.pos;
+    const camerasEnd = startPos + size;
 
-    while (state.pos < startPos + size) {
+    while (state.pos < camerasEnd) {
         const cameraStart = state.pos;
-        const cameraSize = state.int32();
+        const encodedCameraSize = state.int32();
+        let cameraSize = encodedCameraSize;
+
+        // Reforged stores camera flags in the upper byte of this length field. Older models use
+        // the complete value as the record length. Prefer that legacy value when it fits, then
+        // fall back to the low 24 bits for the packed Reforged form.
+        if (cameraStart + cameraSize > camerasEnd) {
+            const packedCameraSize = encodedCameraSize & 0x00ffffff;
+            if (packedCameraSize >= MODEL_CAMERA_MIN_SIZE && cameraStart + packedCameraSize <= camerasEnd) {
+                cameraSize = packedCameraSize;
+            }
+        }
+        if (cameraSize < MODEL_CAMERA_MIN_SIZE || cameraStart + cameraSize > camerasEnd) {
+            throw new Error('Invalid camera chunk size');
+        }
 
         const camera: Camera = {} as Camera;
 
@@ -851,7 +867,8 @@ function parseCameras (model: Model, state: State, size: number): void {
         camera.TargetPosition[1] = state.float32();
         camera.TargetPosition[2] = state.float32();
 
-        while (state.pos < cameraStart + cameraSize) {
+        const cameraEnd = cameraStart + cameraSize;
+        while (state.pos < cameraEnd) {
             const keyword = state.keyword();
 
             if (keyword === 'KCTR') {
@@ -863,6 +880,9 @@ function parseCameras (model: Model, state: State, size: number): void {
             } else {
                 throw new Error('Incorrect camera chunk data ' + keyword);
             }
+        }
+        if (state.pos !== cameraEnd) {
+            throw new Error('Invalid camera chunk size');
         }
 
         model.Cameras.push(camera);
